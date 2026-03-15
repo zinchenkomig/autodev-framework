@@ -45,3 +45,8 @@ testpaths = ["tests"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["autodev"]
+
+[dependency-groups]
+dev = [
+    "aiosqlite>=0.22.1",
+]

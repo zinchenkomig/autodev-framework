@@ -1,17 +1,106 @@
 """SQLAlchemy ORM models for the AutoDev Framework.
 
 Defines persistent entities: tasks, agents, events, agent_runs, releases.
-Uses PostgreSQL-specific types: UUID, ARRAY, JSONB.
+Uses PostgreSQL-specific types (UUID, ARRAY, JSONB) on PostgreSQL, and falls
+back to JSON-serialised TEXT columns on other dialects (e.g. SQLite for tests).
 """
 
 import enum
+import json
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
+from sqlalchemy import types as sa_types
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB  # used in TypeDecorators below
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+# ---------------------------------------------------------------------------
+# Cross-dialect type helpers
+# ---------------------------------------------------------------------------
+
+
+class _JSONEncodedList(sa_types.TypeDecorator):
+    """Stores a list as a JSON string; uses native ARRAY(UUID) on PostgreSQL."""
+
+    impl = sa_types.Text
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect: Any) -> Any:
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(ARRAY(PG_UUID(as_uuid=True)))
+        return dialect.type_descriptor(sa_types.Text())
+
+    def process_bind_param(self, value: Any, dialect: Any) -> Any:
+        if dialect.name == "postgresql":
+            return value  # pass list[UUID] directly to asyncpg
+        if value is None:
+            return None
+        return json.dumps([str(v) for v in value])
+
+    def process_result_value(self, value: Any, dialect: Any) -> Any:
+        if dialect.name == "postgresql":
+            return value  # asyncpg returns a list already
+        if value is None:
+            return []
+        raw = json.loads(value)
+        return [uuid.UUID(v) for v in raw]
+
+
+class _JSONEncodedDict(sa_types.TypeDecorator):
+    """Stores a dict as a JSON string; uses native JSONB on PostgreSQL."""
+
+    impl = sa_types.Text
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect: Any) -> Any:
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(JSONB())
+        return dialect.type_descriptor(sa_types.Text())
+
+    def process_bind_param(self, value: Any, dialect: Any) -> Any:
+        if dialect.name == "postgresql":
+            return value
+        if value is None:
+            return None
+        return json.dumps(value)
+
+    def process_result_value(self, value: Any, dialect: Any) -> Any:
+        if dialect.name == "postgresql":
+            return value
+        if value is None:
+            return {}
+        return json.loads(value)
+
+
+class _UUID(sa_types.TypeDecorator):
+    """Stores UUID as a native PG UUID or as a TEXT string on other dialects."""
+
+    impl = sa_types.Text
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect: Any) -> Any:
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(PG_UUID(as_uuid=True))
+        return dialect.type_descriptor(sa_types.Text())
+
+    def process_bind_param(self, value: Any, dialect: Any) -> Any:
+        if value is None:
+            return None
+        if dialect.name == "postgresql":
+            return value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))
+        return str(value)
+
+    def process_result_value(self, value: Any, dialect: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, uuid.UUID):
+            return value
+        return uuid.UUID(str(value))
 
 
 class Base(DeclarativeBase):
@@ -101,7 +190,7 @@ class Task(Base):
     __tablename__ = "tasks"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        _UUID(), primary_key=True, default=uuid.uuid4
     )
     title: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -113,10 +202,10 @@ class Task(Base):
     issue_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     pr_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     depends_on: Mapped[list[uuid.UUID] | None] = mapped_column(
-        ARRAY(UUID(as_uuid=True)), nullable=True, default=list
+        _JSONEncodedList(), nullable=True, default=list
     )
     metadata_: Mapped[dict | None] = mapped_column(
-        "metadata", JSONB, nullable=True, default=dict
+        "metadata", _JSONEncodedDict(), nullable=True, default=dict
     )
     created_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -145,7 +234,7 @@ class Agent(Base):
     role: Mapped[str] = mapped_column(String(50), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=AgentStatus.IDLE)
     current_task_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True
+        _UUID(), ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True
     )
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     total_runs: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -165,10 +254,10 @@ class Event(Base):
     __tablename__ = "events"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        _UUID(), primary_key=True, default=uuid.uuid4
     )
     type: Mapped[str] = mapped_column(String(100), nullable=False)
-    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    payload: Mapped[dict] = mapped_column(_JSONEncodedDict(), nullable=False, default=dict)
     source: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
@@ -184,18 +273,18 @@ class AgentRun(Base):
     __tablename__ = "agent_runs"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        _UUID(), primary_key=True, default=uuid.uuid4
     )
     agent_id: Mapped[str | None] = mapped_column(
         String(100), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
     )
     task_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True
+        _UUID(), ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True
     )
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    result: Mapped[dict | None] = mapped_column(_JSONEncodedDict(), nullable=True)
     tokens_used: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), nullable=True)
 
@@ -213,14 +302,14 @@ class Release(Base):
     __tablename__ = "releases"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        _UUID(), primary_key=True, default=uuid.uuid4
     )
     version: Mapped[str] = mapped_column(String(50), nullable=False)
     status: Mapped[str] = mapped_column(
         String(30), nullable=False, default=ReleaseStatus.DRAFT
     )
     tasks: Mapped[list[uuid.UUID]] = mapped_column(
-        ARRAY(UUID(as_uuid=True)), nullable=False, default=list
+        _JSONEncodedList(), nullable=False, default=list
     )
     release_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     staging_deployed_at: Mapped[datetime | None] = mapped_column(
