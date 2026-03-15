@@ -1,27 +1,50 @@
 """SQLAlchemy ORM models for the AutoDev Framework.
 
-Defines persistent entities: tasks, agents, events, releases, projects.
-
-TODO: Add full field definitions and relationships for each model.
-TODO: Add indexes and constraints.
-TODO: Consider partitioning for large event tables.
+Defines persistent entities: tasks, agents, events, agent_runs, releases.
+Uses PostgreSQL-specific types: UUID, ARRAY, JSONB.
 """
 
 import enum
+import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 
-from sqlalchemy import Column, DateTime, Enum, Integer, String, Text
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
     """Base class for all ORM models."""
 
 
+# ---------------------------------------------------------------------------
+# Enumerations
+# ---------------------------------------------------------------------------
+
+
+class TaskSource(enum.StrEnum):
+    """Origin of a task."""
+
+    GITHUB_ISSUE = "github_issue"
+    AGENT_CREATED = "agent_created"
+    MANUAL = "manual"
+
+
+class Priority(enum.StrEnum):
+    """Task priority levels."""
+
+    CRITICAL = "critical"
+    HIGH = "high"
+    NORMAL = "normal"
+    LOW = "low"
+
+
 class TaskStatus(enum.StrEnum):
     """Lifecycle states of a development task."""
 
-    PENDING = "pending"
+    QUEUED = "queued"
+    ASSIGNED = "assigned"
     IN_PROGRESS = "in_progress"
     REVIEW = "review"
     DONE = "done"
@@ -38,81 +61,179 @@ class AgentRole(enum.StrEnum):
     PM = "pm"
 
 
-class Task(Base):
-    """A development task assigned to an agent.
+class AgentStatus(enum.StrEnum):
+    """Agent availability states."""
 
-    TODO: Add foreign key to Project.
-    TODO: Add priority field.
-    TODO: Add parent_task_id for subtask support.
-    """
+    IDLE = "idle"
+    BUSY = "busy"
+    ERROR = "error"
+    OFFLINE = "offline"
+
+
+class AgentRunStatus(enum.StrEnum):
+    """Status of a single agent execution run."""
+
+    RUNNING = "running"
+    SUCCESS = "success"
+    FAILED = "failed"
+    TIMEOUT = "timeout"
+
+
+class ReleaseStatus(enum.StrEnum):
+    """Release lifecycle states."""
+
+    DRAFT = "draft"
+    STAGING = "staging"
+    PENDING_APPROVAL = "pending_approval"
+    APPROVED = "approved"
+    DEPLOYED = "deployed"
+    FAILED = "failed"
+
+
+# ---------------------------------------------------------------------------
+# Models
+# ---------------------------------------------------------------------------
+
+
+class Task(Base):
+    """A development task assigned to an agent."""
 
     __tablename__ = "tasks"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    title = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    status = Column(Enum(TaskStatus), nullable=False, default=TaskStatus.PENDING)
-    assigned_agent = Column(Enum(AgentRole), nullable=True)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
-    updated_at = Column(
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(String(50), nullable=False, default=TaskSource.MANUAL)
+    priority: Mapped[str] = mapped_column(String(20), nullable=False, default=Priority.NORMAL)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default=TaskStatus.QUEUED)
+    assigned_to: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    repo: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    issue_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pr_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    depends_on: Mapped[list[uuid.UUID] | None] = mapped_column(
+        ARRAY(UUID(as_uuid=True)), nullable=True, default=list
+    )
+    metadata_: Mapped[dict | None] = mapped_column(
+        "metadata", JSONB, nullable=True, default=dict
+    )
+    created_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
         onupdate=lambda: datetime.now(UTC),
+        nullable=False,
     )
+
+    # Relationships
+    agent_runs: Mapped[list["AgentRun"]] = relationship("AgentRun", back_populates="task")
 
     def __repr__(self) -> str:
         return f"<Task id={self.id} title={self.title!r} status={self.status}>"
 
 
 class Agent(Base):
-    """Represents a registered agent instance.
-
-    TODO: Add heartbeat / last_seen tracking.
-    TODO: Add capabilities field (JSON).
-    """
+    """Represents a registered agent instance."""
 
     __tablename__ = "agents"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    role = Column(Enum(AgentRole), nullable=False)
-    name = Column(String(100), nullable=False)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    role: Mapped[str] = mapped_column(String(50), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default=AgentStatus.IDLE)
+    current_task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True
+    )
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    total_runs: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    # Relationships
+    current_task: Mapped[Task | None] = relationship("Task", foreign_keys=[current_task_id])
+    agent_runs: Mapped[list["AgentRun"]] = relationship("AgentRun", back_populates="agent")
 
     def __repr__(self) -> str:
-        return f"<Agent id={self.id} role={self.role} name={self.name!r}>"
+        return f"<Agent id={self.id!r} role={self.role!r} status={self.status}>"
 
 
 class Event(Base):
-    """Domain event record for the event sourcing log.
-
-    TODO: Add payload JSON column.
-    TODO: Add correlation_id for tracing.
-    """
+    """Domain event record for the event sourcing log."""
 
     __tablename__ = "events"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    event_type = Column(String(100), nullable=False)
-    source = Column(String(100), nullable=True)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    type: Mapped[str] = mapped_column(String(100), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    source: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
 
     def __repr__(self) -> str:
-        return f"<Event id={self.id} type={self.event_type!r}>"
+        return f"<Event id={self.id} type={self.type!r}>"
+
+
+class AgentRun(Base):
+    """A single execution run of an agent on a task."""
+
+    __tablename__ = "agent_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    agent_id: Mapped[str | None] = mapped_column(
+        String(100), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
+    )
+    task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    tokens_used: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), nullable=True)
+
+    # Relationships
+    agent: Mapped[Agent | None] = relationship("Agent", back_populates="agent_runs")
+    task: Mapped[Task | None] = relationship("Task", back_populates="agent_runs")
+
+    def __repr__(self) -> str:
+        return f"<AgentRun id={self.id} agent_id={self.agent_id!r} status={self.status}>"
 
 
 class Release(Base):
-    """A software release artifact.
-
-    TODO: Add changelog field.
-    TODO: Add artifacts JSON list.
-    """
+    """A software release artifact."""
 
     __tablename__ = "releases"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    version = Column(String(50), nullable=False)
-    notes = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    version: Mapped[str] = mapped_column(String(50), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(30), nullable=False, default=ReleaseStatus.DRAFT
+    )
+    tasks: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(UUID(as_uuid=True)), nullable=False, default=list
+    )
+    release_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    staging_deployed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    production_deployed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    approved_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
 
     def __repr__(self) -> str:
-        return f"<Release id={self.id} version={self.version!r}>"
+        return f"<Release id={self.id} version={self.version!r} status={self.status}>"
