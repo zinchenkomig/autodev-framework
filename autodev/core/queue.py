@@ -20,6 +20,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from autodev.core.models import Priority, Task, TaskStatus
 
+# Alias kept for backwards compatibility with agent subclasses.
+QueuedTask = Task
+
 logger = logging.getLogger(__name__)
 
 # Priority ordering: lower number = higher priority
