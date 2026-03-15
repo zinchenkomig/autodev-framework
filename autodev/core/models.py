@@ -18,7 +18,6 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB  # used in TypeDecorator
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-
 # ---------------------------------------------------------------------------
 # Cross-dialect type helpers
 # ---------------------------------------------------------------------------
@@ -154,6 +153,8 @@ class AgentStatus(enum.StrEnum):
     """Agent availability states."""
 
     IDLE = "idle"
+    ASSIGNED = "assigned"
+    WORKING = "working"
     BUSY = "busy"
     ERROR = "error"
     OFFLINE = "offline"
