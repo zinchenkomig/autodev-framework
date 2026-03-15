@@ -17,6 +17,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from autodev.api.routes import agents, events, releases, tasks, webhooks
+from autodev.api.routes import metrics as metrics_router
 from autodev.api.websocket import router as ws_router
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,7 @@ def create_app() -> FastAPI:
     app.include_router(events.router, prefix="/api/v1/events", tags=["events"])
     app.include_router(releases.router, prefix="/api/v1/releases", tags=["releases"])
     app.include_router(webhooks.router, prefix="/api/v1/webhooks", tags=["webhooks"])
+    app.include_router(metrics_router.router, prefix="/api/metrics", tags=["metrics"])
 
     # WebSocket
     app.include_router(ws_router, prefix="/ws", tags=["websocket"])
