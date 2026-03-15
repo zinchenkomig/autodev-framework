@@ -1,0 +1,117 @@
+# AutoDev Framework — example project configuration
+# Project: Great Alerter
+# ---------------------------------------------------------------------------
+
+name: Great Alerter
+
+repos:
+  - name: backend
+    url: github.com/great-alerter/backend
+    language: python
+    context_file: CLAUDE.md
+    tests_command: "pytest tests/ -v"
+    lint_command: "ruff check ."
+
+  - name: frontend
+    url: github.com/great-alerter/frontend
+    language: typescript
+    context_file: CLAUDE.md
+    tests_command: "npm run build"
+    lint_command: "npm run lint"
+
+environments:
+  - name: staging
+    url: https://staging.great-alerter.com
+    deploy_command: "./deploy.sh staging"
+    requires_approval: false
+
+  - name: production
+    url: https://great-alerter.com
+    deploy_command: "./deploy.sh production"
+    requires_approval: true
+
+agents:
+  - role: developer
+    runner: claude-code
+    model: claude-sonnet-4
+    max_iterations: 20
+    triggers:
+      - type: event
+        value: task.assigned
+    instructions: |
+      You are a senior Python/TypeScript developer.
+      Pick up the assigned task, implement it with clean code, write tests,
+      then open a pull request. Follow the project's coding standards.
+    tools: []
+
+  - role: tester
+    runner: claude-sonnet
+    model: claude-sonnet-4
+    max_iterations: 15
+    triggers:
+      - type: event
+        value: pr.created
+      - type: event
+        value: deploy.staging
+    instructions: |
+      You are a QA engineer. Test new features end-to-end using the browser.
+      Explore edge cases, check the UI, and report any bugs you find.
+    tools:
+      - playwright
+
+  - role: pm
+    runner: openclaw
+    model: claude-sonnet-4
+    max_iterations: 10
+    triggers:
+      - type: schedule
+        value: "0 9 * * 1"   # every Monday at 09:00
+      - type: event
+        value: release.ready
+    instructions: |
+      You are the product manager. Prioritise the backlog, write clear task
+      descriptions, and ensure the team stays on track for the release.
+    tools: []
+
+  - role: ba
+    runner: openclaw
+    model: claude-haiku-3
+    max_iterations: 8
+    triggers:
+      - type: event
+        value: deploy.staging
+    instructions: |
+      You are a business analyst. After each staging deploy review the
+      acceptance criteria, verify feature completeness, and update docs.
+    tools: []
+
+release:
+  branch_strategy: gitflow
+  min_prs: 8
+  auto_deploy_staging: true
+  require_human_approval: true
+
+notifications:
+  targets:
+    - type: telegram
+      config:
+        chat_id: "123456789"
+        bot_token_env: TELEGRAM_BOT_TOKEN
+
+    - type: slack
+      config:
+        webhook_url_env: SLACK_WEBHOOK_URL
+        channel: "#deployments"
+
+    - type: webhook
+      config:
+        url: https://hooks.great-alerter.com/autodev
+        secret_env: WEBHOOK_SECRET
+
+  events:
+    - release.ready
+    - release.approved
+    - bug.found
+    - deploy.staging
+    - deploy.production
+    - agent.failed
