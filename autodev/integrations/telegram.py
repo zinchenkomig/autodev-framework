@@ -79,3 +79,52 @@ class TelegramBot:
     async def close(self) -> None:
         """Close the underlying HTTP client."""
         await self._client.aclose()
+
+
+class TelegramNotifier:
+    """High-level Telegram notifier for the notification system.
+
+    Args:
+        bot_token: Telegram Bot API token from @BotFather.
+        chat_id: Target chat or channel ID.
+    """
+
+    def __init__(self, bot_token: str, chat_id: str) -> None:
+        self.chat_id = chat_id
+        self._client = httpx.AsyncClient(
+            base_url=f"{TELEGRAM_API_BASE}/bot{bot_token}"
+        )
+
+    async def send(self, text: str, parse_mode: str = "HTML") -> dict:
+        """Send a text message with the given parse mode.
+
+        Args:
+            text: Message text.
+            parse_mode: ``HTML`` (default) or ``MarkdownV2``.
+
+        Returns:
+            Telegram API response as a dict.
+        """
+        payload = {
+            "chat_id": self.chat_id,
+            "text": text,
+            "parse_mode": parse_mode,
+        }
+        response = await self._client.post("/sendMessage", json=payload)
+        response.raise_for_status()
+        return response.json()
+
+    async def send_markdown(self, text: str) -> dict:
+        """Send a message using MarkdownV2 parse mode.
+
+        Args:
+            text: MarkdownV2-formatted text.
+
+        Returns:
+            Telegram API response as a dict.
+        """
+        return await self.send(text, parse_mode="MarkdownV2")
+
+    async def close(self) -> None:
+        """Close the underlying HTTP client."""
+        await self._client.aclose()
