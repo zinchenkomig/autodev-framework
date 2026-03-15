@@ -1,0 +1,57 @@
+version: "3.9"
+
+# AutoDev Framework — local development stack
+# Starts PostgreSQL 16 and Redis 7 with persistent volumes.
+#
+# Usage:
+#   docker compose up -d
+#   docker compose down -v   # remove volumes
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: autodev-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: autodev
+      POSTGRES_PASSWORD: autodev
+      POSTGRES_DB: autodev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U autodev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: autodev-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # TODO: Add autodev API service once Dockerfile is production-ready.
+  # api:
+  #   build: .
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   ports:
+  #     - "8000:8000"
+  #   env_file: .env
+
+volumes:
+  postgres_data:
+  redis_data:
