@@ -246,6 +246,71 @@ class GitHubClient:
         response.raise_for_status()
         return response.json()
 
+    async def get_pr_reviews(self, pr_number: int, repo: str | None = None) -> list[dict]:
+        """List all reviews for a pull request.
+
+        Args:
+            pr_number: PR number.
+            repo: ``owner/name``. Falls back to *default_repo*.
+
+        Returns:
+            List of review dicts from GitHub API, each containing ``state``
+            (``"APPROVED"``, ``"CHANGES_REQUESTED"``, ``"COMMENTED"``, etc.)
+            and a ``user`` sub-dict.
+        """
+        resolved = self._resolve_repo(repo)
+        response = await self._client.get(
+            f"/repos/{resolved}/pulls/{pr_number}/reviews",
+        )
+        response.raise_for_status()
+        return response.json()
+
+    # ------------------------------------------------------------------
+    # Git refs / branches
+    # ------------------------------------------------------------------
+
+    async def get_branch_sha(self, branch: str, repo: str | None = None) -> str:
+        """Return the HEAD commit SHA of *branch*.
+
+        Args:
+            branch: Branch name (e.g. ``"main"``, ``"develop"``).
+            repo: ``owner/name``. Falls back to *default_repo*.
+
+        Returns:
+            40-character commit SHA string.
+        """
+        resolved = self._resolve_repo(repo)
+        response = await self._client.get(
+            f"/repos/{resolved}/git/ref/heads/{branch}",
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data["object"]["sha"]
+
+    async def create_ref(
+        self,
+        ref: str,
+        sha: str,
+        repo: str | None = None,
+    ) -> dict:
+        """Create a new Git ref (branch or tag).
+
+        Args:
+            ref: Full ref name, e.g. ``"refs/heads/release/1.0.0"``.
+            sha: The commit SHA the new ref should point to.
+            repo: ``owner/name``. Falls back to *default_repo*.
+
+        Returns:
+            Created ref dict from GitHub API.
+        """
+        resolved = self._resolve_repo(repo)
+        response = await self._client.post(
+            f"/repos/{resolved}/git/refs",
+            json={"ref": ref, "sha": sha},
+        )
+        response.raise_for_status()
+        return response.json()
+
     # ------------------------------------------------------------------
     # CI / Check Runs
     # ------------------------------------------------------------------
