@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: autodev-dashboard
+  labels:
+    app: autodev-dashboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: autodev-dashboard
+  template:
+    metadata:
+      labels:
+        app: autodev-dashboard
+    spec:
+      containers:
+        - name: dashboard
+          image: autodev-dashboard
+          ports:
+            - containerPort: 3000
+          env:
+            - name: NEXT_PUBLIC_API_URL
+              value: "http://autodev-api:8000"
+            - name: NODE_ENV
+              value: "production"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: autodev-dashboard
+spec:
+  selector:
+    app: autodev-dashboard
+  ports:
+    - protocol: TCP
+      port: 3000
+      targetPort: 3000
+  type: ClusterIP

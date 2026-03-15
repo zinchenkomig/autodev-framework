@@ -44,6 +44,17 @@ k8s_resource(
     resource_deps=['postgres', 'redis'],
 )
 
-# --- Dashboard (future) ---
-# k8s_yaml('k8s/dashboard.yaml')
-# k8s_resource('autodev-dashboard', port_forwards=['3000:3000'])
+# --- Dashboard ---
+custom_build(
+    'autodev-dashboard',
+    'docker build -t $EXPECTED_REF -f dashboard/Dockerfile dashboard/',
+    ['dashboard/'],
+    disable_push=True,
+)
+
+k8s_yaml('k8s/dashboard.yaml')
+k8s_resource(
+    'autodev-dashboard',
+    port_forwards=['3000:3000'],
+    resource_deps=['autodev-api'],
+)
