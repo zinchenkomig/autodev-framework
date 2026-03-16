@@ -1,12 +1,12 @@
 export default function SettingsPage() {
   return (
-    <div className="space-y-4">
+    <div className="space-y-6 max-w-xl">
       <div>
-        <h2 className="text-2xl font-bold text-white capitalize">Settings</h2>
-        <p className="text-gray-400 text-sm mt-1">Coming soon</p>
+        <h1 className="text-sm font-semibold text-[#FAFAFA]">Settings</h1>
+        <p className="text-xs text-[#71717A] mt-0.5">Coming soon</p>
       </div>
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-12 text-center">
-        <p className="text-gray-500">This section is under construction.</p>
+      <div className="border border-[#1F1F23] p-12 text-center">
+        <p className="text-xs text-[#3F3F46]">This section is under construction.</p>
       </div>
     </div>
   )

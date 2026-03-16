@@ -138,17 +138,17 @@ const EDGES: GraphEdge[] = [
   },
 ]
 
-// ─── Color schemes ────────────────────────────────────────────────────────────
+// ─── Color schemes (minimal dark palette) ─────────────────────────────────────
 
 function agentColors(status?: string) {
-  if (status === 'running' || status === 'working') return { fill: '#1e3a5f', stroke: '#3b82f6', text: '#bfdbfe' }
-  if (status === 'failed')                          return { fill: '#450a0a', stroke: '#ef4444', text: '#fecaca' }
-  return { fill: '#052e16', stroke: '#22c55e', text: '#bbf7d0' }
+  if (status === 'running' || status === 'working') return { fill: '#09090B', stroke: '#6366F1', text: '#FAFAFA' }
+  if (status === 'failed')                          return { fill: '#09090B', stroke: '#EF4444', text: '#FAFAFA' }
+  return { fill: '#09090B', stroke: '#1F1F23', text: '#71717A' }
 }
 
-const PROCESS_COLORS  = { fill: '#2d1b69', stroke: '#8b5cf6', text: '#ddd6fe' }
-const ENV_COLORS      = { fill: '#1c1917', stroke: '#d97706', text: '#fde68a' }
-const EXTERNAL_COLORS = { fill: '#111827', stroke: '#6b7280', text: '#d1d5db' }
+const PROCESS_COLORS  = { fill: '#09090B', stroke: '#1F1F23', text: '#71717A' }
+const ENV_COLORS      = { fill: '#09090B', stroke: '#1F1F23', text: '#71717A' }
+const EXTERNAL_COLORS = { fill: '#09090B', stroke: '#1F1F23', text: '#3F3F46' }
 
 function nodeColors(node: GraphNode, status?: string) {
   switch (node.type) {
@@ -331,8 +331,8 @@ function RenderNode({ node, status }: { node: GraphNode; status?: string }) {
 
 function RenderEdge({ edge }: { edge: GraphEdge }) {
   const isFeedback = !!edge.feedback
-  const strokeColor = isFeedback ? '#f97316' : '#4b5563'
-  const textColor   = isFeedback ? '#fdba74' : '#9ca3af'
+  const strokeColor = isFeedback ? '#F59E0B' : '#1F1F23'
+  const textColor   = isFeedback ? '#71717A' : '#3F3F46'
   const markerId    = isFeedback ? 'url(#arrow-fb)' : 'url(#arrow)'
   const labelLen    = edge.label.length
 
@@ -351,9 +351,9 @@ function RenderEdge({ edge }: { edge: GraphEdge }) {
         y={edge.labelY - 9}
         width={labelLen * 6.6}
         height={16}
-        rx="3"
-        fill="#0f172a"
-        opacity="0.92"
+        rx="2"
+        fill="#09090B"
+        opacity="0.95"
       />
       <text
         x={edge.labelX}
@@ -388,45 +388,43 @@ export default function AgentGraphPage() {
   agents.forEach(a => { statusMap[a.id] = a.status })
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-5xl">
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold text-white">Agent Release Graph</h2>
-          <p className="text-gray-400 text-sm mt-1">
-            Полный релизный цикл: агенты → CI/Review → среды → прод
-          </p>
+          <h1 className="text-sm font-semibold text-[#FAFAFA]">Agent Graph</h1>
+          <p className="text-xs text-[#71717A] mt-0.5">Release pipeline: agents → CI → envs → prod</p>
         </div>
         <button
           onClick={loadAgents}
-          className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-sm text-gray-300 transition-colors self-start sm:self-auto"
+          className="p-1.5 text-[#3F3F46] hover:text-[#71717A] transition-colors"
         >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`}/>
-          Обновить
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`}/>
         </button>
       </div>
 
       {/* Graph */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+      <div className="border border-[#1F1F23] overflow-hidden">
         {loading ? (
-          <div className="flex items-center justify-center h-64">
-            <Loader2 className="w-6 h-6 text-gray-500 animate-spin"/>
+          <div className="flex items-center justify-center h-64 bg-[#09090B]">
+            <Loader2 className="w-4 h-4 text-[#3F3F46] animate-spin"/>
           </div>
         ) : (
           <svg
             viewBox="0 0 900 1000"
             className="w-full h-auto"
+            style={{ background: '#09090B' }}
             xmlns="http://www.w3.org/2000/svg"
           >
             <defs>
-              {/* Arrow — default (gray) */}
+              {/* Arrow — default */}
               <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
-                <path d="M0,0 L0,6 L8,3 z" fill="#4b5563"/>
+                <path d="M0,0 L0,6 L8,3 z" fill="#1F1F23"/>
               </marker>
-              {/* Arrow — feedback (orange) */}
+              {/* Arrow — feedback */}
               <marker id="arrow-fb" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
-                <path d="M0,0 L0,6 L8,3 z" fill="#f97316"/>
+                <path d="M0,0 L0,6 L8,3 z" fill="#F59E0B"/>
               </marker>
               {/* Glow for active/working agents */}
               <filter id="glow">
@@ -450,53 +448,17 @@ export default function AgentGraphPage() {
       </div>
 
       {/* Legend */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-        <p className="text-xs text-gray-500 uppercase tracking-wider mb-3 font-medium">Легенда</p>
-        <div className="flex flex-wrap gap-x-6 gap-y-3 text-xs text-gray-400">
-
-          <span className="flex items-center gap-2">
-            <span className="inline-block w-5 h-5 rounded bg-green-950 border border-green-500 shrink-0"/>
-            🟢 Агент (idle)
-          </span>
-          <span className="flex items-center gap-2">
-            <span className="inline-block w-5 h-5 rounded bg-blue-950 border border-blue-500 shrink-0"/>
-            🔵 Агент (working)
-          </span>
-          <span className="flex items-center gap-2">
-            <span className="inline-block w-5 h-5 rounded bg-red-950 border border-red-500 shrink-0"/>
-            🔴 Агент (failed)
-          </span>
-
-          <span className="flex items-center gap-2">
-            <svg width="20" height="20" viewBox="0 0 20 20" className="shrink-0">
-              <rect x="0" y="3" width="20" height="14" rx="7" fill="#2d1b69" stroke="#8b5cf6" strokeWidth="1.5"/>
-            </svg>
-            ◇ Процесс (CI / Review)
-          </span>
-
-          <span className="flex items-center gap-2">
-            <svg width="20" height="20" viewBox="0 0 20 20" className="shrink-0">
-              <rect x="0" y="0" width="20" height="20" rx="2" fill="#1c1917" stroke="#d97706" strokeWidth="1.5"/>
-              <rect x="3" y="3" width="14" height="14" rx="1" fill="none" stroke="#d97706" strokeWidth="1"/>
-            </svg>
-            ╔╗ Среда (Staging / Production)
-          </span>
-
-          <span className="flex items-center gap-2">
-            <svg width="20" height="14" viewBox="0 0 20 14" className="shrink-0">
-              <rect x="0" y="1" width="20" height="12" rx="2" fill="#111827" stroke="#6b7280" strokeWidth="1.5" strokeDasharray="5 3"/>
-            </svg>
-            Внешний (GitHub / Human)
-          </span>
-
-          <span className="flex items-center gap-2">
-            <svg width="24" height="10" viewBox="0 0 24 10" className="shrink-0">
-              <line x1="0" y1="5" x2="20" y2="5" stroke="#f97316" strokeWidth="1.5" strokeDasharray="5 3"/>
-              <path d="M17,2 L22,5 L17,8 z" fill="#f97316"/>
-            </svg>
-            ↩ Обратная связь (bug.found)
-          </span>
-        </div>
+      <div className="flex flex-wrap gap-x-6 gap-y-2 text-xs text-[#3F3F46]">
+        <span><span className="text-[#71717A]">●</span> agent idle</span>
+        <span><span className="text-[#6366F1]">●</span> agent working</span>
+        <span><span className="text-[#EF4444]">●</span> agent failed</span>
+        <span className="flex items-center gap-1.5">
+          <svg width="20" height="8" viewBox="0 0 20 8">
+            <line x1="0" y1="4" x2="16" y2="4" stroke="#F59E0B" strokeWidth="1" strokeDasharray="4 2"/>
+            <path d="M13,1 L18,4 L13,7 z" fill="#F59E0B"/>
+          </svg>
+          feedback
+        </span>
       </div>
 
     </div>

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { getAgentMonitors, getAgentRuns, type AgentMonitor, type AgentRun } from '@/lib/api'
 import { AgentMonitorCard } from '@/components/agents/AgentMonitorCard'
 import { AgentRunsTable } from '@/components/agents/AgentRunsTable'
-import { Activity, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 
 export default function AgentsPage() {
   const [agents, setAgents] = useState<AgentMonitor[]>([])
@@ -22,7 +22,7 @@ export default function AgentsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-6 h-6 text-gray-500 animate-spin" />
+        <Loader2 className="w-4 h-4 text-[#3F3F46] animate-spin" />
       </div>
     )
   }
@@ -31,62 +31,44 @@ export default function AgentsPage() {
   const failed = agents.filter((a) => a.status === 'failed').length
 
   return (
-    <div className="space-y-8">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <div className="space-y-10 max-w-7xl">
+      {/* Header */}
+      <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-white">Agent Monitor</h2>
-          <p className="text-gray-400 text-sm mt-1">
-            Real-time status of all AI agents in the system
-          </p>
+          <h1 className="text-sm font-semibold text-[#FAFAFA]">Agents</h1>
+          <p className="text-xs text-[#71717A] mt-0.5">Real-time status</p>
         </div>
-        <div className="flex items-center gap-3 text-sm flex-wrap">
-          <span className="flex items-center gap-1.5 text-green-400">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-400" />
-            </span>
-            {working} working
+        <div className="flex items-center gap-4 text-xs text-[#71717A]">
+          <span>
+            <span className="text-[#22C55E] font-mono">{working}</span> working
           </span>
           {failed > 0 && (
-            <span className="flex items-center gap-1.5 text-red-400">
-              <span className="w-2 h-2 rounded-full bg-red-500" />
-              {failed} failed
+            <span>
+              <span className="text-[#EF4444] font-mono">{failed}</span> failed
             </span>
           )}
-          <span className="flex items-center gap-1.5 text-gray-500">
-            <Activity className="w-3.5 h-3.5" />
-            {agents.length} total agents
-          </span>
+          <span className="text-[#3F3F46]">{agents.length} total</span>
         </div>
       </div>
 
-      {/* Agent Cards Grid – 1 col on mobile, 2 on sm, 3 on lg, 5 on xl */}
+      {/* Agent Cards */}
       {agents.length === 0 ? (
-        <div className="bg-gray-800/50 border border-gray-700/50 rounded-xl p-12 text-center">
-          <p className="text-gray-500 text-sm">Нет агентов</p>
-        </div>
+        <p className="text-xs text-[#3F3F46] py-8">No agents</p>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
           {agents.map((agent) => (
             <AgentMonitorCard key={agent.id} agent={agent} />
           ))}
         </div>
       )}
 
-      {/* Agent Runs Table */}
-      <div className="bg-gray-800/50 border border-gray-700/50 rounded-xl p-4 md:p-6">
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h3 className="text-white font-semibold text-lg">Agent Runs</h3>
-            <p className="text-gray-500 text-sm">Recent execution history across all agents</p>
-          </div>
-          <span className="text-xs text-gray-600 bg-gray-700/40 px-2 py-1 rounded-full">
-            {runs.length} records
-          </span>
+      {/* Runs Table */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-xs text-[#71717A] uppercase tracking-wider">Agent Runs</p>
+          <span className="text-xs text-[#3F3F46] font-mono">{runs.length} records</span>
         </div>
-        {/* horizontal scroll on mobile */}
-        <div className="overflow-x-auto">
+        <div className="border border-[#1F1F23] overflow-x-auto">
           <AgentRunsTable runs={runs} />
         </div>
       </div>

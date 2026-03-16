@@ -1,36 +1,26 @@
-import { type LucideIcon } from 'lucide-react'
-import { TrendingUp, TrendingDown, Minus } from 'lucide-react'
-
 interface StatCardProps {
   label: string
   value: string | number
-  icon: LucideIcon
   trend?: number
   description?: string
 }
 
-export function StatCard({ label, value, icon: Icon, trend, description }: StatCardProps) {
+export function StatCard({ label, value, trend, description }: StatCardProps) {
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 hover:border-gray-700 transition-colors">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-sm text-gray-400 font-medium">{label}</span>
-        <div className="p-2 bg-gray-800 rounded-lg">
-          <Icon className="w-4 h-4 text-gray-300" />
-        </div>
-      </div>
+    <div className="border border-[#1F1F23] p-5 hover:border-[#3F3F46] transition-colors">
+      <p className="text-xs text-[#71717A] uppercase tracking-wider mb-3">{label}</p>
       <div className="flex items-end justify-between">
-        <span className="text-3xl font-bold text-white">{value}</span>
+        <span className="text-2xl font-mono text-[#FAFAFA]">{value}</span>
         {trend !== undefined && (
-          <div className={`flex items-center gap-1 text-xs font-medium ${
-            trend > 0 ? 'text-green-400' : trend < 0 ? 'text-red-400' : 'text-gray-500'
+          <span className={`text-xs font-mono ${
+            trend > 0 ? 'text-[#22C55E]' : trend < 0 ? 'text-[#EF4444]' : 'text-[#3F3F46]'
           }`}>
-            {trend > 0 ? <TrendingUp className="w-3 h-3" /> : trend < 0 ? <TrendingDown className="w-3 h-3" /> : <Minus className="w-3 h-3" />}
-            <span>{trend > 0 ? `+${trend}` : trend}</span>
-          </div>
+            {trend > 0 ? `+${trend}` : trend}
+          </span>
         )}
       </div>
       {description && (
-        <p className="text-xs text-gray-500 mt-1">{description}</p>
+        <p className="text-xs text-[#3F3F46] mt-1">{description}</p>
       )}
     </div>
   )

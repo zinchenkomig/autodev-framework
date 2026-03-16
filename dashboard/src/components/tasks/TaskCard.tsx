@@ -3,13 +3,19 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { type Task } from '@/lib/api'
-import { PriorityBadge } from '@/components/Badge'
 import { formatDistanceToNow } from '@/lib/utils'
-import { GripVertical, GitPullRequest, Hash, User2 } from 'lucide-react'
+import { GripVertical } from 'lucide-react'
 
 interface TaskCardProps {
   task: Task
   onClick: (task: Task) => void
+}
+
+const priorityDot: Record<string, { color: string; label: string }> = {
+  critical: { color: 'text-[#EF4444]', label: 'critical' },
+  high:     { color: 'text-[#F59E0B]', label: 'high' },
+  normal:   { color: 'text-[#71717A]', label: 'normal' },
+  low:      { color: 'text-[#3F3F46]', label: 'low' },
 }
 
 export function TaskCard({ task, onClick }: TaskCardProps) {
@@ -28,68 +34,48 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
     opacity: isDragging ? 0.4 : 1,
   }
 
+  const dot = priorityDot[task.priority] ?? priorityDot.normal
+
   return (
     <div
       ref={setNodeRef}
       style={style}
       className={`
-        bg-gray-800 border border-gray-700 rounded-lg p-3 cursor-pointer
-        hover:border-gray-600 hover:bg-gray-750 transition-all
-        ${isDragging ? 'shadow-2xl ring-1 ring-blue-500/50' : ''}
+        border border-[#1F1F23] bg-[#111113] p-3 cursor-pointer
+        hover:border-[#3F3F46] transition-colors
+        ${isDragging ? 'ring-1 ring-[#6366F1]/50' : ''}
       `}
       onClick={() => onClick(task)}
     >
       <div className="flex items-start gap-2">
-        {/* Drag handle */}
         <button
           {...attributes}
           {...listeners}
-          className="mt-0.5 text-gray-600 hover:text-gray-400 cursor-grab active:cursor-grabbing shrink-0"
+          className="mt-0.5 text-[#3F3F46] hover:text-[#71717A] cursor-grab active:cursor-grabbing shrink-0"
           onClick={(e) => e.stopPropagation()}
         >
-          <GripVertical className="size-4" />
+          <GripVertical className="w-3.5 h-3.5" />
         </button>
 
         <div className="flex-1 min-w-0">
-          {/* Title */}
-          <p className="text-sm text-white font-medium leading-snug line-clamp-2 mb-2">
+          <p className="text-sm text-[#FAFAFA] leading-snug line-clamp-2 mb-2">
             {task.title}
           </p>
 
-          {/* Badges */}
-          <div className="flex flex-wrap gap-1.5 mb-2">
-            <PriorityBadge priority={task.priority} />
-            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-700 text-gray-300 border border-gray-600">
-              {task.repo}
+          <div className="flex items-center gap-3 text-xs">
+            <span className={dot.color}>●</span>
+            <span className="text-[#71717A]">{dot.label}</span>
+            <span className="text-[#3F3F46] font-mono">{task.repo}</span>
+          </div>
+
+          <div className="flex items-center justify-between mt-2">
+            {task.assigned_to && (
+              <span className="text-xs text-[#3F3F46]">{task.assigned_to}</span>
+            )}
+            <span className="text-xs text-[#3F3F46] ml-auto">
+              {formatDistanceToNow(task.created_at)}
             </span>
           </div>
-
-          {/* Meta */}
-          <div className="flex items-center gap-3 text-xs text-gray-500">
-            {task.assigned_to && (
-              <span className="flex items-center gap-1">
-                <User2 className="size-3" />
-                {task.assigned_to}
-              </span>
-            )}
-            {task.issue_number && (
-              <span className="flex items-center gap-1">
-                <Hash className="size-3" />
-                {task.issue_number}
-              </span>
-            )}
-            {task.pr_number && (
-              <span className="flex items-center gap-1 text-blue-400">
-                <GitPullRequest className="size-3" />
-                PR#{task.pr_number}
-              </span>
-            )}
-          </div>
-
-          {/* Time */}
-          <p className="text-xs text-gray-600 mt-1.5">
-            {formatDistanceToNow(task.created_at)}
-          </p>
         </div>
       </div>
     </div>

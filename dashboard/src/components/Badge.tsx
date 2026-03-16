@@ -1,19 +1,19 @@
 import { type Priority, type TaskStatus } from '@/lib/api'
 
-const priorityConfig: Record<Priority, { label: string; className: string }> = {
-  critical: { label: 'Critical', className: 'bg-red-500/20 text-red-400 border border-red-500/30' },
-  high: { label: 'High', className: 'bg-orange-500/20 text-orange-400 border border-orange-500/30' },
-  normal: { label: 'Normal', className: 'bg-blue-500/20 text-blue-400 border border-blue-500/30' },
-  low: { label: 'Low', className: 'bg-gray-500/20 text-gray-400 border border-gray-500/30' },
+const priorityDot: Record<Priority, { color: string; label: string }> = {
+  critical: { color: 'text-[#EF4444]', label: 'critical' },
+  high:     { color: 'text-[#F59E0B]', label: 'high' },
+  normal:   { color: 'text-[#71717A]', label: 'normal' },
+  low:      { color: 'text-[#3F3F46]', label: 'low' },
 }
 
-const statusConfig: Record<TaskStatus, { label: string; className: string }> = {
-  queued: { label: 'Queued', className: 'bg-gray-500/20 text-gray-400 border border-gray-500/30' },
-  assigned: { label: 'Assigned', className: 'bg-purple-500/20 text-purple-400 border border-purple-500/30' },
-  in_progress: { label: 'In Progress', className: 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' },
-  review: { label: 'Review', className: 'bg-blue-500/20 text-blue-400 border border-blue-500/30' },
-  done: { label: 'Done', className: 'bg-green-500/20 text-green-400 border border-green-500/30' },
-  failed: { label: 'Failed', className: 'bg-red-500/20 text-red-400 border border-red-500/30' },
+const statusConfig: Record<TaskStatus, { label: string; color: string }> = {
+  queued:      { label: 'queued',      color: 'text-[#71717A]' },
+  assigned:    { label: 'assigned',    color: 'text-[#A78BFA]' },
+  in_progress: { label: 'in progress', color: 'text-[#F59E0B]' },
+  review:      { label: 'review',      color: 'text-[#6366F1]' },
+  done:        { label: 'done',        color: 'text-[#22C55E]' },
+  failed:      { label: 'failed',      color: 'text-[#EF4444]' },
 }
 
 interface PriorityBadgeProps {
@@ -21,10 +21,10 @@ interface PriorityBadgeProps {
 }
 
 export function PriorityBadge({ priority }: PriorityBadgeProps) {
-  const config = priorityConfig[priority]
+  const config = priorityDot[priority]
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${config.className}`}>
-      {config.label}
+    <span className={`inline-flex items-center gap-1 text-xs ${config.color}`}>
+      ●<span className="text-[#71717A]">{config.label}</span>
     </span>
   )
 }
@@ -36,7 +36,7 @@ interface StatusBadgeProps {
 export function StatusBadge({ status }: StatusBadgeProps) {
   const config = statusConfig[status]
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${config.className}`}>
+    <span className={`text-xs font-mono ${config.color}`}>
       {config.label}
     </span>
   )
@@ -48,15 +48,14 @@ interface AgentStatusBadgeProps {
 
 export function AgentStatusBadge({ status }: AgentStatusBadgeProps) {
   const configs = {
-    idle: { label: 'Idle', className: 'bg-gray-500/20 text-gray-400 border border-gray-500/30', dot: 'bg-gray-400' },
-    running: { label: 'Running', className: 'bg-green-500/20 text-green-400 border border-green-500/30', dot: 'bg-green-400 animate-pulse' },
-    failed: { label: 'Failed', className: 'bg-red-500/20 text-red-400 border border-red-500/30', dot: 'bg-red-400' },
+    idle:    { dot: 'text-[#3F3F46]',  label: 'idle' },
+    running: { dot: 'text-[#22C55E]',  label: 'running' },
+    failed:  { dot: 'text-[#EF4444]',  label: 'failed' },
   }
   const config = configs[status]
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium ${config.className}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${config.dot}`} />
-      {config.label}
+    <span className={`inline-flex items-center gap-1.5 text-xs ${config.dot}`}>
+      ●<span className="text-[#71717A]">{config.label}</span>
     </span>
   )
 }

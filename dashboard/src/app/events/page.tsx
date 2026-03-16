@@ -3,12 +3,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import type { Event } from '@/lib/api'
-import {
-  GitPullRequest, CheckCircle, XCircle, Bug, Rocket,
-  Package, User, Zap, AlertCircle, Tag, Filter, Loader2
-} from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 
-// --- Mock events inlined (client component can't use async server data directly) ---
+// ─── Mock events ──────────────────────────────────────────────────────────────
 const ALL_EVENTS: Event[] = [
   { id: '1', type: 'task.assigned', payload: {}, source: 'orchestrator', created_at: '2026-03-15T13:00:00Z', description: 'Task "Database migration script" assigned to developer', related_id: '6', related_type: 'task' },
   { id: '2', type: 'pr.created', payload: {}, source: 'developer', created_at: '2026-03-15T12:30:00Z', description: 'PR #26 created for "Add rate limiting"', related_id: '26', related_type: 'pr' },
@@ -47,82 +44,56 @@ const ALL_EVENTS: Event[] = [
   { id: '35', type: 'release.approved', payload: {}, source: 'user', created_at: '2026-03-12T14:30:00Z', description: 'Release v1.0.2 approved by user', related_id: '1', related_type: 'release' },
 ]
 
-// --- Event config ---
-type EventConfig = { icon: React.ElementType; color: string; bg: string }
+// ─── Color map ────────────────────────────────────────────────────────────────
 
-function getEventConfig(type: string): EventConfig {
-  const prefix = type.split('.')[0]
-  const map: Record<string, EventConfig> = {
-    'task.created': { icon: Zap, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20' },
-    'task.assigned': { icon: User, color: 'text-purple-400', bg: 'bg-purple-500/10 border-purple-500/20' },
-    'task.in_progress': { icon: Zap, color: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-500/20' },
-    'task.done': { icon: CheckCircle, color: 'text-green-400', bg: 'bg-green-500/10 border-green-500/20' },
-    'task.failed': { icon: XCircle, color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/20' },
-    'pr.created': { icon: GitPullRequest, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20' },
-    'pr.merged': { icon: CheckCircle, color: 'text-purple-400', bg: 'bg-purple-500/10 border-purple-500/20' },
-    'pr.ci.passed': { icon: CheckCircle, color: 'text-green-400', bg: 'bg-green-500/10 border-green-500/20' },
-    'pr.ci.failed': { icon: XCircle, color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/20' },
-    'pr.review_requested': { icon: GitPullRequest, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20' },
-    'deploy.staging': { icon: Rocket, color: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-500/20' },
-    'deploy.production': { icon: Rocket, color: 'text-green-400', bg: 'bg-green-500/10 border-green-500/20' },
-    'bug.found': { icon: Bug, color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/20' },
-    'bug.resolved': { icon: CheckCircle, color: 'text-green-400', bg: 'bg-green-500/10 border-green-500/20' },
-    'bug.triaged': { icon: Bug, color: 'text-orange-400', bg: 'bg-orange-500/10 border-orange-500/20' },
-    'agent.running': { icon: Zap, color: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-500/20' },
-    'agent.idle': { icon: User, color: 'text-gray-400', bg: 'bg-gray-500/10 border-gray-500/20' },
-    'agent.failed': { icon: AlertCircle, color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/20' },
-    'release.created': { icon: Tag, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20' },
-    'release.ready': { icon: Package, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20' },
-    'release.approved': { icon: CheckCircle, color: 'text-green-400', bg: 'bg-green-500/10 border-green-500/20' },
-  }
-
-  if (map[type]) return map[type]
-
-  const prefixDefaults: Record<string, EventConfig> = {
-    task: { icon: Zap, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20' },
-    pr: { icon: GitPullRequest, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20' },
-    deploy: { icon: Rocket, color: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-500/20' },
-    bug: { icon: Bug, color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/20' },
-    agent: { icon: User, color: 'text-gray-400', bg: 'bg-gray-500/10 border-gray-500/20' },
-    release: { icon: Package, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20' },
-  }
-  return prefixDefaults[prefix] ?? { icon: Zap, color: 'text-gray-400', bg: 'bg-gray-500/10 border-gray-500/20' }
+const dotColor: Record<string, string> = {
+  'task.created':      'text-[#6366F1]',
+  'task.assigned':     'text-[#A78BFA]',
+  'task.in_progress':  'text-[#F59E0B]',
+  'task.done':         'text-[#22C55E]',
+  'pr.created':        'text-[#6366F1]',
+  'pr.merged':         'text-[#22C55E]',
+  'pr.ci.passed':      'text-[#22C55E]',
+  'pr.ci.failed':      'text-[#EF4444]',
+  'deploy.staging':    'text-[#F59E0B]',
+  'deploy.production': 'text-[#22C55E]',
+  'bug.found':         'text-[#EF4444]',
+  'bug.resolved':      'text-[#22C55E]',
+  'bug.triaged':       'text-[#F59E0B]',
+  'agent.running':     'text-[#F59E0B]',
+  'agent.idle':        'text-[#3F3F46]',
+  'agent.failed':      'text-[#EF4444]',
+  'release.created':   'text-[#6366F1]',
+  'release.ready':     'text-[#6366F1]',
+  'release.approved':  'text-[#22C55E]',
 }
 
-// --- Filter categories ---
+// ─── Filters ──────────────────────────────────────────────────────────────────
+
 type FilterCategory = 'all' | 'task' | 'pr' | 'deploy' | 'bug' | 'agent' | 'release'
 
-const FILTERS: { value: FilterCategory; label: string; icon: React.ElementType }[] = [
-  { value: 'all', label: 'All', icon: Filter },
-  { value: 'task', label: 'Tasks', icon: Zap },
-  { value: 'pr', label: 'PRs', icon: GitPullRequest },
-  { value: 'deploy', label: 'Deploys', icon: Rocket },
-  { value: 'bug', label: 'Bugs', icon: Bug },
-  { value: 'agent', label: 'Agents', icon: User },
-  { value: 'release', label: 'Releases', icon: Package },
+const FILTERS: { value: FilterCategory; label: string }[] = [
+  { value: 'all',     label: 'All' },
+  { value: 'task',    label: 'Tasks' },
+  { value: 'pr',      label: 'PRs' },
+  { value: 'deploy',  label: 'Deploys' },
+  { value: 'bug',     label: 'Bugs' },
+  { value: 'agent',   label: 'Agents' },
+  { value: 'release', label: 'Releases' },
 ]
 
 function formatTime(dateString: string) {
-  const date = new Date(dateString)
-  const now = new Date()
-  const diff = now.getTime() - date.getTime()
-  const seconds = Math.floor(diff / 1000)
-  const minutes = Math.floor(seconds / 60)
+  const diff = Date.now() - new Date(dateString).getTime()
+  const minutes = Math.floor(diff / 60000)
   const hours = Math.floor(minutes / 60)
   const days = Math.floor(hours / 24)
-  if (days > 0) return `${days}d ago`
-  if (hours > 0) return `${hours}h ago`
-  if (minutes > 0) return `${minutes}m ago`
-  return 'just now'
+  if (days > 0) return `${days}d`
+  if (hours > 0) return `${hours}h`
+  if (minutes > 0) return `${minutes}m`
+  return 'now'
 }
 
-function formatFullDate(dateString: string) {
-  return new Date(dateString).toLocaleString('en-US', {
-    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-  })
-}
-
-const PAGE_SIZE = 10
+const PAGE_SIZE = 15
 
 export default function EventsPage() {
   const router = useRouter()
@@ -138,19 +109,15 @@ export default function EventsPage() {
   const visible = filtered.slice(0, page * PAGE_SIZE)
   const hasMore = visible.length < filtered.length
 
-  // Reset pagination when filter changes
-  useEffect(() => {
-    setPage(1)
-  }, [filter])
+  useEffect(() => { setPage(1) }, [filter])
 
-  // Intersection observer for infinite scroll
   const loadMore = useCallback(() => {
     if (isLoading || !hasMore) return
     setIsLoading(true)
     setTimeout(() => {
       setPage(p => p + 1)
       setIsLoading(false)
-    }, 400)
+    }, 300)
   }, [isLoading, hasMore])
 
   useEffect(() => {
@@ -166,117 +133,82 @@ export default function EventsPage() {
 
   function handleEventClick(event: Event) {
     if (!event.related_id || !event.related_type) return
-    if (event.related_type === 'task') router.push(`/tasks`)
+    if (event.related_type === 'task') router.push('/tasks')
     else if (event.related_type === 'release') router.push(`/releases/${event.related_id}`)
-    else if (event.related_type === 'pr') {
-      // PRs link externally — no internal page, skip navigation
-    }
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-3xl">
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-bold text-white">Activity Feed</h2>
-        <p className="text-gray-400 text-sm mt-1">Chronological log of all system events</p>
+        <h1 className="text-sm font-semibold text-[#FAFAFA]">Events</h1>
+        <p className="text-xs text-[#71717A] mt-0.5">{filtered.length} events</p>
       </div>
 
-      {/* Filter bar – horizontal scroll on mobile */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+      {/* Filters */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar flex-wrap">
         {FILTERS.map(f => {
-          const Icon = f.icon
           const active = filter === f.value
+          const count = f.value === 'all' ? ALL_EVENTS.length : ALL_EVENTS.filter(e => e.type.startsWith(f.value + '.')).length
           return (
             <button
               key={f.value}
               onClick={() => setFilter(f.value)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors shrink-0 ${
+              className={`px-3 py-1 text-xs border transition-colors shrink-0 ${
                 active
-                  ? 'bg-blue-500/20 border border-blue-500/40 text-blue-400'
-                  : 'bg-gray-800 border border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-600'
+                  ? 'border-[#6366F1] bg-[#6366F1]/10 text-[#FAFAFA]'
+                  : 'border-[#1F1F23] text-[#71717A] hover:border-[#3F3F46] hover:text-[#FAFAFA]'
               }`}
             >
-              <Icon className="w-3.5 h-3.5" />
               {f.label}
               {f.value !== 'all' && (
-                <span className={`text-xs rounded px-1 ${active ? 'bg-blue-500/30 text-blue-300' : 'bg-gray-700 text-gray-500'}`}>
-                  {ALL_EVENTS.filter(e => e.type.startsWith(f.value + '.')).length}
-                </span>
+                <span className="ml-1.5 text-[#3F3F46] font-mono">{count}</span>
               )}
             </button>
           )
         })}
-        <span className="ml-auto text-xs text-gray-600 shrink-0">
-          {filtered.length} events
-        </span>
       </div>
 
-      {/* Event feed */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+      {/* Event list */}
+      <div className="divide-y divide-[#1F1F23]">
         {visible.length === 0 ? (
-          <div className="p-12 text-center text-gray-500 text-sm">No events for this filter.</div>
+          <div className="py-10 text-center text-[#3F3F46] text-xs">No events</div>
         ) : (
-          <div className="divide-y divide-gray-800">
-            {visible.map(event => {
-              const config = getEventConfig(event.type)
-              const Icon = config.icon
-              const clickable = !!event.related_id && event.related_type !== 'pr'
+          visible.map(event => {
+            const color = dotColor[event.type] ?? 'text-[#3F3F46]'
+            const clickable = !!event.related_id && event.related_type !== 'pr'
 
-              return (
-                <div
-                  key={event.id}
-                  onClick={() => handleEventClick(event)}
-                  className={`flex items-start gap-4 px-5 py-4 transition-colors ${
-                    clickable ? 'hover:bg-gray-800/60 cursor-pointer' : ''
-                  }`}
-                >
-                  {/* Icon */}
-                  <div className={`p-2 rounded-lg border shrink-0 mt-0.5 ${config.bg}`}>
-                    <Icon className={`w-3.5 h-3.5 ${config.color}`} />
-                  </div>
-
-                  {/* Content */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-sm text-gray-200 leading-snug">
-                          {event.description ?? event.type}
-                        </p>
-                        <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
-                          <span className="font-mono text-gray-600">{event.type}</span>
-                          <span>·</span>
-                          <span>{event.source}</span>
-                        </div>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <span className="text-xs text-gray-500 whitespace-nowrap" title={formatFullDate(event.created_at)}>
-                          {formatTime(event.created_at)}
-                        </span>
-                        {clickable && (
-                          <p className="text-xs text-blue-500/60 mt-0.5">→ view</p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-
-        {/* Loader sentinel */}
-        <div ref={loaderRef} className="h-4" />
-        {isLoading && (
-          <div className="flex justify-center py-4 border-t border-gray-800">
-            <Loader2 className="w-4 h-4 text-gray-500 animate-spin" />
-          </div>
-        )}
-        {!hasMore && visible.length > 0 && (
-          <div className="py-4 text-center text-xs text-gray-600 border-t border-gray-800">
-            All {filtered.length} events loaded
-          </div>
+            return (
+              <div
+                key={event.id}
+                onClick={() => handleEventClick(event)}
+                className={`flex items-center gap-3 py-2.5 ${
+                  clickable ? 'cursor-pointer hover:bg-white/[0.02]' : ''
+                } transition-colors`}
+              >
+                <span className={`text-xs shrink-0 ${color}`}>●</span>
+                <span className="text-xs text-[#71717A] flex-1 min-w-0 truncate">
+                  {event.description ?? event.type}
+                </span>
+                <span className="text-xs text-[#3F3F46] font-mono shrink-0">{formatTime(event.created_at)}</span>
+              </div>
+            )
+          })
         )}
       </div>
+
+      {/* Infinite scroll sentinel */}
+      <div ref={loaderRef} className="h-2" />
+      {isLoading && (
+        <div className="flex justify-center py-3">
+          <Loader2 className="w-3.5 h-3.5 text-[#3F3F46] animate-spin" />
+        </div>
+      )}
+      {!hasMore && visible.length > 0 && (
+        <p className="text-center text-xs text-[#3F3F46] py-2">
+          All {filtered.length} events loaded
+        </p>
+      )}
     </div>
   )
 }

@@ -20,10 +20,10 @@ import { AddTaskModal } from './AddTaskModal'
 import { Plus, Search, Filter, ChevronLeft, ChevronRight } from 'lucide-react'
 
 const COLUMNS: { id: TaskStatus; title: string; color: string }[] = [
-  { id: 'queued', title: 'Queued', color: 'bg-gray-400' },
-  { id: 'in_progress', title: 'In Progress', color: 'bg-yellow-400' },
-  { id: 'review', title: 'Review', color: 'bg-blue-400' },
-  { id: 'done', title: 'Done', color: 'bg-green-400' },
+  { id: 'queued', title: 'Queued', color: 'text-[#71717A]' },
+  { id: 'in_progress', title: 'In Progress', color: 'text-[#F59E0B]' },
+  { id: 'review', title: 'Review', color: 'text-[#6366F1]' },
+  { id: 'done', title: 'Done', color: 'text-[#22C55E]' },
 ]
 
 // Statuses shown in kanban (we hide assigned/failed from the board)
@@ -132,27 +132,27 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
         {/* Search */}
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-500" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-[#3F3F46]" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search tasks..."
-            className="w-full bg-gray-900 border border-gray-800 rounded-lg pl-9 pr-4 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all"
+            className="w-full bg-transparent border border-[#1F1F23] pl-8 pr-4 py-2 text-sm text-[#FAFAFA] placeholder-[#3F3F46] focus:outline-none focus:border-[#6366F1]/50 transition-colors"
           />
         </div>
 
         {/* Filters */}
         <div className="flex gap-2 items-center">
-          <Filter className="size-4 text-gray-500 shrink-0" />
+          <Filter className="size-3.5 text-[#3F3F46] shrink-0" />
 
           <select
             value={repoFilter}
             onChange={(e) => setRepoFilter(e.target.value)}
-            className="bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all"
+            className="bg-transparent border border-[#1F1F23] px-3 py-2 text-xs text-[#71717A] focus:outline-none focus:border-[#6366F1]/50 transition-colors"
           >
             {repos.map((r) => (
-              <option key={r} value={r}>
+              <option key={r} value={r} className="bg-[#111113]">
                 {r === 'all' ? 'All repos' : r}
               </option>
             ))}
@@ -161,20 +161,20 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
           <select
             value={priorityFilter}
             onChange={(e) => setPriorityFilter(e.target.value)}
-            className="bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all"
+            className="bg-transparent border border-[#1F1F23] px-3 py-2 text-xs text-[#71717A] focus:outline-none focus:border-[#6366F1]/50 transition-colors"
           >
-            <option value="all">All priorities</option>
-            <option value="critical">Critical</option>
-            <option value="high">High</option>
-            <option value="normal">Normal</option>
-            <option value="low">Low</option>
+            <option value="all" className="bg-[#111113]">All priorities</option>
+            <option value="critical" className="bg-[#111113]">Critical</option>
+            <option value="high" className="bg-[#111113]">High</option>
+            <option value="normal" className="bg-[#111113]">Normal</option>
+            <option value="low" className="bg-[#111113]">Low</option>
           </select>
 
           <button
             onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-500 transition-all shrink-0"
+            className="flex items-center gap-1.5 px-3 py-2 text-xs text-[#FAFAFA] bg-[#6366F1] hover:bg-[#4F46E5] transition-colors shrink-0"
           >
-            <Plus className="size-4" />
+            <Plus className="size-3.5" />
             Add Task
           </button>
         </div>
@@ -188,7 +188,7 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
         onDragEnd={handleDragEnd}
       >
         {/* Desktop: all columns side-by-side */}
-        <div className="hidden md:flex gap-4 overflow-x-auto pb-4 flex-1">
+        <div className="hidden md:flex overflow-x-auto pb-4 flex-1 border border-[#1F1F23]">
           {COLUMNS.map((col) => (
             <KanbanColumn
               key={col.id}
@@ -208,25 +208,25 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
             <button
               onClick={() => setMobileColIndex(i => Math.max(0, i - 1))}
               disabled={mobileColIndex === 0}
-              className="p-2 rounded-lg text-gray-400 hover:text-white disabled:opacity-30 transition-colors"
+              className="p-2 text-[#3F3F46] hover:text-[#71717A] disabled:opacity-30 transition-colors"
             >
-              <ChevronLeft className="w-5 h-5" />
+              <ChevronLeft className="w-4 h-4" />
             </button>
             <div className="flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${COLUMNS[mobileColIndex].color}`} />
-              <span className="text-white font-semibold text-sm uppercase tracking-wider">
+              <span className={`text-xs ${COLUMNS[mobileColIndex].color}`}>●</span>
+              <span className="text-xs text-[#71717A] uppercase tracking-wider">
                 {COLUMNS[mobileColIndex].title}
               </span>
-              <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded-full">
+              <span className="text-xs font-mono text-[#3F3F46]">
                 {tasksByStatus[COLUMNS[mobileColIndex].id].length}
               </span>
             </div>
             <button
               onClick={() => setMobileColIndex(i => Math.min(COLUMNS.length - 1, i + 1))}
               disabled={mobileColIndex === COLUMNS.length - 1}
-              className="p-2 rounded-lg text-gray-400 hover:text-white disabled:opacity-30 transition-colors"
+              className="p-2 text-[#3F3F46] hover:text-[#71717A] disabled:opacity-30 transition-colors"
             >
-              <ChevronRight className="w-5 h-5" />
+              <ChevronRight className="w-4 h-4" />
             </button>
           </div>
           {/* Dots indicator */}
@@ -235,7 +235,7 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
               <button
                 key={i}
                 onClick={() => setMobileColIndex(i)}
-                className={`w-2 h-2 rounded-full transition-colors ${i === mobileColIndex ? 'bg-blue-400' : 'bg-gray-700'}`}
+                className={`w-1.5 h-1.5 rounded-full transition-colors ${i === mobileColIndex ? 'bg-[#6366F1]' : 'bg-[#1F1F23]'}`}
               />
             ))}
           </div>

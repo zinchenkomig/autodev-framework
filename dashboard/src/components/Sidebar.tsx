@@ -2,10 +2,9 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useState } from 'react'
 import {
   LayoutDashboard, ClipboardList, Bot, Package,
-  ScrollText, Settings, ChevronLeft, ChevronRight, Cpu, X, Share2, MessageSquare
+  ScrollText, Settings, Share2, MessageSquare, X
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -26,29 +25,16 @@ interface SidebarProps {
 
 export function Sidebar({ onClose }: SidebarProps) {
   const pathname = usePathname()
-  const [collapsed, setCollapsed] = useState(false)
 
   return (
-    <aside className={cn(
-      'flex flex-col bg-gray-950 border-r border-gray-800 transition-all duration-300 h-full',
-      collapsed ? 'w-16' : 'w-56'
-    )}>
+    <aside className="flex flex-col bg-[#09090B] border-r border-[#1F1F23] h-full w-[220px]">
       {/* Logo */}
-      <div className={cn(
-        'flex items-center h-16 border-b border-gray-800 px-4',
-        collapsed ? 'justify-center' : 'gap-3'
-      )}>
-        <div className="p-1.5 bg-blue-500/20 rounded-lg shrink-0">
-          <Cpu className="w-5 h-5 text-blue-400" />
-        </div>
-        {!collapsed && (
-          <span className="text-white font-bold text-lg tracking-tight flex-1">AutoDev</span>
-        )}
-        {/* Close button on mobile */}
-        {!collapsed && onClose && (
+      <div className="flex items-center justify-between h-12 border-b border-[#1F1F23] px-4">
+        <span className="text-[#FAFAFA] font-semibold text-sm tracking-tight">AutoDev</span>
+        {onClose && (
           <button
             onClick={onClose}
-            className="md:hidden p-1 text-gray-500 hover:text-gray-300 transition-colors"
+            className="md:hidden p-1 text-[#3F3F46] hover:text-[#71717A] transition-colors"
             aria-label="Close menu"
           >
             <X className="w-4 h-4" />
@@ -57,45 +43,41 @@ export function Sidebar({ onClose }: SidebarProps) {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 py-4 px-2 space-y-1">
-        {navItems.map(({ href, icon: Icon, label, sub }) => {
+      <nav className="flex-1 py-3 px-2 space-y-0.5">
+        {navItems.map(({ href, icon: Icon, label, sub }, i) => {
           const isActive = href === '/' ? pathname === '/' : pathname === href
+
+          // Section divider before Settings
+          const showDivider = i > 0 && href === '/settings'
+
           return (
-            <Link
-              key={href}
-              href={href}
-              onClick={onClose}
-              className={cn(
-                'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
-                isActive
-                  ? 'bg-blue-500/15 text-blue-400 border border-blue-500/20'
-                  : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800',
-                collapsed && 'justify-center px-2',
-                sub && !collapsed && 'ml-4 text-xs py-2'
+            <div key={href}>
+              {showDivider && (
+                <div className="my-2 border-t border-[#1F1F23]" />
               )}
-              title={collapsed ? label : undefined}
-            >
-              <Icon className={cn('shrink-0', sub ? 'w-4 h-4' : 'w-5 h-5')} />
-              {!collapsed && <span>{label}</span>}
-            </Link>
+              <Link
+                href={href}
+                onClick={onClose}
+                className={cn(
+                  'relative flex items-center gap-2.5 px-3 py-1.5 text-sm transition-colors rounded-sm',
+                  isActive
+                    ? 'bg-white/5 text-[#FAFAFA]'
+                    : 'text-[#71717A] hover:text-[#FAFAFA] hover:bg-white/[0.03]',
+                  sub && 'ml-4 text-xs'
+                )}
+                title={label}
+              >
+                {/* Active indicator */}
+                {isActive && (
+                  <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-[#6366F1] rounded-full" />
+                )}
+                <Icon className="w-4 h-4 shrink-0" />
+                <span>{label}</span>
+              </Link>
+            </div>
           )
         })}
       </nav>
-
-      {/* Collapse toggle – desktop only */}
-      <div className="p-3 border-t border-gray-800 hidden md:block">
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="flex items-center justify-center w-full py-2 px-3 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors text-sm"
-        >
-          {collapsed ? <ChevronRight className="w-4 h-4" /> : (
-            <>
-              <ChevronLeft className="w-4 h-4 mr-2" />
-              <span>Collapse</span>
-            </>
-          )}
-        </button>
-      </div>
     </aside>
   )
 }

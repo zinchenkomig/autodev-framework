@@ -9,8 +9,8 @@ interface TaskTableProps {
 export function TaskTable({ tasks }: TaskTableProps) {
   if (tasks.length === 0) {
     return (
-      <div className="py-12 text-center text-gray-500 text-sm">
-        Нет задач
+      <div className="py-10 text-center text-[#3F3F46] text-sm">
+        No tasks
       </div>
     )
   }
@@ -19,26 +19,23 @@ export function TaskTable({ tasks }: TaskTableProps) {
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-gray-800">
-            <th className="text-left py-3 px-4 text-gray-400 font-medium">Title</th>
-            <th className="text-left py-3 px-4 text-gray-400 font-medium">Priority</th>
-            <th className="text-left py-3 px-4 text-gray-400 font-medium">Status</th>
-            <th className="text-left py-3 px-4 text-gray-400 font-medium">Assigned</th>
-            <th className="text-left py-3 px-4 text-gray-400 font-medium">Repo</th>
-            <th className="text-left py-3 px-4 text-gray-400 font-medium">Updated</th>
+          <tr className="border-b border-[#1F1F23]">
+            <th className="text-left py-2.5 px-4 text-xs text-[#71717A] uppercase tracking-wider font-normal">Title</th>
+            <th className="text-left py-2.5 px-4 text-xs text-[#71717A] uppercase tracking-wider font-normal">Priority</th>
+            <th className="text-left py-2.5 px-4 text-xs text-[#71717A] uppercase tracking-wider font-normal">Status</th>
+            <th className="text-left py-2.5 px-4 text-xs text-[#71717A] uppercase tracking-wider font-normal hidden md:table-cell">Assigned</th>
+            <th className="text-left py-2.5 px-4 text-xs text-[#71717A] uppercase tracking-wider font-normal hidden lg:table-cell">Repo</th>
+            <th className="text-left py-2.5 px-4 text-xs text-[#71717A] uppercase tracking-wider font-normal hidden sm:table-cell">Updated</th>
           </tr>
         </thead>
         <tbody>
           {tasks.map((task) => (
-            <tr key={task.id} className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors">
+            <tr key={task.id} className="border-b border-[#1F1F23] hover:bg-white/[0.02] transition-colors">
               <td className="py-3 px-4">
                 <div className="flex items-center gap-2">
-                  <span className="text-white font-medium truncate max-w-[220px]">{task.title}</span>
-                  {task.issue_number && (
-                    <span className="text-gray-500 text-xs">#{task.issue_number}</span>
-                  )}
+                  <span className="text-[#FAFAFA] text-sm truncate max-w-[220px]">{task.title}</span>
                   {task.pr_number && (
-                    <span className="text-blue-400 text-xs">PR#{task.pr_number}</span>
+                    <span className="text-[#6366F1] text-xs font-mono">PR#{task.pr_number}</span>
                   )}
                 </div>
               </td>
@@ -48,14 +45,14 @@ export function TaskTable({ tasks }: TaskTableProps) {
               <td className="py-3 px-4">
                 <StatusBadge status={task.status} />
               </td>
-              <td className="py-3 px-4">
-                <span className="text-gray-300">{task.assigned_to ?? '—'}</span>
+              <td className="py-3 px-4 hidden md:table-cell">
+                <span className="text-[#71717A] text-xs">{task.assigned_to ?? '—'}</span>
               </td>
-              <td className="py-3 px-4">
-                <span className="text-gray-400 font-mono text-xs">{task.repo}</span>
+              <td className="py-3 px-4 hidden lg:table-cell">
+                <span className="text-[#3F3F46] font-mono text-xs">{task.repo}</span>
               </td>
-              <td className="py-3 px-4">
-                <span className="text-gray-500 text-xs">{formatDistanceToNow(task.updated_at)}</span>
+              <td className="py-3 px-4 hidden sm:table-cell">
+                <span className="text-[#3F3F46] text-xs">{formatDistanceToNow(task.updated_at)}</span>
               </td>
             </tr>
           ))}

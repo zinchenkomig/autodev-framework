@@ -25,7 +25,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
-      <body className={`${inter.variable} ${jetbrainsMono.variable} antialiased bg-gray-950 text-white`}>
+      <body className={`${inter.variable} ${jetbrainsMono.variable} antialiased`} style={{ backgroundColor: '#09090B', color: '#FAFAFA' }}>
         <AppShell>{children}</AppShell>
       </body>
     </html>
