@@ -420,44 +420,127 @@ const MOCK_STATS: DashboardStats = {
   pr_trend: -1,
 }
 
-// API functions (return mock data for now)
+// ---------------------------------------------------------------------------
+// Generic fetch helper with mock fallback
+// ---------------------------------------------------------------------------
+
+async function apiFetch<T>(path: string, fallback: T, options?: RequestInit): Promise<T> {
+  try {
+    const res = await fetch(`${BASE_URL}${path}`, {
+      headers: { 'Content-Type': 'application/json' },
+      ...options,
+    })
+    if (!res.ok) {
+      console.warn(`[api] ${path} returned ${res.status}, falling back to mock`)
+      return fallback
+    }
+    return (await res.json()) as T
+  } catch (err) {
+    console.warn(`[api] ${path} failed (${err}), falling back to mock`)
+    return fallback
+  }
+}
+
+// ---------------------------------------------------------------------------
+// API functions — real endpoints with mock fallback
+// ---------------------------------------------------------------------------
+
 export async function getTasks(): Promise<Task[]> {
-  // TODO: return await fetch(`${BASE_URL}/api/tasks`).then(r => r.json())
-  void BASE_URL
-  return MOCK_TASKS
+  return apiFetch<Task[]>('/api/v1/tasks/', MOCK_TASKS)
 }
 
 export async function getAgents(): Promise<Agent[]> {
-  // TODO: return await fetch(`${BASE_URL}/api/agents`).then(r => r.json())
-  return MOCK_AGENTS
+  return apiFetch<Agent[]>('/api/v1/agents/', MOCK_AGENTS)
 }
 
 export async function getEvents(): Promise<Event[]> {
-  // TODO: return await fetch(`${BASE_URL}/api/events`).then(r => r.json())
-  return MOCK_EVENTS
+  return apiFetch<Event[]>('/api/v1/events/', MOCK_EVENTS)
 }
 
 export async function getReleases(): Promise<Release[]> {
-  // TODO: return await fetch(`${BASE_URL}/api/releases`).then(r => r.json())
-  return MOCK_RELEASES
+  return apiFetch<Release[]>('/api/v1/releases/', MOCK_RELEASES)
 }
 
 export async function getRelease(id: string): Promise<Release | null> {
-  // TODO: return await fetch(`${BASE_URL}/api/releases/${id}`).then(r => r.json())
-  return MOCK_RELEASES.find(r => r.id === id) ?? null
+  const fallback = MOCK_RELEASES.find(r => r.id === id) ?? null
+  return apiFetch<Release | null>(`/api/v1/releases/${id}`, fallback)
 }
 
 export async function getStats(): Promise<DashboardStats> {
-  // TODO: return await fetch(`${BASE_URL}/api/dashboard/stats`).then(r => r.json())
-  return MOCK_STATS
+  return apiFetch<DashboardStats>('/api/dashboard/stats', MOCK_STATS)
 }
 
 export async function getAgentMonitors(): Promise<AgentMonitor[]> {
-  // TODO: return await fetch(`${BASE_URL}/api/agents/monitors`).then(r => r.json())
-  return MOCK_AGENT_MONITORS
+  // Derives from /api/v1/agents/ — map to AgentMonitor shape with fallback
+  const agents = await apiFetch<Agent[]>('/api/v1/agents/', MOCK_AGENTS)
+  if (agents === MOCK_AGENTS) return MOCK_AGENT_MONITORS
+  return agents.map(a => ({
+    id: a.id,
+    role: a.role,
+    status: (a.status === 'running' ? 'working' : a.status) as AgentMonitorStatus,
+    current_task_id: a.current_task_id,
+    current_task_title: null,
+    last_run_at: a.last_run_at,
+    total_runs: a.total_runs,
+    total_failures: a.total_failures,
+    avg_time: null as unknown as string,
+  }))
 }
 
 export async function getAgentRuns(): Promise<AgentRun[]> {
-  // TODO: return await fetch(`${BASE_URL}/api/agents/runs`).then(r => r.json())
+  // Agent runs endpoint not yet implemented in backend — use mock
   return MOCK_AGENT_RUNS
+}
+
+// ---------------------------------------------------------------------------
+// Write operations
+// ---------------------------------------------------------------------------
+
+export async function createTask(data: Partial<Task>): Promise<Task> {
+  const res = await fetch(`${BASE_URL}/api/v1/tasks/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error(`Failed to create task: ${res.status}`)
+  return res.json()
+}
+
+export async function updateTask(id: string, data: Partial<Task>): Promise<Task> {
+  const res = await fetch(`${BASE_URL}/api/v1/tasks/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error(`Failed to update task: ${res.status}`)
+  return res.json()
+}
+
+export async function createRelease(data: { version: string; release_notes?: string; tasks?: string[] }): Promise<Release> {
+  const res = await fetch(`${BASE_URL}/api/v1/releases/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error(`Failed to create release: ${res.status}`)
+  return res.json()
+}
+
+export async function approveRelease(id: string, approvedBy = 'user'): Promise<Release> {
+  const res = await fetch(`${BASE_URL}/api/v1/releases/${id}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ approved_by: approvedBy }),
+  })
+  if (!res.ok) throw new Error(`Failed to approve release: ${res.status}`)
+  return res.json()
+}
+
+export async function triggerAgent(agentId: string): Promise<{ event_id: string; agent_id: string; message: string }> {
+  const res = await fetch(`${BASE_URL}/api/v1/agents/${agentId}/trigger`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  if (!res.ok) throw new Error(`Failed to trigger agent: ${res.status}`)
+  return res.json()
 }

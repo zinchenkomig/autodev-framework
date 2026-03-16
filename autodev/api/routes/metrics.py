@@ -105,13 +105,10 @@ class DashboardStatsResponse(BaseModel):
 
 
 def _get_collector() -> MetricsCollector:
-    """Return a MetricsCollector bound to the application session factory.
+    """Return a MetricsCollector bound to the application session factory."""
+    from autodev.api.database import SessionLocal
 
-    TODO: Replace mock session_factory with the real one from app state.
-    """
-    from autodev.core.state import get_session_factory  # type: ignore[import-untyped]
-
-    return MetricsCollector(get_session_factory())
+    return MetricsCollector(SessionLocal)
 
 
 def _daily_metrics(items: list[DailyMetric]) -> list[DailyMetricResponse]:
