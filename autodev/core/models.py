@@ -297,6 +297,24 @@ class AgentRun(Base):
         return f"<AgentRun id={self.id} agent_id={self.agent_id!r} status={self.status}>"
 
 
+class ChatMessage(Base):
+    """A message in the PM chat history."""
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        _UUID(), primary_key=True, default=uuid.uuid4
+    )
+    role: Mapped[str] = mapped_column(String(20), nullable=False)  # 'user' | 'pm'
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<ChatMessage id={self.id} role={self.role!r}>"
+
+
 class Release(Base):
     """A software release artifact."""
 
