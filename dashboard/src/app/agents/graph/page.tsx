@@ -35,8 +35,8 @@ interface GraphEdge {
 // ─── Node definitions (viewBox 0 0 900 1000) ─────────────────────────────────
 
 const NODES: GraphNode[] = [
-  // External: GitHub Issues
-  { id: 'github_issues', label: 'GitHub Issues', type: 'external', x: 350, y: 20, w: 200, h: 44 },
+  // External: Chat / Kanban (PM task source)
+  { id: 'chat_kanban', label: 'Chat / Kanban', sublabel: 'пользователь задаёт задачи', icon: 'chat', type: 'external', x: 300, y: 10, w: 300, h: 60 },
   // Agents
   { id: 'pm',              label: 'PM',             icon: 'briefcase', type: 'agent', x: 375, y: 104, w: 150, h: 54 },
   { id: 'developer',       label: 'Developer',       icon: 'code',      type: 'agent', x: 375, y: 210, w: 150, h: 54 },
@@ -69,9 +69,9 @@ const NODES: GraphNode[] = [
 
 const EDGES: GraphEdge[] = [
   {
-    id: 'gh-pm', from: 'github_issues', to: 'pm',
-    path: 'M 450,64 L 450,104',
-    labelX: 462, labelY: 88, label: 'issues',
+    id: 'chat-pm', from: 'chat_kanban', to: 'pm',
+    path: 'M 450,70 L 450,104',
+    labelX: 462, labelY: 90, label: 'tasks',
   },
   {
     id: 'pm-dev', from: 'pm', to: 'developer',
@@ -216,6 +216,13 @@ function SvgIcon({ icon, cx, cy, size = 16, color }: {
           <path d={`M${s/2} 1 L${s-1} ${s*0.3} V${s*0.7} L${s/2} ${s-1} L1 ${s*0.7} V${s*0.3} Z`} style={st}/>
           <line x1={s/2} y1="1" x2={s/2} y2={s-1} style={{...st, strokeWidth:1, strokeDasharray:'2,2'}}/>
           <line x1="1" y1={s*0.3} x2={s-1} y2={s*0.3} style={{...st, strokeWidth:1, strokeDasharray:'2,2'}}/>
+        </>
+      case 'chat':
+        return <>
+          <rect x="1" y="1" width={s-2} height={s*0.75} rx="3" style={st}/>
+          <path d={`M${s*0.2} ${s*0.76} L${s*0.1} ${s-1} L${s*0.4} ${s*0.76}`} style={st}/>
+          <line x1={s*0.25} y1={s*0.3} x2={s*0.75} y2={s*0.3} style={{...st, strokeWidth:1.5}}/>
+          <line x1={s*0.25} y1={s*0.5} x2={s*0.6}  y2={s*0.5} style={{...st, strokeWidth:1.5}}/>
         </>
       default:
         return <circle cx={h} cy={h} r={h*0.5} stroke={color} strokeWidth={1.5} fill="none"/>

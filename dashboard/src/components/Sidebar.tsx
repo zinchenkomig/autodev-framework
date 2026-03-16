@@ -5,12 +5,13 @@ import { usePathname } from 'next/navigation'
 import { useState } from 'react'
 import {
   LayoutDashboard, ClipboardList, Bot, Package,
-  ScrollText, Settings, ChevronLeft, ChevronRight, Cpu, X, Share2
+  ScrollText, Settings, ChevronLeft, ChevronRight, Cpu, X, Share2, MessageSquare
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const navItems = [
   { href: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { href: '/pm', icon: MessageSquare, label: 'PM Chat' },
   { href: '/tasks', icon: ClipboardList, label: 'Tasks' },
   { href: '/agents', icon: Bot, label: 'Agents' },
   { href: '/agents/graph', icon: Share2, label: 'Agent Graph', sub: true },

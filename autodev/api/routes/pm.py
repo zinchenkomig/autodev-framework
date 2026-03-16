@@ -75,7 +75,7 @@ _SUGGEST_RE = re.compile(
 # Subtask templates for common high-level requests
 _SUBTASK_TEMPLATES: list[tuple[re.Pattern, list[tuple[str, str]]]] = [
     (
-        re.compile(r"\b(авторизаци|auth|аутентификаци|login|регистраци)\b", re.IGNORECASE),
+        re.compile(r"(авторизаци|аутентификаци|регистраци|\bauth\b|\blogin\b)", re.IGNORECASE),
         [
             ("Backend: JWT аутентификация middleware", "high"),
             ("Backend: User model + registration endpoint", "high"),
@@ -243,7 +243,7 @@ async def _create_subtasks(
     task = Task(
         id=uuid.uuid4(),
         title=title,
-        description=f"Создано PM агентом",
+        description="Создано PM агентом",
         source=TaskSource.AGENT_CREATED,
         priority=Priority.NORMAL,
         status=TaskStatus.QUEUED,
