@@ -1,6 +1,9 @@
+'use client'
+
+import { useEffect, useState } from 'react'
 import { getReleases, type Release, type ReleaseStatus } from '@/lib/api'
 import Link from 'next/link'
-import { Tag, GitPullRequest, Calendar, ChevronRight } from 'lucide-react'
+import { Tag, GitPullRequest, Calendar, ChevronRight, Loader2 } from 'lucide-react'
 
 const statusConfig: Record<ReleaseStatus, { label: string; className: string; dot: string }> = {
   draft: { label: 'Draft', className: 'bg-gray-500/20 text-gray-400 border border-gray-500/30', dot: 'bg-gray-400' },
@@ -49,7 +52,8 @@ function ReleaseCard({ release }: { release: Release }) {
           <ChevronRight className="w-4 h-4 text-gray-600 group-hover:text-gray-400 transition-colors shrink-0 mt-1" />
         </div>
 
-        <div className="mt-4 flex items-center gap-4 text-xs text-gray-500">
+        {/* Meta row – wraps on very small screens */}
+        <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-gray-500">
           <span className="flex items-center gap-1.5">
             <GitPullRequest className="w-3.5 h-3.5" />
             {release.prs.length} PR{release.prs.length !== 1 ? 's' : ''}
@@ -74,8 +78,24 @@ function ReleaseCard({ release }: { release: Release }) {
   )
 }
 
-export default async function ReleasesPage() {
-  const releases = await getReleases()
+export default function ReleasesPage() {
+  const [releases, setReleases] = useState<Release[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    getReleases().then((r) => {
+      setReleases(r)
+      setLoading(false)
+    })
+  }, [])
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-6 h-6 text-gray-500 animate-spin" />
+      </div>
+    )
+  }
 
   const counts = {
     draft: releases.filter(r => r.status === 'draft').length,
@@ -92,23 +112,20 @@ export default async function ReleasesPage() {
         <p className="text-gray-400 text-sm mt-1">Manage and track software releases</p>
       </div>
 
-      {/* Status summary */}
+      {/* Status summary – 2 cols on mobile, 4 on sm */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {(Object.entries(counts) as [ReleaseStatus, number][]).map(([status, count]) => {
-          const config = statusConfig[status]
-          return (
-            <div key={status} className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-              <div className="flex items-center justify-between">
-                <span className="text-gray-400 text-sm capitalize">{status}</span>
-                <ReleaseBadge status={status} />
-              </div>
-              <p className="text-2xl font-bold text-white mt-2">{count}</p>
+        {(Object.entries(counts) as [ReleaseStatus, number][]).map(([status, count]) => (
+          <div key={status} className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-gray-400 text-sm capitalize">{status}</span>
+              <ReleaseBadge status={status} />
             </div>
-          )
-        })}
+            <p className="text-2xl font-bold text-white mt-2">{count}</p>
+          </div>
+        ))}
       </div>
 
-      {/* Release list */}
+      {/* Release list – 1 col (cards stack vertically already) */}
       <div className="space-y-3">
         {releases.length === 0 ? (
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-12 text-center">

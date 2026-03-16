@@ -1,11 +1,14 @@
-import { getRelease, type ReleaseStatus } from '@/lib/api'
+'use client'
+
+import { useEffect, useState } from 'react'
+import { getRelease, type Release, type ReleaseStatus } from '@/lib/api'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import {
-  Tag, GitPullRequest, CheckCircle, Clock, Rocket,
-  ArrowLeft, ExternalLink, FileText, TestTube, User,
-  ChevronRight, Circle
+  Tag, GitPullRequest, CheckCircle, Rocket,
+  ArrowLeft, ExternalLink, FileText, TestTube, User, Loader2,
 } from 'lucide-react'
+import { use } from 'react'
 
 const statusConfig: Record<ReleaseStatus, { label: string; className: string; dot: string }> = {
   draft: { label: 'Draft', className: 'bg-gray-500/20 text-gray-400 border border-gray-500/30', dot: 'bg-gray-400' },
@@ -35,7 +38,6 @@ function formatDate(dateString: string) {
 }
 
 function MarkdownBlock({ content }: { content: string }) {
-  // Minimal markdown renderer: handles ### h3, ## h2, # h1, **, -, ✅, ⚠️
   const lines = content.split('\n')
   return (
     <div className="space-y-1 text-sm text-gray-300">
@@ -88,10 +90,26 @@ type TimelineStep = {
   done: boolean
 }
 
-export default async function ReleaseDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params
-  const release = await getRelease(id)
-  if (!release) notFound()
+export default function ReleaseDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params)
+  const [release, setRelease] = useState<Release | null | undefined>(undefined)
+
+  useEffect(() => {
+    getRelease(id).then((r) => setRelease(r))
+  }, [id])
+
+  if (release === undefined) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-6 h-6 text-gray-500 animate-spin" />
+      </div>
+    )
+  }
+
+  if (release === null) {
+    notFound()
+    return null
+  }
 
   const timelineSteps: TimelineStep[] = [
     {
@@ -149,9 +167,9 @@ export default async function ReleaseDetailPage({ params }: { params: Promise<{ 
       </Link>
 
       {/* Header */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div className="flex items-start gap-3">
-          <div className="p-2.5 rounded-xl bg-gray-800 border border-gray-700">
+          <div className="p-2.5 rounded-xl bg-gray-800 border border-gray-700 shrink-0">
             <Tag className="w-5 h-5 text-blue-400" />
           </div>
           <div>
@@ -186,7 +204,7 @@ export default async function ReleaseDetailPage({ params }: { params: Promise<{ 
         </div>
       </div>
 
-      {/* Timeline */}
+      {/* Timeline – horizontal scroll */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
         <h3 className="text-white font-semibold mb-5">Timeline</h3>
         <div className="flex items-start gap-0 overflow-x-auto pb-2">

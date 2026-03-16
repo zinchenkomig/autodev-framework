@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useState } from 'react'
 import {
   LayoutDashboard, ClipboardList, Bot, Package,
-  ScrollText, Settings, ChevronLeft, ChevronRight, Cpu
+  ScrollText, Settings, ChevronLeft, ChevronRight, Cpu, X
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -18,7 +18,11 @@ const navItems = [
   { href: '/settings', icon: Settings, label: 'Settings' },
 ]
 
-export function Sidebar() {
+interface SidebarProps {
+  onClose?: () => void
+}
+
+export function Sidebar({ onClose }: SidebarProps) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
 
@@ -36,7 +40,17 @@ export function Sidebar() {
           <Cpu className="w-5 h-5 text-blue-400" />
         </div>
         {!collapsed && (
-          <span className="text-white font-bold text-lg tracking-tight">AutoDev</span>
+          <span className="text-white font-bold text-lg tracking-tight flex-1">AutoDev</span>
+        )}
+        {/* Close button on mobile */}
+        {!collapsed && onClose && (
+          <button
+            onClick={onClose}
+            className="md:hidden p-1 text-gray-500 hover:text-gray-300 transition-colors"
+            aria-label="Close menu"
+          >
+            <X className="w-4 h-4" />
+          </button>
         )}
       </div>
 
@@ -48,6 +62,7 @@ export function Sidebar() {
             <Link
               key={href}
               href={href}
+              onClick={onClose}
               className={cn(
                 'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
                 isActive
@@ -64,13 +79,11 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Collapse toggle */}
-      <div className="p-3 border-t border-gray-800">
+      {/* Collapse toggle – desktop only */}
+      <div className="p-3 border-t border-gray-800 hidden md:block">
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className={cn(
-            'flex items-center justify-center w-full py-2 px-3 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors text-sm',
-          )}
+          className="flex items-center justify-center w-full py-2 px-3 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors text-sm"
         >
           {collapsed ? <ChevronRight className="w-4 h-4" /> : (
             <>

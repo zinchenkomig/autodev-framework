@@ -1,14 +1,43 @@
-import { getMetricsDashboard, getMetricsCost, getMetricsSpeed, getMetricsQuality } from '@/lib/metrics-api'
+'use client'
 
-export default async function MetricsPage() {
-  const [dashboard, cost, speed, quality] = await Promise.all([
-    getMetricsDashboard(),
-    getMetricsCost(30),
-    getMetricsSpeed(30),
-    getMetricsQuality(30),
-  ])
+import { useEffect, useState } from 'react'
+import {
+  getMetricsDashboard, getMetricsCost, getMetricsSpeed, getMetricsQuality,
+  type MetricsDashboardStats, type CostSummary, type SpeedMetrics, type QualityMetrics,
+} from '@/lib/metrics-api'
+import { Loader2 } from 'lucide-react'
 
-  const maxDailyCost = Math.max(...(cost.cost_by_day.map(d => d.value)), 0.001)
+export default function MetricsPage() {
+  const [dashboard, setDashboard] = useState<MetricsDashboardStats | null>(null)
+  const [cost, setCost] = useState<CostSummary | null>(null)
+  const [speed, setSpeed] = useState<SpeedMetrics | null>(null)
+  const [quality, setQuality] = useState<QualityMetrics | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    Promise.all([
+      getMetricsDashboard(),
+      getMetricsCost(30),
+      getMetricsSpeed(30),
+      getMetricsQuality(30),
+    ]).then(([d, c, s, q]) => {
+      setDashboard(d)
+      setCost(c)
+      setSpeed(s)
+      setQuality(q)
+      setLoading(false)
+    })
+  }, [])
+
+  if (loading || !cost || !speed || !quality) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-6 h-6 text-gray-500 animate-spin" />
+      </div>
+    )
+  }
+
+  const maxDailyCost = Math.max(...cost.cost_by_day.map(d => d.value), 0.001)
 
   return (
     <div className="space-y-6">
@@ -18,7 +47,7 @@ export default async function MetricsPage() {
         <p className="text-gray-400 text-sm mt-1">Last 30 days</p>
       </div>
 
-      {/* Summary cards */}
+      {/* Summary cards – 2 cols on mobile, 4 on lg */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
           <p className="text-gray-400 text-xs uppercase tracking-wide">Total Cost (30d)</p>
@@ -46,8 +75,8 @@ export default async function MetricsPage() {
         </div>
       </div>
 
-      {/* Cost chart */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+      {/* Cost chart – full width on mobile */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden w-full">
         <div className="px-5 py-4 border-b border-gray-800">
           <h3 className="text-white font-semibold">Daily Cost (USD)</h3>
         </div>
@@ -79,7 +108,7 @@ export default async function MetricsPage() {
         </div>
       </div>
 
-      {/* Speed metrics table */}
+      {/* Speed metrics table – horizontal scroll on mobile */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-800">
           <h3 className="text-white font-semibold">Speed Metrics</h3>
@@ -151,7 +180,7 @@ export default async function MetricsPage() {
         </div>
       </div>
 
-      {/* Quality summary */}
+      {/* Quality summary – 1 col on mobile, 3 on sm */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
           <p className="text-gray-400 text-xs uppercase tracking-wide">Bugs Found (Tester)</p>

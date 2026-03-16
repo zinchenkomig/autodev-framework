@@ -17,7 +17,7 @@ import { KanbanColumn } from './KanbanColumn'
 import { TaskCard } from './TaskCard'
 import { TaskDetail } from './TaskDetail'
 import { AddTaskModal } from './AddTaskModal'
-import { Plus, Search, Filter } from 'lucide-react'
+import { Plus, Search, Filter, ChevronLeft, ChevronRight } from 'lucide-react'
 
 const COLUMNS: { id: TaskStatus; title: string; color: string }[] = [
   { id: 'queued', title: 'Queued', color: 'bg-gray-400' },
@@ -40,6 +40,8 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
   const [activeTask, setActiveTask] = useState<Task | null>(null)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [showAddModal, setShowAddModal] = useState(false)
+  // Mobile column switcher
+  const [mobileColIndex, setMobileColIndex] = useState(0)
 
   // Filters
   const [repoFilter, setRepoFilter] = useState<string>('all')
@@ -185,7 +187,8 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
-        <div className="flex gap-4 overflow-x-auto pb-4 flex-1">
+        {/* Desktop: all columns side-by-side */}
+        <div className="hidden md:flex gap-4 overflow-x-auto pb-4 flex-1">
           {COLUMNS.map((col) => (
             <KanbanColumn
               key={col.id}
@@ -196,6 +199,57 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
               onTaskClick={setSelectedTask}
             />
           ))}
+        </div>
+
+        {/* Mobile: single column with prev/next switcher */}
+        <div className="md:hidden flex flex-col flex-1">
+          {/* Column switcher nav */}
+          <div className="flex items-center justify-between mb-3">
+            <button
+              onClick={() => setMobileColIndex(i => Math.max(0, i - 1))}
+              disabled={mobileColIndex === 0}
+              className="p-2 rounded-lg text-gray-400 hover:text-white disabled:opacity-30 transition-colors"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <div className="flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full ${COLUMNS[mobileColIndex].color}`} />
+              <span className="text-white font-semibold text-sm uppercase tracking-wider">
+                {COLUMNS[mobileColIndex].title}
+              </span>
+              <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded-full">
+                {tasksByStatus[COLUMNS[mobileColIndex].id].length}
+              </span>
+            </div>
+            <button
+              onClick={() => setMobileColIndex(i => Math.min(COLUMNS.length - 1, i + 1))}
+              disabled={mobileColIndex === COLUMNS.length - 1}
+              className="p-2 rounded-lg text-gray-400 hover:text-white disabled:opacity-30 transition-colors"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
+          {/* Dots indicator */}
+          <div className="flex justify-center gap-1.5 mb-3">
+            {COLUMNS.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => setMobileColIndex(i)}
+                className={`w-2 h-2 rounded-full transition-colors ${i === mobileColIndex ? 'bg-blue-400' : 'bg-gray-700'}`}
+              />
+            ))}
+          </div>
+          {/* Active column */}
+          <div className="flex-1 overflow-y-auto">
+            <KanbanColumn
+              key={COLUMNS[mobileColIndex].id}
+              id={COLUMNS[mobileColIndex].id}
+              title={COLUMNS[mobileColIndex].title}
+              color={COLUMNS[mobileColIndex].color}
+              tasks={tasksByStatus[COLUMNS[mobileColIndex].id]}
+              onTaskClick={setSelectedTask}
+            />
+          </div>
         </div>
 
         <DragOverlay>

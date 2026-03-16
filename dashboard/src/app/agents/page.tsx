@@ -1,10 +1,31 @@
-import { getAgentMonitors, getAgentRuns } from '@/lib/api'
+'use client'
+
+import { useEffect, useState } from 'react'
+import { getAgentMonitors, getAgentRuns, type AgentMonitor, type AgentRun } from '@/lib/api'
 import { AgentMonitorCard } from '@/components/agents/AgentMonitorCard'
 import { AgentRunsTable } from '@/components/agents/AgentRunsTable'
-import { Activity } from 'lucide-react'
+import { Activity, Loader2 } from 'lucide-react'
 
-export default async function AgentsPage() {
-  const [agents, runs] = await Promise.all([getAgentMonitors(), getAgentRuns()])
+export default function AgentsPage() {
+  const [agents, setAgents] = useState<AgentMonitor[]>([])
+  const [runs, setRuns] = useState<AgentRun[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    Promise.all([getAgentMonitors(), getAgentRuns()]).then(([a, r]) => {
+      setAgents(a)
+      setRuns(r)
+      setLoading(false)
+    })
+  }, [])
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-6 h-6 text-gray-500 animate-spin" />
+      </div>
+    )
+  }
 
   const working = agents.filter((a) => a.status === 'working').length
   const failed = agents.filter((a) => a.status === 'failed').length
@@ -12,14 +33,14 @@ export default async function AgentsPage() {
   return (
     <div className="space-y-8">
       {/* Page Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold text-white">Agent Monitor</h2>
           <p className="text-gray-400 text-sm mt-1">
             Real-time status of all AI agents in the system
           </p>
         </div>
-        <div className="flex items-center gap-3 text-sm">
+        <div className="flex items-center gap-3 text-sm flex-wrap">
           <span className="flex items-center gap-1.5 text-green-400">
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
@@ -40,7 +61,7 @@ export default async function AgentsPage() {
         </div>
       </div>
 
-      {/* Agent Cards Grid */}
+      {/* Agent Cards Grid – 1 col on mobile, 2 on sm, 3 on lg, 5 on xl */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         {agents.map((agent) => (
           <AgentMonitorCard key={agent.id} agent={agent} />
@@ -48,7 +69,7 @@ export default async function AgentsPage() {
       </div>
 
       {/* Agent Runs Table */}
-      <div className="bg-gray-800/50 border border-gray-700/50 rounded-xl p-6">
+      <div className="bg-gray-800/50 border border-gray-700/50 rounded-xl p-4 md:p-6">
         <div className="flex items-center justify-between mb-5">
           <div>
             <h3 className="text-white font-semibold text-lg">Agent Runs</h3>
@@ -58,7 +79,10 @@ export default async function AgentsPage() {
             {runs.length} records
           </span>
         </div>
-        <AgentRunsTable runs={runs} />
+        {/* horizontal scroll on mobile */}
+        <div className="overflow-x-auto">
+          <AgentRunsTable runs={runs} />
+        </div>
       </div>
     </div>
   )

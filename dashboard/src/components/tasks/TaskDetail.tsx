@@ -21,8 +21,8 @@ export function TaskDetail({ task, onClose }: TaskDetailProps) {
         onClick={onClose}
       />
 
-      {/* Panel */}
-      <div className="fixed right-0 top-0 h-full w-full max-w-md bg-gray-900 border-l border-gray-800 z-50 flex flex-col shadow-2xl">
+      {/* Panel – fullscreen on mobile, side panel on md+ */}
+      <div className="fixed right-0 top-0 h-full w-full md:max-w-md bg-gray-900 border-l border-gray-800 z-50 flex flex-col shadow-2xl">
         {/* Header */}
         <div className="flex items-start gap-3 p-5 border-b border-gray-800">
           <div className="flex-1 min-w-0">

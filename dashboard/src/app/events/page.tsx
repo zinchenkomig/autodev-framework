@@ -181,8 +181,8 @@ export default function EventsPage() {
         <p className="text-gray-400 text-sm mt-1">Chronological log of all system events</p>
       </div>
 
-      {/* Filter bar */}
-      <div className="flex items-center gap-2 flex-wrap">
+      {/* Filter bar – horizontal scroll on mobile */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
         {FILTERS.map(f => {
           const Icon = f.icon
           const active = filter === f.value
@@ -190,7 +190,7 @@ export default function EventsPage() {
             <button
               key={f.value}
               onClick={() => setFilter(f.value)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors shrink-0 ${
                 active
                   ? 'bg-blue-500/20 border border-blue-500/40 text-blue-400'
                   : 'bg-gray-800 border border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-600'
@@ -206,7 +206,7 @@ export default function EventsPage() {
             </button>
           )
         })}
-        <span className="ml-auto text-xs text-gray-600">
+        <span className="ml-auto text-xs text-gray-600 shrink-0">
           {filtered.length} events
         </span>
       </div>
