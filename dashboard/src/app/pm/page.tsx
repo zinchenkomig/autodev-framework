@@ -40,34 +40,72 @@ async function fetchHistory(): Promise<ChatMessage[]> {
   return res.json()
 }
 
+// ─── Priority badge ───────────────────────────────────────────────────────────
+
+const priorityBadge: Record<string, { bg: string; color: string }> = {
+  critical: { bg: '#CC4E4E', color: '#fff' },
+  high:     { bg: '#CC7832', color: '#fff' },
+  normal:   { bg: '#3592C4', color: '#fff' },
+  low:      { bg: '#414345', color: '#BABABA' },
+}
+
 // ─── Message ──────────────────────────────────────────────────────────────────
 
 function Message({ msg }: { msg: ChatMessage }) {
   const isUser = msg.role === 'user'
 
   return (
-    <div className={cn('flex flex-col gap-1', isUser ? 'items-end' : 'items-start')}>
-      <p className={cn(
-        'text-sm leading-relaxed whitespace-pre-wrap break-words max-w-xl',
-        isUser ? 'text-[#FAFAFA]' : 'text-[#71717A]'
-      )}>
-        {msg.content}
-      </p>
+    <div className={cn('flex flex-col gap-1.5', isUser ? 'items-end' : 'items-start')}>
+      {!isUser && (
+        <div className="flex items-center gap-1.5 mb-0.5">
+          <span className="text-base">🤖</span>
+          <span className="text-xs font-medium" style={{ color: '#3592C4' }}>PM Agent</span>
+        </div>
+      )}
+      <div
+        className="px-4 py-2.5 max-w-xl"
+        style={{
+          background: isUser ? '#214283' : '#3C3F41',
+          borderRadius: isUser ? '12px 12px 4px 12px' : '12px 12px 12px 4px',
+          border: `1px solid ${isUser ? '#2a5298' : '#515151'}`,
+        }}
+      >
+        <p className="text-sm leading-relaxed whitespace-pre-wrap break-words" style={{ color: isUser ? '#FFFFFF' : '#BABABA' }}>
+          {msg.content}
+        </p>
+      </div>
 
       {msg.tasks_created && msg.tasks_created.length > 0 && (
-        <div className="flex flex-col gap-1 w-full max-w-xl mt-1">
-          {msg.tasks_created.map(t => (
-            <div key={t.id} className="flex items-center gap-2 border border-[#1F1F23] px-3 py-1.5 text-xs">
-              <span className="font-mono text-[#3F3F46]">#{t.id.slice(0, 8)}</span>
-              <span className="flex-1 truncate text-[#71717A]">{t.title}</span>
-              <span className="text-[#6366F1] font-mono">{t.priority}</span>
-            </div>
-          ))}
+        <div className="flex flex-col gap-1.5 w-full max-w-xl mt-1">
+          <p className="text-xs" style={{ color: '#808080' }}>Tasks created:</p>
+          {msg.tasks_created.map(t => {
+            const badge = priorityBadge[t.priority] ?? priorityBadge.normal
+            return (
+              <div
+                key={t.id}
+                className="flex items-center gap-2 px-3 py-2 text-xs"
+                style={{
+                  background: '#313335',
+                  border: '1px solid #515151',
+                  borderRadius: '4px',
+                }}
+              >
+                <span className="font-mono" style={{ color: '#808080' }}>#{t.id.slice(0, 8)}</span>
+                <span className="flex-1 truncate" style={{ color: '#BABABA' }}>{t.title}</span>
+                <span
+                  className="px-1.5 py-0.5 rounded font-mono text-xs font-medium"
+                  style={{ color: badge.color, background: badge.bg }}
+                >
+                  {t.priority}
+                </span>
+              </div>
+            )
+          })}
         </div>
       )}
 
       {msg.created_at && (
-        <span className="text-xs text-[#3F3F46]">
+        <span className="text-xs" style={{ color: '#808080' }}>
           {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </span>
       )}
@@ -79,10 +117,20 @@ function Message({ msg }: { msg: ChatMessage }) {
 
 function TypingIndicator() {
   return (
-    <div className="flex items-center gap-1">
-      <span className="w-1 h-1 rounded-full bg-[#3F3F46] animate-bounce" style={{ animationDelay: '0ms' }} />
-      <span className="w-1 h-1 rounded-full bg-[#3F3F46] animate-bounce" style={{ animationDelay: '150ms' }} />
-      <span className="w-1 h-1 rounded-full bg-[#3F3F46] animate-bounce" style={{ animationDelay: '300ms' }} />
+    <div className="flex items-center gap-2">
+      <span className="text-base">🤖</span>
+      <div
+        className="flex items-center gap-1 px-3 py-2"
+        style={{ background: '#3C3F41', border: '1px solid #515151', borderRadius: '12px 12px 12px 4px' }}
+      >
+        {[0, 150, 300].map(delay => (
+          <span
+            key={delay}
+            className="w-1.5 h-1.5 rounded-full animate-bounce"
+            style={{ background: '#808080', animationDelay: `${delay}ms` }}
+          />
+        ))}
+      </div>
     </div>
   )
 }
@@ -180,17 +228,32 @@ export default function PMChatPage() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] -m-6 md:-m-8">
+    <div className="flex flex-col h-[calc(100vh-4rem)] -m-6 md:-m-8" style={{ background: '#2B2B2B' }}>
 
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-3 border-b border-[#1F1F23] shrink-0">
+      <div
+        className="flex items-center justify-between px-6 py-3 shrink-0"
+        style={{ borderBottom: '1px solid #515151', background: '#313335' }}
+      >
         <div className="flex items-center gap-3">
-          <span className="text-sm text-[#FAFAFA]">PM Agent</span>
-          <span className="text-xs text-[#22C55E]">● online</span>
+          <span className="text-base">🤖</span>
+          <div>
+            <span className="text-sm font-semibold" style={{ color: '#FFFFFF' }}>PM Agent</span>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <span
+                className="w-1.5 h-1.5 rounded-full animate-status-pulse"
+                style={{ background: '#6A8759', display: 'inline-block' }}
+              />
+              <span className="text-xs" style={{ color: '#6A8759' }}>online</span>
+            </div>
+          </div>
         </div>
         <button
           onClick={handleReload}
-          className="p-1.5 text-[#3F3F46] hover:text-[#71717A] transition-colors"
+          className="p-1.5 transition-colors"
+          style={{ color: '#808080' }}
+          onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.color = '#BABABA'}
+          onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.color = '#808080'}
         >
           <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
         </button>
@@ -200,7 +263,7 @@ export default function PMChatPage() {
       <div className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
         {loading ? (
           <div className="flex items-center justify-center h-full">
-            <Loader2 className="w-4 h-4 text-[#3F3F46] animate-spin" />
+            <Loader2 className="w-5 h-5 animate-spin" style={{ color: '#3592C4' }} />
           </div>
         ) : (
           <>
@@ -215,7 +278,10 @@ export default function PMChatPage() {
                 <div key={msg.id}>
                   {showTime && msg.created_at && (
                     <div className="text-center my-3">
-                      <span className="text-xs text-[#3F3F46]">
+                      <span
+                        className="text-xs px-3 py-1 rounded"
+                        style={{ color: '#808080', background: '#313335' }}
+                      >
                         {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </div>
@@ -232,13 +298,30 @@ export default function PMChatPage() {
 
       {/* Suggestions */}
       {!loading && messages.length <= 1 && (
-        <div className="px-6 py-2 flex flex-wrap gap-2 border-t border-[#1F1F23] shrink-0">
+        <div
+          className="px-6 py-3 flex flex-wrap gap-2 shrink-0"
+          style={{ borderTop: '1px solid #515151', background: '#313335' }}
+        >
           {SUGGESTIONS.map(s => (
             <button
               key={s}
               onClick={() => handleSend(s)}
               disabled={sending}
-              className="px-3 py-1 border border-[#1F1F23] text-[#71717A] text-xs hover:border-[#3F3F46] hover:text-[#FAFAFA] transition-colors disabled:opacity-50"
+              className="px-3 py-1.5 text-xs transition-colors disabled:opacity-50"
+              style={{
+                border: '1px solid #515151',
+                color: '#BABABA',
+                borderRadius: '4px',
+                background: '#3C3F41',
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLButtonElement).style.borderColor = '#3592C4'
+                ;(e.currentTarget as HTMLButtonElement).style.color = '#FFFFFF'
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLButtonElement).style.borderColor = '#515151'
+                ;(e.currentTarget as HTMLButtonElement).style.color = '#BABABA'
+              }}
             >
               {s}
             </button>
@@ -246,9 +329,19 @@ export default function PMChatPage() {
         </div>
       )}
 
-      {/* Input */}
-      <div className="px-6 py-4 border-t border-[#1F1F23] shrink-0">
-        <div className="flex items-end gap-3 max-w-3xl mx-auto">
+      {/* Input area */}
+      <div
+        className="px-6 py-4 shrink-0"
+        style={{ borderTop: '1px solid #515151', background: '#3C3F41' }}
+      >
+        <div
+          className="flex items-end gap-3 max-w-3xl mx-auto p-3"
+          style={{
+            background: '#2B2B2B',
+            border: '1px solid #515151',
+            borderRadius: '6px',
+          }}
+        >
           <textarea
             ref={inputRef}
             value={input}
@@ -257,14 +350,8 @@ export default function PMChatPage() {
             placeholder="Write a task or question... (Enter to send)"
             rows={1}
             disabled={sending || loading}
-            className={cn(
-              'flex-1 resize-none bg-transparent border-b border-[#1F1F23] py-2',
-              'text-[#FAFAFA] placeholder-[#3F3F46] text-sm leading-relaxed',
-              'focus:outline-none focus:border-[#6366F1]/50',
-              'disabled:opacity-50 min-h-[36px] max-h-40 overflow-y-auto',
-              'transition-colors'
-            )}
-            style={{ height: 'auto' }}
+            className="flex-1 resize-none bg-transparent py-1 text-sm leading-relaxed focus:outline-none disabled:opacity-50 min-h-[28px] max-h-40 overflow-y-auto"
+            style={{ color: '#BABABA' }}
             onInput={e => {
               const el = e.currentTarget
               el.style.height = 'auto'
@@ -274,11 +361,16 @@ export default function PMChatPage() {
           <button
             onClick={() => handleSend()}
             disabled={!input.trim() || sending || loading}
-            className={cn(
-              'shrink-0 w-8 h-8 flex items-center justify-center transition-colors',
-              'text-[#6366F1] hover:text-[#818CF8]',
-              'disabled:opacity-30 disabled:cursor-not-allowed',
-            )}
+            className="shrink-0 w-8 h-8 flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            style={{
+              background: '#3592C4',
+              borderRadius: '4px',
+              color: '#FFFFFF',
+            }}
+            onMouseEnter={e => {
+              if (input.trim()) (e.currentTarget as HTMLButtonElement).style.background = '#2a7aaa'
+            }}
+            onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.background = '#3592C4'}
           >
             {sending
               ? <Loader2 className="w-4 h-4 animate-spin" />
@@ -287,7 +379,6 @@ export default function PMChatPage() {
           </button>
         </div>
       </div>
-
     </div>
   )
 }

@@ -44,28 +44,29 @@ const ALL_EVENTS: Event[] = [
   { id: '35', type: 'release.approved', payload: {}, source: 'user', created_at: '2026-03-12T14:30:00Z', description: 'Release v1.0.2 approved by user', related_id: '1', related_type: 'release' },
 ]
 
-// ─── Color map ────────────────────────────────────────────────────────────────
+// ─── Color + icon map ─────────────────────────────────────────────────────────
 
-const dotColor: Record<string, string> = {
-  'task.created':      'text-[#6366F1]',
-  'task.assigned':     'text-[#A78BFA]',
-  'task.in_progress':  'text-[#F59E0B]',
-  'task.done':         'text-[#22C55E]',
-  'pr.created':        'text-[#6366F1]',
-  'pr.merged':         'text-[#22C55E]',
-  'pr.ci.passed':      'text-[#22C55E]',
-  'pr.ci.failed':      'text-[#EF4444]',
-  'deploy.staging':    'text-[#F59E0B]',
-  'deploy.production': 'text-[#22C55E]',
-  'bug.found':         'text-[#EF4444]',
-  'bug.resolved':      'text-[#22C55E]',
-  'bug.triaged':       'text-[#F59E0B]',
-  'agent.running':     'text-[#F59E0B]',
-  'agent.idle':        'text-[#3F3F46]',
-  'agent.failed':      'text-[#EF4444]',
-  'release.created':   'text-[#6366F1]',
-  'release.ready':     'text-[#6366F1]',
-  'release.approved':  'text-[#22C55E]',
+const eventConfig: Record<string, { color: string; category: string }> = {
+  'task.created':      { color: '#3592C4', category: 'task' },
+  'task.assigned':     { color: '#9876AA', category: 'task' },
+  'task.in_progress':  { color: '#CC7832', category: 'task' },
+  'task.done':         { color: '#6A8759', category: 'task' },
+  'pr.created':        { color: '#3592C4', category: 'pr'   },
+  'pr.merged':         { color: '#6A8759', category: 'pr'   },
+  'pr.ci.passed':      { color: '#6A8759', category: 'pr'   },
+  'pr.ci.failed':      { color: '#CC4E4E', category: 'pr'   },
+  'pr.review_requested': { color: '#9876AA', category: 'pr' },
+  'deploy.staging':    { color: '#CC7832', category: 'deploy' },
+  'deploy.production': { color: '#6A8759', category: 'deploy' },
+  'bug.found':         { color: '#CC4E4E', category: 'bug'  },
+  'bug.resolved':      { color: '#6A8759', category: 'bug'  },
+  'bug.triaged':       { color: '#CC7832', category: 'bug'  },
+  'agent.running':     { color: '#CC7832', category: 'agent' },
+  'agent.idle':        { color: '#808080', category: 'agent' },
+  'agent.failed':      { color: '#CC4E4E', category: 'agent' },
+  'release.created':   { color: '#3592C4', category: 'release' },
+  'release.ready':     { color: '#9876AA', category: 'release' },
+  'release.approved':  { color: '#6A8759', category: 'release' },
 }
 
 // ─── Filters ──────────────────────────────────────────────────────────────────
@@ -104,7 +105,10 @@ export default function EventsPage() {
 
   const filtered = filter === 'all'
     ? ALL_EVENTS
-    : ALL_EVENTS.filter(e => e.type.startsWith(filter + '.'))
+    : ALL_EVENTS.filter(e => {
+        const cfg = eventConfig[e.type]
+        return cfg?.category === filter
+      })
 
   const visible = filtered.slice(0, page * PAGE_SIZE)
   const hasMore = visible.length < filtered.length
@@ -141,28 +145,48 @@ export default function EventsPage() {
     <div className="space-y-6 max-w-3xl">
       {/* Header */}
       <div>
-        <h1 className="text-sm font-semibold text-[#FAFAFA]">Events</h1>
-        <p className="text-xs text-[#71717A] mt-0.5">{filtered.length} events</p>
+        <h1 className="text-xl font-bold" style={{ color: '#FFFFFF' }}>Events</h1>
+        <p className="text-xs mt-0.5" style={{ color: '#808080' }}>{filtered.length} events</p>
       </div>
 
       {/* Filters */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar flex-wrap">
         {FILTERS.map(f => {
           const active = filter === f.value
-          const count = f.value === 'all' ? ALL_EVENTS.length : ALL_EVENTS.filter(e => e.type.startsWith(f.value + '.')).length
+          const count = f.value === 'all'
+            ? ALL_EVENTS.length
+            : ALL_EVENTS.filter(e => {
+                const cfg = eventConfig[e.type]
+                return cfg?.category === f.value
+              }).length
           return (
             <button
               key={f.value}
               onClick={() => setFilter(f.value)}
-              className={`px-3 py-1 text-xs border transition-colors shrink-0 ${
-                active
-                  ? 'border-[#6366F1] bg-[#6366F1]/10 text-[#FAFAFA]'
-                  : 'border-[#1F1F23] text-[#71717A] hover:border-[#3F3F46] hover:text-[#FAFAFA]'
-              }`}
+              className="px-3 py-1.5 text-xs transition-colors shrink-0"
+              style={{
+                border: '1px solid',
+                borderColor: active ? '#3592C4' : '#515151',
+                background: active ? '#3C3F41' : 'transparent',
+                color: active ? '#FFFFFF' : '#808080',
+                borderRadius: '4px',
+              }}
+              onMouseEnter={e => {
+                if (!active) {
+                  (e.currentTarget as HTMLButtonElement).style.borderColor = '#808080'
+                  ;(e.currentTarget as HTMLButtonElement).style.color = '#BABABA'
+                }
+              }}
+              onMouseLeave={e => {
+                if (!active) {
+                  (e.currentTarget as HTMLButtonElement).style.borderColor = '#515151'
+                  ;(e.currentTarget as HTMLButtonElement).style.color = '#808080'
+                }
+              }}
             >
               {f.label}
               {f.value !== 'all' && (
-                <span className="ml-1.5 text-[#3F3F46] font-mono">{count}</span>
+                <span className="ml-1.5 font-mono" style={{ color: active ? '#808080' : '#515151' }}>{count}</span>
               )}
             </button>
           )
@@ -170,27 +194,47 @@ export default function EventsPage() {
       </div>
 
       {/* Event list */}
-      <div className="divide-y divide-[#1F1F23]">
+      <div style={{ border: '1px solid #515151', borderRadius: '4px', overflow: 'hidden' }}>
         {visible.length === 0 ? (
-          <div className="py-10 text-center text-[#3F3F46] text-xs">No events</div>
+          <div className="py-10 text-center text-xs" style={{ color: '#808080' }}>No events</div>
         ) : (
-          visible.map(event => {
-            const color = dotColor[event.type] ?? 'text-[#3F3F46]'
+          visible.map((event, idx) => {
+            const cfg = eventConfig[event.type]
+            const color = cfg?.color ?? '#808080'
             const clickable = !!event.related_id && event.related_type !== 'pr'
+            const isOdd = idx % 2 === 0
 
             return (
               <div
                 key={event.id}
                 onClick={() => handleEventClick(event)}
-                className={`flex items-center gap-3 py-2.5 ${
-                  clickable ? 'cursor-pointer hover:bg-white/[0.02]' : ''
-                } transition-colors`}
+                className="flex items-center gap-3 px-4 py-2.5 transition-colors"
+                style={{
+                  background: isOdd ? '#2B2B2B' : '#313335',
+                  cursor: clickable ? 'pointer' : 'default',
+                  borderBottom: idx < visible.length - 1 ? '1px solid #414345' : 'none',
+                }}
+                onMouseEnter={e => {
+                  if (clickable) (e.currentTarget as HTMLDivElement).style.background = '#353739'
+                }}
+                onMouseLeave={e => {
+                  (e.currentTarget as HTMLDivElement).style.background = isOdd ? '#2B2B2B' : '#313335'
+                }}
               >
-                <span className={`text-xs shrink-0 ${color}`}>●</span>
-                <span className="text-xs text-[#71717A] flex-1 min-w-0 truncate">
+                <span
+                  style={{
+                    display: 'inline-block',
+                    width: '8px',
+                    height: '8px',
+                    borderRadius: '50%',
+                    background: color,
+                    flexShrink: 0,
+                  }}
+                />
+                <span className="text-xs flex-1 min-w-0 truncate" style={{ color: '#BABABA' }}>
                   {event.description ?? event.type}
                 </span>
-                <span className="text-xs text-[#3F3F46] font-mono shrink-0">{formatTime(event.created_at)}</span>
+                <span className="text-xs font-mono shrink-0" style={{ color: '#808080' }}>{formatTime(event.created_at)}</span>
               </div>
             )
           })
@@ -201,11 +245,11 @@ export default function EventsPage() {
       <div ref={loaderRef} className="h-2" />
       {isLoading && (
         <div className="flex justify-center py-3">
-          <Loader2 className="w-3.5 h-3.5 text-[#3F3F46] animate-spin" />
+          <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: '#3592C4' }} />
         </div>
       )}
       {!hasMore && visible.length > 0 && (
-        <p className="text-center text-xs text-[#3F3F46] py-2">
+        <p className="text-center text-xs py-2" style={{ color: '#808080' }}>
           All {filtered.length} events loaded
         </p>
       )}

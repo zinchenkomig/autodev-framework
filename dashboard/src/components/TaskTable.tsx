@@ -9,7 +9,7 @@ interface TaskTableProps {
 export function TaskTable({ tasks }: TaskTableProps) {
   if (tasks.length === 0) {
     return (
-      <div className="py-10 text-center text-[#3F3F46] text-sm">
+      <div className="py-10 text-center text-sm" style={{ color: '#808080' }}>
         No tasks
       </div>
     )
@@ -19,23 +19,32 @@ export function TaskTable({ tasks }: TaskTableProps) {
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-[#1F1F23]">
-            <th className="text-left py-2.5 px-4 text-xs text-[#71717A] uppercase tracking-wider font-normal">Title</th>
-            <th className="text-left py-2.5 px-4 text-xs text-[#71717A] uppercase tracking-wider font-normal">Priority</th>
-            <th className="text-left py-2.5 px-4 text-xs text-[#71717A] uppercase tracking-wider font-normal">Status</th>
-            <th className="text-left py-2.5 px-4 text-xs text-[#71717A] uppercase tracking-wider font-normal hidden md:table-cell">Assigned</th>
-            <th className="text-left py-2.5 px-4 text-xs text-[#71717A] uppercase tracking-wider font-normal hidden lg:table-cell">Repo</th>
-            <th className="text-left py-2.5 px-4 text-xs text-[#71717A] uppercase tracking-wider font-normal hidden sm:table-cell">Updated</th>
+          <tr style={{ background: '#313335', borderBottom: '1px solid #515151' }}>
+            <th className="text-left py-2.5 px-4 text-xs uppercase tracking-wider font-medium" style={{ color: '#808080' }}>Title</th>
+            <th className="text-left py-2.5 px-4 text-xs uppercase tracking-wider font-medium" style={{ color: '#808080' }}>Priority</th>
+            <th className="text-left py-2.5 px-4 text-xs uppercase tracking-wider font-medium" style={{ color: '#808080' }}>Status</th>
+            <th className="text-left py-2.5 px-4 text-xs uppercase tracking-wider font-medium hidden md:table-cell" style={{ color: '#808080' }}>Assigned</th>
+            <th className="text-left py-2.5 px-4 text-xs uppercase tracking-wider font-medium hidden lg:table-cell" style={{ color: '#808080' }}>Repo</th>
+            <th className="text-left py-2.5 px-4 text-xs uppercase tracking-wider font-medium hidden sm:table-cell" style={{ color: '#808080' }}>Updated</th>
           </tr>
         </thead>
         <tbody>
-          {tasks.map((task) => (
-            <tr key={task.id} className="border-b border-[#1F1F23] hover:bg-white/[0.02] transition-colors">
+          {tasks.map((task, i) => (
+            <tr
+              key={task.id}
+              style={{
+                background: i % 2 === 0 ? '#3C3F41' : '#313335',
+                borderBottom: '1px solid #414345',
+              }}
+              onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = '#414345'}
+              onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = i % 2 === 0 ? '#3C3F41' : '#313335'}
+              className="transition-colors"
+            >
               <td className="py-3 px-4">
                 <div className="flex items-center gap-2">
-                  <span className="text-[#FAFAFA] text-sm truncate max-w-[220px]">{task.title}</span>
+                  <span className="text-sm truncate max-w-[220px]" style={{ color: '#FFFFFF' }}>{task.title}</span>
                   {task.pr_number && (
-                    <span className="text-[#6366F1] text-xs font-mono">PR#{task.pr_number}</span>
+                    <span className="text-xs font-mono" style={{ color: '#3592C4' }}>PR#{task.pr_number}</span>
                   )}
                 </div>
               </td>
@@ -46,13 +55,13 @@ export function TaskTable({ tasks }: TaskTableProps) {
                 <StatusBadge status={task.status} />
               </td>
               <td className="py-3 px-4 hidden md:table-cell">
-                <span className="text-[#71717A] text-xs">{task.assigned_to ?? '—'}</span>
+                <span className="text-xs" style={{ color: '#9876AA' }}>{task.assigned_to ?? '—'}</span>
               </td>
               <td className="py-3 px-4 hidden lg:table-cell">
-                <span className="text-[#3F3F46] font-mono text-xs">{task.repo}</span>
+                <span className="text-xs font-mono" style={{ color: '#808080' }}>{task.repo}</span>
               </td>
               <td className="py-3 px-4 hidden sm:table-cell">
-                <span className="text-[#3F3F46] text-xs">{formatDistanceToNow(task.updated_at)}</span>
+                <span className="text-xs" style={{ color: '#808080' }}>{formatDistanceToNow(task.updated_at)}</span>
               </td>
             </tr>
           ))}

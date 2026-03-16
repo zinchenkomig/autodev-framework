@@ -48,38 +48,58 @@
 }
 
 :root {
-  --background: #09090B;
-  --foreground: #FAFAFA;
-  --card: #111113;
-  --card-foreground: #FAFAFA;
-  --popover: #111113;
-  --popover-foreground: #FAFAFA;
-  --primary: #6366F1;
-  --primary-foreground: #FAFAFA;
-  --secondary: #1F1F23;
-  --secondary-foreground: #FAFAFA;
-  --muted: #1F1F23;
-  --muted-foreground: #71717A;
-  --accent: #6366F1;
-  --accent-foreground: #FAFAFA;
-  --destructive: #EF4444;
-  --border: #1F1F23;
-  --input: #1F1F23;
-  --ring: #6366F1;
-  --chart-1: #6366F1;
-  --chart-2: #8B5CF6;
-  --chart-3: #A78BFA;
-  --chart-4: #C4B5FD;
-  --chart-5: #DDD6FE;
+  /* JetBrains Darcula palette */
+  --bg: #2B2B2B;
+  --surface: #3C3F41;
+  --surface-dark: #313335;
+  --border: #515151;
+  --border-subtle: #414345;
+  --text: #BABABA;
+  --text-bright: #FFFFFF;
+  --text-muted: #808080;
+  --accent: #3592C4;
+  --success: #6A8759;
+  --warning: #CC7832;
+  --error: #CC4E4E;
+  --purple: #9876AA;
+  --yellow: #FFC66D;
+  --selection: #214283;
+  --hover: #353739;
+  --active-tab: #4E5254;
+
+  /* shadcn/tailwind compat */
+  --background: #2B2B2B;
+  --foreground: #BABABA;
+  --card: #3C3F41;
+  --card-foreground: #BABABA;
+  --popover: #3C3F41;
+  --popover-foreground: #BABABA;
+  --primary: #3592C4;
+  --primary-foreground: #FFFFFF;
+  --secondary: #313335;
+  --secondary-foreground: #BABABA;
+  --muted: #313335;
+  --muted-foreground: #808080;
+  --accent: #3592C4;
+  --accent-foreground: #FFFFFF;
+  --destructive: #CC4E4E;
+  --border: #515151;
+  --input: #3C3F41;
+  --ring: #3592C4;
+  --chart-1: #3592C4;
+  --chart-2: #6A8759;
+  --chart-3: #CC7832;
+  --chart-4: #9876AA;
+  --chart-5: #FFC66D;
   --radius: 0.375rem;
-  --sidebar: #09090B;
-  --sidebar-foreground: #FAFAFA;
-  --sidebar-primary: #6366F1;
-  --sidebar-primary-foreground: #FAFAFA;
-  --sidebar-accent: rgba(255,255,255,0.05);
-  --sidebar-accent-foreground: #FAFAFA;
-  --sidebar-border: #1F1F23;
-  --sidebar-ring: #6366F1;
+  --sidebar: #313335;
+  --sidebar-foreground: #BABABA;
+  --sidebar-primary: #3592C4;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #353739;
+  --sidebar-accent-foreground: #FFFFFF;
+  --sidebar-border: #515151;
+  --sidebar-ring: #3592C4;
 }
 
 @layer base {
@@ -88,14 +108,12 @@
     box-shadow: none !important;
   }
   body {
-    background-color: #09090B;
-    color: #FAFAFA;
+    background-color: #2B2B2B;
+    color: #BABABA;
+    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
   }
   html {
     @apply font-sans;
-  }
-  .border {
-    border-color: #1F1F23;
   }
   [class*="hover:"] {
     transition: all 150ms;
@@ -109,4 +127,41 @@
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+/* Custom scrollbar for Darcula feel */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #2B2B2B;
+}
+::-webkit-scrollbar-thumb {
+  background: #515151;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #808080;
+}
+
+/* Pulse animation for working agents */
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.animate-status-pulse {
+  animation: status-pulse 1.5s ease-in-out infinite;
+}
+
+/* Section heading style */
+.section-heading {
+  color: #FFC66D;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #515151;
+  margin-bottom: 1rem;
 }

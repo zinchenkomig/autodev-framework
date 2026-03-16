@@ -6,7 +6,7 @@ import { StatCard } from '@/components/StatCard'
 import { TaskTable } from '@/components/TaskTable'
 import { AgentCard } from '@/components/AgentCard'
 import { EventFeed } from '@/components/EventFeed'
-import { Loader2 } from 'lucide-react'
+import { Loader2, CheckSquare, Bot, GitPullRequest, Package } from 'lucide-react'
 
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null)
@@ -35,7 +35,7 @@ export default function DashboardPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-4 h-4 text-[#3F3F46] animate-spin" />
+        <Loader2 className="w-5 h-5 animate-spin" style={{ color: '#3592C4' }} />
       </div>
     )
   }
@@ -44,51 +44,56 @@ export default function DashboardPage() {
   const recentEvents = events.slice(0, 10)
 
   return (
-    <div className="space-y-10 max-w-7xl">
+    <div className="space-y-8 max-w-7xl">
       {/* Page title */}
       <div>
-        <h1 className="text-sm font-semibold text-[#FAFAFA]">Dashboard</h1>
-        <p className="text-xs text-[#71717A] mt-0.5">AutoDev Framework</p>
+        <h1 className="text-xl font-bold" style={{ color: '#FFFFFF' }}>Dashboard</h1>
+        <p className="text-xs mt-0.5" style={{ color: '#808080' }}>AutoDev Framework — Overview</p>
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-px border border-[#1F1F23]">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
           label="Active Tasks"
           value={stats?.active_tasks ?? 0}
           trend={stats?.task_trend}
           description="vs last week"
+          accentColor="#3592C4"
+          icon={<CheckSquare size={18} />}
         />
         <StatCard
           label="Running Agents"
           value={stats?.running_agents ?? 0}
           trend={stats?.agent_trend}
           description="of total"
+          accentColor="#6A8759"
+          icon={<Bot size={18} />}
         />
         <StatCard
           label="Open PRs"
           value={stats?.open_prs ?? 0}
           trend={stats?.pr_trend}
           description="awaiting review"
+          accentColor="#CC7832"
+          icon={<GitPullRequest size={18} />}
         />
         <StatCard
           label="Latest Release"
           value={stats?.latest_release ?? '—'}
           description="on staging"
+          accentColor="#9876AA"
+          icon={<Package size={18} />}
         />
       </div>
 
       {/* Main grid */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         {/* Recent Tasks + Agents */}
-        <div className="xl:col-span-2 space-y-8">
+        <div className="xl:col-span-2 space-y-6">
           {/* Recent Tasks */}
           <div>
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-xs text-[#71717A] uppercase tracking-wider">Recent Tasks</p>
-              <span className="text-xs text-[#3F3F46]">last 10</span>
-            </div>
-            <div className="border border-[#1F1F23] overflow-hidden">
+            <div className="section-heading">Recent Tasks</div>
+            <div style={{ border: '1px solid #515151', borderRadius: '4px', overflow: 'hidden' }}>
               <div className="overflow-x-auto">
                 <TaskTable tasks={recentTasks} />
               </div>
@@ -97,12 +102,10 @@ export default function DashboardPage() {
 
           {/* Agents */}
           <div>
-            <div className="mb-4">
-              <p className="text-xs text-[#71717A] uppercase tracking-wider">Agents</p>
-            </div>
-            <div className="border border-[#1F1F23]">
+            <div className="section-heading">Agents</div>
+            <div style={{ border: '1px solid #515151', borderRadius: '4px' }}>
               {agents.length === 0 ? (
-                <p className="text-xs text-[#3F3F46] text-center py-8">No agents</p>
+                <p className="text-xs text-center py-8" style={{ color: '#808080' }}>No agents</p>
               ) : (
                 <div className="px-4">
                   {agents.map((agent) => (
@@ -116,11 +119,8 @@ export default function DashboardPage() {
 
         {/* Activity Feed */}
         <div>
-          <div className="flex items-center justify-between mb-4">
-            <p className="text-xs text-[#71717A] uppercase tracking-wider">Activity</p>
-            <span className="text-xs text-[#3F3F46]">last 10</span>
-          </div>
-          <div className="border border-[#1F1F23] px-4 py-2">
+          <div className="section-heading">Activity Feed</div>
+          <div style={{ border: '1px solid #515151', borderRadius: '4px', padding: '12px 16px' }}>
             <EventFeed events={recentEvents} />
           </div>
         </div>

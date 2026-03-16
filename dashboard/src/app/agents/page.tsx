@@ -22,7 +22,7 @@ export default function AgentsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-4 h-4 text-[#3F3F46] animate-spin" />
+        <Loader2 className="w-5 h-5 animate-spin" style={{ color: '#3592C4' }} />
       </div>
     )
   }
@@ -31,29 +31,33 @@ export default function AgentsPage() {
   const failed = agents.filter((a) => a.status === 'failed').length
 
   return (
-    <div className="space-y-10 max-w-7xl">
+    <div className="space-y-8 max-w-7xl">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-sm font-semibold text-[#FAFAFA]">Agents</h1>
-          <p className="text-xs text-[#71717A] mt-0.5">Real-time status</p>
+          <h1 className="text-xl font-bold" style={{ color: '#FFFFFF' }}>Agents</h1>
+          <p className="text-xs mt-0.5" style={{ color: '#808080' }}>Real-time status</p>
         </div>
-        <div className="flex items-center gap-4 text-xs text-[#71717A]">
-          <span>
-            <span className="text-[#22C55E] font-mono">{working}</span> working
+        <div className="flex items-center gap-4 text-xs">
+          <span className="flex items-center gap-1.5">
+            <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#6A8759' }} className="animate-status-pulse" />
+            <span style={{ color: '#6A8759' }} className="font-mono font-bold">{working}</span>
+            <span style={{ color: '#808080' }}>working</span>
           </span>
           {failed > 0 && (
-            <span>
-              <span className="text-[#EF4444] font-mono">{failed}</span> failed
+            <span className="flex items-center gap-1.5">
+              <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#CC4E4E' }} />
+              <span style={{ color: '#CC4E4E' }} className="font-mono font-bold">{failed}</span>
+              <span style={{ color: '#808080' }}>failed</span>
             </span>
           )}
-          <span className="text-[#3F3F46]">{agents.length} total</span>
+          <span style={{ color: '#808080' }} className="font-mono">{agents.length} total</span>
         </div>
       </div>
 
       {/* Agent Cards */}
       {agents.length === 0 ? (
-        <p className="text-xs text-[#3F3F46] py-8">No agents</p>
+        <p className="text-xs py-8" style={{ color: '#808080' }}>No agents</p>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
           {agents.map((agent) => (
@@ -64,11 +68,8 @@ export default function AgentsPage() {
 
       {/* Runs Table */}
       <div>
-        <div className="flex items-center justify-between mb-4">
-          <p className="text-xs text-[#71717A] uppercase tracking-wider">Agent Runs</p>
-          <span className="text-xs text-[#3F3F46] font-mono">{runs.length} records</span>
-        </div>
-        <div className="border border-[#1F1F23] overflow-x-auto">
+        <div className="section-heading">Agent Runs</div>
+        <div style={{ border: '1px solid #515151', borderRadius: '4px', overflow: 'hidden' }}>
           <AgentRunsTable runs={runs} />
         </div>
       </div>

@@ -5,33 +5,54 @@ interface AgentCardProps {
   agent: Agent
 }
 
-const statusDot: Record<string, string> = {
-  running: 'text-[#22C55E]',
-  idle:    'text-[#3F3F46]',
-  failed:  'text-[#EF4444]',
+const statusConfig: Record<string, { color: string; label: string; pulse: boolean }> = {
+  running: { color: '#6A8759', label: 'running', pulse: true  },
+  idle:    { color: '#808080', label: 'idle',    pulse: false },
+  failed:  { color: '#CC4E4E', label: 'failed',  pulse: false },
 }
 
 export function AgentCard({ agent }: AgentCardProps) {
-  const dot = statusDot[agent.status] ?? 'text-[#3F3F46]'
+  const cfg = statusConfig[agent.status] ?? statusConfig.idle
 
   return (
-    <div className="py-3 border-b border-[#1F1F23] last:border-b-0 hover:bg-white/[0.02] transition-colors px-1">
+    <div
+      className="py-3 transition-colors"
+      style={{ borderBottom: '1px solid #414345' }}
+      onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.background = '#353739'}
+      onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.background = 'transparent'}
+    >
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-2">
-          <span className={`text-xs ${dot}`}>●</span>
-          <span className="text-sm text-[#FAFAFA]">{agent.role}</span>
+          <span
+            className={cfg.pulse ? 'animate-status-pulse' : ''}
+            style={{
+              display: 'inline-block',
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              background: cfg.color,
+              flexShrink: 0,
+            }}
+          />
+          <span className="text-sm font-medium" style={{ color: '#FFFFFF' }}>{agent.role}</span>
+          <span
+            className="text-xs px-1.5 py-0.5 rounded font-mono"
+            style={{ color: cfg.color, background: `${cfg.color}20` }}
+          >
+            {cfg.label}
+          </span>
         </div>
-        <span className="text-xs text-[#3F3F46] font-mono">{agent.total_runs} runs</span>
+        <span className="text-xs font-mono" style={{ color: '#808080' }}>{agent.total_runs} runs</span>
       </div>
 
       {agent.current_task_title && (
-        <p className="text-xs text-[#71717A] truncate ml-4">{agent.current_task_title}</p>
+        <p className="text-xs truncate ml-5" style={{ color: '#BABABA' }}>{agent.current_task_title}</p>
       )}
 
-      <div className="flex items-center justify-between mt-1 ml-4">
-        <span className="text-xs font-mono text-[#3F3F46]">{agent.id}</span>
+      <div className="flex items-center justify-between mt-1 ml-5">
+        <span className="text-xs font-mono" style={{ color: '#808080' }}>{agent.id}</span>
         {agent.last_run_at && (
-          <span className="text-xs text-[#3F3F46]">{formatDistanceToNow(agent.last_run_at)}</span>
+          <span className="text-xs" style={{ color: '#808080' }}>{formatDistanceToNow(agent.last_run_at)}</span>
         )}
       </div>
     </div>

@@ -13,33 +13,46 @@ interface KanbanColumnProps {
   onTaskClick: (task: Task) => void
 }
 
-const statusDot: Record<string, string> = {
-  queued:      'text-[#71717A]',
-  in_progress: 'text-[#F59E0B]',
-  review:      'text-[#6366F1]',
-  done:        'text-[#22C55E]',
+const columnConfig: Record<string, { dot: string; bg: string; badge: string }> = {
+  queued:      { dot: '#808080',  bg: '#313335', badge: 'rgba(128,128,128,0.2)' },
+  in_progress: { dot: '#CC7832',  bg: '#313335', badge: 'rgba(204,120,50,0.2)'  },
+  review:      { dot: '#3592C4',  bg: '#313335', badge: 'rgba(53,146,196,0.2)'  },
+  done:        { dot: '#6A8759',  bg: '#313335', badge: 'rgba(106,135,89,0.2)'  },
 }
 
 export function KanbanColumn({ id, title, tasks, onTaskClick }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id })
-  const dot = statusDot[id] ?? 'text-[#3F3F46]'
+  const cfg = columnConfig[id] ?? columnConfig.queued
 
   return (
-    <div className="flex flex-col min-w-[260px] w-full border-r border-[#1F1F23] last:border-r-0 px-3">
+    <div
+      className="flex flex-col min-w-[260px] w-full"
+      style={{
+        borderRight: '1px solid #515151',
+      }}
+    >
       {/* Column header */}
-      <div className="flex items-center gap-2 mb-4 py-1">
-        <span className={`text-xs ${dot}`}>●</span>
-        <span className="text-xs text-[#71717A] uppercase tracking-wider">{title}</span>
-        <span className="ml-auto text-xs font-mono text-[#3F3F46]">{tasks.length}</span>
+      <div
+        className="flex items-center gap-2 px-3 py-2.5"
+        style={{ borderBottom: '1px solid #515151', background: '#2B2B2B' }}
+      >
+        <span className="text-xs" style={{ color: cfg.dot }}>●</span>
+        <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: '#BABABA' }}>{title}</span>
+        <span
+          className="ml-auto text-xs font-mono px-1.5 py-0.5 rounded"
+          style={{ color: cfg.dot, background: cfg.badge }}
+        >
+          {tasks.length}
+        </span>
       </div>
 
       {/* Drop zone */}
       <div
         ref={setNodeRef}
-        className={`
-          flex-1 min-h-[120px] transition-colors
-          ${isOver ? 'bg-white/[0.02]' : ''}
-        `}
+        className="flex-1 min-h-[120px] p-2 transition-colors"
+        style={{
+          background: isOver ? '#353739' : cfg.bg,
+        }}
       >
         <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
           <div className="flex flex-col gap-2">
@@ -47,8 +60,8 @@ export function KanbanColumn({ id, title, tasks, onTaskClick }: KanbanColumnProp
               <TaskCard key={task.id} task={task} onClick={onTaskClick} />
             ))}
             {tasks.length === 0 && (
-              <div className="flex items-center justify-center h-16 text-[#3F3F46] text-xs">
-                empty
+              <div className="flex items-center justify-center h-16 text-xs" style={{ color: '#515151' }}>
+                drop tasks here
               </div>
             )}
           </div>

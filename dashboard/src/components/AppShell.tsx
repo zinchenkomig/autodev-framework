@@ -8,11 +8,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#09090B]">
+    <div className="flex h-screen overflow-hidden" style={{ background: '#2B2B2B' }}>
       {/* Mobile overlay */}
       {mobileSidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/60 z-20 md:hidden"
+          className="fixed inset-0 z-20 md:hidden"
+          style={{ background: 'rgba(0,0,0,0.7)' }}
           onClick={() => setMobileSidebarOpen(false)}
         />
       )}
@@ -29,10 +30,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-        {/* Header – minimal, mobile only shows hamburger */}
-        <header className="h-12 border-b border-[#1F1F23] flex items-center px-4 shrink-0 md:hidden">
+        {/* Mobile header */}
+        <header
+          className="h-12 flex items-center px-4 shrink-0 md:hidden"
+          style={{ borderBottom: '1px solid #515151', background: '#313335' }}
+        >
           <button
-            className="p-1.5 text-[#71717A] hover:text-[#FAFAFA] transition-colors"
+            className="p-1.5 transition-colors"
+            style={{ color: '#808080' }}
             onClick={() => setMobileSidebarOpen(true)}
             aria-label="Open menu"
           >
@@ -41,7 +46,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* Main content */}
-        <main className="flex-1 overflow-y-auto p-6 md:p-8">
+        <main className="flex-1 overflow-y-auto p-6 md:p-8" style={{ background: '#2B2B2B' }}>
           {children}
         </main>
       </div>
