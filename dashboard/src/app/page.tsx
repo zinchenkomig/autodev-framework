@@ -55,28 +55,28 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="Active Tasks"
-          value={stats!.active_tasks}
+          value={stats?.active_tasks ?? 0}
           icon={ListTodo}
-          trend={stats!.task_trend}
+          trend={stats?.task_trend}
           description="vs last week"
         />
         <StatCard
           label="Running Agents"
-          value={stats!.running_agents}
+          value={stats?.running_agents ?? 0}
           icon={Bot}
-          trend={stats!.agent_trend}
-          description="of 4 total"
+          trend={stats?.agent_trend}
+          description="of total"
         />
         <StatCard
           label="Open PRs"
-          value={stats!.open_prs}
+          value={stats?.open_prs ?? 0}
           icon={GitPullRequest}
-          trend={stats!.pr_trend}
+          trend={stats?.pr_trend}
           description="awaiting review"
         />
         <StatCard
           label="Latest Release"
-          value={stats!.latest_release ?? '—'}
+          value={stats?.latest_release ?? '—'}
           icon={Tag}
           description="on staging"
         />
@@ -102,10 +102,16 @@ export default function DashboardPage() {
             <div className="px-5 py-4 border-b border-gray-800">
               <h3 className="text-white font-semibold">Agent Status</h3>
             </div>
-            <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {agents.map((agent) => (
-                <AgentCard key={agent.id} agent={agent} />
-              ))}
+            <div className="p-5">
+              {agents.length === 0 ? (
+                <p className="text-gray-500 text-sm text-center py-4">Нет агентов</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {agents.map((agent) => (
+                    <AgentCard key={agent.id} agent={agent} />
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

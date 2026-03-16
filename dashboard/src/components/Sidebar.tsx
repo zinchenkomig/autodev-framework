@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useState } from 'react'
 import {
   LayoutDashboard, ClipboardList, Bot, Package,
-  ScrollText, Settings, ChevronLeft, ChevronRight, Cpu, X
+  ScrollText, Settings, ChevronLeft, ChevronRight, Cpu, X, Share2
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -13,6 +13,7 @@ const navItems = [
   { href: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { href: '/tasks', icon: ClipboardList, label: 'Tasks' },
   { href: '/agents', icon: Bot, label: 'Agents' },
+  { href: '/agents/graph', icon: Share2, label: 'Agent Graph', sub: true },
   { href: '/releases', icon: Package, label: 'Releases' },
   { href: '/events', icon: ScrollText, label: 'Events' },
   { href: '/settings', icon: Settings, label: 'Settings' },
@@ -56,8 +57,8 @@ export function Sidebar({ onClose }: SidebarProps) {
 
       {/* Nav */}
       <nav className="flex-1 py-4 px-2 space-y-1">
-        {navItems.map(({ href, icon: Icon, label }) => {
-          const isActive = href === '/' ? pathname === '/' : pathname.startsWith(href)
+        {navItems.map(({ href, icon: Icon, label, sub }) => {
+          const isActive = href === '/' ? pathname === '/' : pathname === href
           return (
             <Link
               key={href}
@@ -68,11 +69,12 @@ export function Sidebar({ onClose }: SidebarProps) {
                 isActive
                   ? 'bg-blue-500/15 text-blue-400 border border-blue-500/20'
                   : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800',
-                collapsed && 'justify-center px-2'
+                collapsed && 'justify-center px-2',
+                sub && !collapsed && 'ml-4 text-xs py-2'
               )}
               title={collapsed ? label : undefined}
             >
-              <Icon className="w-5 h-5 shrink-0" />
+              <Icon className={cn('shrink-0', sub ? 'w-4 h-4' : 'w-5 h-5')} />
               {!collapsed && <span>{label}</span>}
             </Link>
           )

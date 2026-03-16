@@ -62,11 +62,17 @@ export default function AgentsPage() {
       </div>
 
       {/* Agent Cards Grid – 1 col on mobile, 2 on sm, 3 on lg, 5 on xl */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-        {agents.map((agent) => (
-          <AgentMonitorCard key={agent.id} agent={agent} />
-        ))}
-      </div>
+      {agents.length === 0 ? (
+        <div className="bg-gray-800/50 border border-gray-700/50 rounded-xl p-12 text-center">
+          <p className="text-gray-500 text-sm">Нет агентов</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+          {agents.map((agent) => (
+            <AgentMonitorCard key={agent.id} agent={agent} />
+          ))}
+        </div>
+      )}
 
       {/* Agent Runs Table */}
       <div className="bg-gray-800/50 border border-gray-700/50 rounded-xl p-4 md:p-6">

@@ -20,6 +20,14 @@ const statusLabels: Record<AgentRun['run_status'], string> = {
 }
 
 export function AgentRunsTable({ runs }: AgentRunsTableProps) {
+  if (runs.length === 0) {
+    return (
+      <div className="py-12 text-center text-gray-500 text-sm">
+        Нет запусков агентов
+      </div>
+    )
+  }
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">

@@ -28,6 +28,14 @@ interface EventFeedProps {
 }
 
 export function EventFeed({ events }: EventFeedProps) {
+  if (events.length === 0) {
+    return (
+      <div className="py-8 text-center text-gray-500 text-sm">
+        Нет событий
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-0">
       {events.map((event, index) => {

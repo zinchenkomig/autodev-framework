@@ -29,10 +29,24 @@ export default function MetricsPage() {
     })
   }, [])
 
-  if (loading || !cost || !speed || !quality) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="w-6 h-6 text-gray-500 animate-spin" />
+      </div>
+    )
+  }
+
+  if (!cost || !speed || !quality) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-2xl font-bold text-white">Metrics &amp; Analytics</h2>
+          <p className="text-gray-400 text-sm mt-1">Last 30 days</p>
+        </div>
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-12 text-center">
+          <p className="text-gray-500">Нет данных метрик. API недоступен.</p>
+        </div>
       </div>
     )
   }
