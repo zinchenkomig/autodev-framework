@@ -66,19 +66,29 @@ const EDGES: GraphEdge[] = [
 
 // ─── Color schemes (Darcula) ──────────────────────────────────────────────────
 
-function agentColors(status?: string) {
+function agentColors(status?: string, agentId?: string) {
   if (status === 'running' || status === 'working') return { fill: '#214283', stroke: '#3592C4', text: '#FFFFFF' }
+  // Per-agent accent colors when idle
+  const agentAccents: Record<string, {fill: string, stroke: string}> = {
+    pm: { fill: '#3A2B4F', stroke: '#9876AA' },
+    developer: { fill: '#2B3A4F', stroke: '#3592C4' },
+    tester: { fill: '#2D3A2D', stroke: '#6A8759' },
+    ba: { fill: '#3A3A2B', stroke: '#FFC66D' },
+    release_manager: { fill: '#3A2B2B', stroke: '#CC7832' },
+  }
   if (status === 'failed')                          return { fill: '#3C1F1F', stroke: '#CC4E4E', text: '#FFFFFF' }
-  return { fill: '#3C3F41', stroke: '#515151', text: '#BABABA' }
+  const accent = agentAccents[agentId ?? '']
+  if (accent) return { fill: accent.fill, stroke: accent.stroke, text: '#A9B7C6' }
+  return { fill: '#2B3C4F', stroke: '#3592C4', text: '#A9B7C6' }
 }
 
-const PROCESS_COLORS  = { fill: '#313335', stroke: '#515151', text: '#808080' }
-const ENV_COLORS      = { fill: '#313335', stroke: '#515151', text: '#808080' }
-const EXTERNAL_COLORS = { fill: '#2B2B2B', stroke: '#515151', text: '#808080' }
+const PROCESS_COLORS  = { fill: '#2D3A2D', stroke: '#6A8759', text: '#A9B7C6' }
+const ENV_COLORS      = { fill: '#2B2D3A', stroke: '#CC7832', text: '#FFC66D' }
+const EXTERNAL_COLORS = { fill: '#2B2B3A', stroke: '#9876AA', text: '#B0A8C0' }
 
 function nodeColors(node: GraphNode, status?: string) {
   switch (node.type) {
-    case 'agent':       return agentColors(status)
+    case 'agent':       return agentColors(status, node.id)
     case 'process':     return PROCESS_COLORS
     case 'environment': return ENV_COLORS
     case 'external':    return EXTERNAL_COLORS
