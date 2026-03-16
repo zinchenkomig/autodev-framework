@@ -4,10 +4,12 @@ WORKDIR /app
 
 RUN pip install uv
 
-COPY pyproject.toml uv.lock* ./
-RUN uv sync --locked --no-dev 2>/dev/null || uv sync --no-dev
+COPY pyproject.toml uv.lock README.md ./
+RUN uv sync --no-dev --frozen
 
-COPY . .
+COPY autodev/ autodev/
+COPY migrations/ migrations/
+COPY alembic.ini .
 
 EXPOSE 8000
 

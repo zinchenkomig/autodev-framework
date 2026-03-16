@@ -59,12 +59,12 @@ def create_app() -> FastAPI:
     )
 
     # REST routers
-    app.include_router(tasks.router, prefix="/api/v1/tasks", tags=["tasks"])
-    app.include_router(agents.router, prefix="/api/v1/agents", tags=["agents"])
-    app.include_router(events.router, prefix="/api/v1/events", tags=["events"])
-    app.include_router(releases.router, prefix="/api/v1/releases", tags=["releases"])
-    app.include_router(webhooks.router, prefix="/api/v1/webhooks", tags=["webhooks"])
-    app.include_router(metrics_router.router, prefix="/api/metrics", tags=["metrics"])
+    app.include_router(tasks.router, prefix="/tasks", tags=["tasks"])
+    app.include_router(agents.router, prefix="/agents", tags=["agents"])
+    app.include_router(events.router, prefix="/events", tags=["events"])
+    app.include_router(releases.router, prefix="/releases", tags=["releases"])
+    app.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
+    app.include_router(metrics_router.router, prefix="/metrics", tags=["metrics"])
 
     # WebSocket
     app.include_router(ws_router, prefix="/ws", tags=["websocket"])

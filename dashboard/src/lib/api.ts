@@ -1,4 +1,4 @@
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? ''
 
 export type Priority = 'critical' | 'high' | 'normal' | 'low'
 export type TaskStatus = 'queued' | 'assigned' | 'in_progress' | 'review' | 'done' | 'failed'
@@ -446,33 +446,33 @@ async function apiFetch<T>(path: string, fallback: T, options?: RequestInit): Pr
 // ---------------------------------------------------------------------------
 
 export async function getTasks(): Promise<Task[]> {
-  return apiFetch<Task[]>('/api/v1/tasks/', MOCK_TASKS)
+  return apiFetch<Task[]>('/api/tasks/', MOCK_TASKS)
 }
 
 export async function getAgents(): Promise<Agent[]> {
-  return apiFetch<Agent[]>('/api/v1/agents/', MOCK_AGENTS)
+  return apiFetch<Agent[]>('/api/agents/', MOCK_AGENTS)
 }
 
 export async function getEvents(): Promise<Event[]> {
-  return apiFetch<Event[]>('/api/v1/events/', MOCK_EVENTS)
+  return apiFetch<Event[]>('/api/events/', MOCK_EVENTS)
 }
 
 export async function getReleases(): Promise<Release[]> {
-  return apiFetch<Release[]>('/api/v1/releases/', MOCK_RELEASES)
+  return apiFetch<Release[]>('/api/releases/', MOCK_RELEASES)
 }
 
 export async function getRelease(id: string): Promise<Release | null> {
   const fallback = MOCK_RELEASES.find(r => r.id === id) ?? null
-  return apiFetch<Release | null>(`/api/v1/releases/${id}`, fallback)
+  return apiFetch<Release | null>(`/api/releases/${id}`, fallback)
 }
 
 export async function getStats(): Promise<DashboardStats> {
-  return apiFetch<DashboardStats>('/api/dashboard/stats', MOCK_STATS)
+  return apiFetch<DashboardStats>('/api/stats', MOCK_STATS)
 }
 
 export async function getAgentMonitors(): Promise<AgentMonitor[]> {
-  // Derives from /api/v1/agents/ — map to AgentMonitor shape with fallback
-  const agents = await apiFetch<Agent[]>('/api/v1/agents/', MOCK_AGENTS)
+  // Derives from /api/agents/ — map to AgentMonitor shape with fallback
+  const agents = await apiFetch<Agent[]>('/api/agents/', MOCK_AGENTS)
   if (agents === MOCK_AGENTS) return MOCK_AGENT_MONITORS
   return agents.map(a => ({
     id: a.id,
@@ -497,7 +497,7 @@ export async function getAgentRuns(): Promise<AgentRun[]> {
 // ---------------------------------------------------------------------------
 
 export async function createTask(data: Partial<Task>): Promise<Task> {
-  const res = await fetch(`${BASE_URL}/api/v1/tasks/`, {
+  const res = await fetch(`${BASE_URL}/api/tasks/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -507,7 +507,7 @@ export async function createTask(data: Partial<Task>): Promise<Task> {
 }
 
 export async function updateTask(id: string, data: Partial<Task>): Promise<Task> {
-  const res = await fetch(`${BASE_URL}/api/v1/tasks/${id}`, {
+  const res = await fetch(`${BASE_URL}/api/tasks/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -517,7 +517,7 @@ export async function updateTask(id: string, data: Partial<Task>): Promise<Task>
 }
 
 export async function createRelease(data: { version: string; release_notes?: string; tasks?: string[] }): Promise<Release> {
-  const res = await fetch(`${BASE_URL}/api/v1/releases/`, {
+  const res = await fetch(`${BASE_URL}/api/releases/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -527,7 +527,7 @@ export async function createRelease(data: { version: string; release_notes?: str
 }
 
 export async function approveRelease(id: string, approvedBy = 'user'): Promise<Release> {
-  const res = await fetch(`${BASE_URL}/api/v1/releases/${id}/approve`, {
+  const res = await fetch(`${BASE_URL}/api/releases/${id}/approve`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ approved_by: approvedBy }),
@@ -537,7 +537,7 @@ export async function approveRelease(id: string, approvedBy = 'user'): Promise<R
 }
 
 export async function triggerAgent(agentId: string): Promise<{ event_id: string; agent_id: string; message: string }> {
-  const res = await fetch(`${BASE_URL}/api/v1/agents/${agentId}/trigger`, {
+  const res = await fetch(`${BASE_URL}/api/agents/${agentId}/trigger`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   })
