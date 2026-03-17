@@ -1,23 +1,38 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { getAgentMonitors, getAgentRuns, type AgentMonitor, type AgentRun } from '@/lib/api'
 import { AgentMonitorCard } from '@/components/agents/AgentMonitorCard'
 import { AgentRunsTable } from '@/components/agents/AgentRunsTable'
+import { AgentLogsViewer } from '@/components/agents/AgentLogsViewer'
 import { Loader2 } from 'lucide-react'
 
 export default function AgentsPage() {
   const [agents, setAgents] = useState<AgentMonitor[]>([])
   const [runs, setRuns] = useState<AgentRun[]>([])
   const [loading, setLoading] = useState(true)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const fetchData = async () => {
+    const [a, r] = await Promise.all([getAgentMonitors(), getAgentRuns()])
+    setAgents(a)
+    setRuns(r)
+    setLoading(false)
+  }
 
   useEffect(() => {
-    Promise.all([getAgentMonitors(), getAgentRuns()]).then(([a, r]) => {
-      setAgents(a)
-      setRuns(r)
-      setLoading(false)
-    })
+    fetchData()
   }, [])
+
+  // Auto-refresh agent statuses every 10s when any agent is working
+  const anyWorking = agents.some(a => a.status === 'working')
+  useEffect(() => {
+    if (intervalRef.current) clearInterval(intervalRef.current)
+    if (anyWorking) {
+      intervalRef.current = setInterval(fetchData, 10_000)
+    }
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
+  }, [anyWorking])
 
   if (loading) {
     return (
@@ -63,6 +78,14 @@ export default function AgentsPage() {
           {agents.map((agent) => (
             <AgentMonitorCard key={agent.id} agent={agent} />
           ))}
+        </div>
+      )}
+
+      {/* Agent Logs */}
+      {agents.length > 0 && (
+        <div>
+          <div className="section-heading">Agent Logs</div>
+          <AgentLogsViewer agents={agents} />
         </div>
       )}
 

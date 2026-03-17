@@ -106,6 +106,18 @@ export interface AgentRun {
   finished_at: string | null
 }
 
+export type AgentLogLevel = 'info' | 'warning' | 'error'
+
+export interface AgentLog {
+  id: string
+  agent_id: string
+  task_id: string | null
+  level: AgentLogLevel
+  message: string
+  details: string | null
+  created_at: string
+}
+
 // ---------------------------------------------------------------------------
 // Generic fetch helper — returns null on error, no mock fallback
 // ---------------------------------------------------------------------------
@@ -173,6 +185,12 @@ export async function getAgentMonitors(): Promise<AgentMonitor[]> {
 
 export async function getAgentRuns(): Promise<AgentRun[]> {
   return (await apiFetch<AgentRun[]>('/api/agents/runs/')) ?? []
+}
+
+export async function getAgentLogs(agentId: string, limit = 50, taskId?: string): Promise<AgentLog[]> {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (taskId) params.set('task_id', taskId)
+  return (await apiFetch<AgentLog[]>(`/api/agents/${agentId}/logs?${params}`)) ?? []
 }
 
 // ---------------------------------------------------------------------------

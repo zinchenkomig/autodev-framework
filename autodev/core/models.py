@@ -315,6 +315,30 @@ class ChatMessage(Base):
         return f"<ChatMessage id={self.id} role={self.role!r}>"
 
 
+class AgentLog(Base):
+    """A log entry emitted by the orchestrator during task processing."""
+
+    __tablename__ = "agent_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        _UUID(), primary_key=True, default=uuid.uuid4
+    )
+    agent_id: Mapped[str] = mapped_column(String(100), index=True, nullable=False)
+    task_id: Mapped[uuid.UUID | None] = mapped_column(
+        _UUID(), ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True
+    )
+    # level values: info | warning | error
+    level: Mapped[str] = mapped_column(String(20), nullable=False, default="info")
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<AgentLog id={self.id} agent_id={self.agent_id!r} level={self.level!r}>"
+
+
 class Release(Base):
     """A software release artifact."""
 

@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from autodev.core.config import ProjectConfig, load_config
-from autodev.core.models import Agent, AgentStatus, Base, Event, Task, TaskStatus
+from autodev.core.models import Agent, AgentLog, AgentStatus, Base, Event, Task, TaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -178,15 +178,20 @@ class Orchestrator:
         # 1. Mark in_progress + assign developer agent
         await self._update_task_status(task_id, TaskStatus.IN_PROGRESS)
         await self._update_agent_status("developer", AgentStatus.WORKING, task_id)
+        await self._log("developer", task_id, "info", f"Started processing task: {task.title}")
 
         try:
             # 2. Clone repo (develop branch if it exists, else default)
             if repo_name:
                 clone_url = f"https://x-access-token:{self.github_token}@github.com/zinchenkomig/{repo_name}.git" if self.github_token else f"https://github.com/zinchenkomig/{repo_name}.git"
+                await self._log("developer", task_id, "info", f"Cloning repo {repo_name}...")
                 await self._run_shell(
                     f"git clone -b develop {clone_url} {workdir} "
                     f"|| git clone {clone_url} {workdir}",
                     timeout=120,
+                )
+                await self._log(
+                    "developer", task_id, "info", f"Repo {repo_name} cloned successfully"
                 )
             else:
                 Path(workdir).mkdir(parents=True, exist_ok=True)
@@ -197,6 +202,7 @@ class Orchestrator:
                 await self._run_shell(
                     f"git -C {workdir} checkout -b {branch}", timeout=30
                 )
+                await self._log("developer", task_id, "info", f"Created branch {branch}")
 
             # 4. Build instructions (task description + CLAUDE.md context)
             instructions = task.description or task.title
@@ -209,6 +215,7 @@ class Orchestrator:
             from autodev.core.runner import ClaudeCodeRunner
 
             runner = ClaudeCodeRunner(model="claude-sonnet-4-20250514", timeout=600)
+            await self._log("developer", task_id, "info", "Running Claude Code...")
             logger.info("Running ClaudeCodeRunner for task %s", task_id)
             result = await runner.run(
                 instructions, context={"workdir": workdir, "task_id": task_id}
@@ -218,12 +225,20 @@ class Orchestrator:
                 result.status,
                 result.duration_seconds,
             )
+            await self._log(
+                "developer",
+                task_id,
+                "info" if result.status == "success" else "error",
+                f"Claude Code finished in {result.duration_seconds:.1f}s (status={result.status})",
+                details=getattr(result, "output", None),
+            )
 
             pr_number: int | None = None
 
             if result.status == "success" and repo_name:
                 # 6. Commit & push
                 commit_msg = f"feat: {task.title[:72]} [autodev-{task_id[:8]}]"
+                await self._log("developer", task_id, "info", "Committing and pushing changes...")
                 await self._run_shell(
                     f"git -C {workdir} add -A && "
                     f'git -C {workdir} diff --cached --quiet || '
@@ -233,16 +248,29 @@ class Orchestrator:
                 )
 
                 # 7. Create PR via GitHub
+                await self._log("developer", task_id, "info", f"Creating PR for branch {branch}...")
                 pr_number = await self._create_pr(
                     repo=repo_name,
                     branch=branch,
                     title=task.title,
                     body=f"Automated PR for task {task_id}\n\n{task.description or ''}",
                 )
+                if pr_number:
+                    await self._log(
+                        "developer", task_id, "info", f"PR #{pr_number} created successfully"
+                    )
+                else:
+                    await self._log(
+                        "developer", task_id, "warning",
+                        "PR creation skipped (no token or failed silently)",
+                    )
 
             # 8. Update task status
             final_status = TaskStatus.DONE if result.status == "success" else TaskStatus.FAILED
             await self._update_task_status(task_id, final_status, pr_number=pr_number)
+            await self._log(
+                "developer", task_id, "info", f"Task completed with status: {final_status}"
+            )
 
             # 9. Emit events
             await self._emit_event("task.completed", {"task_id": task_id, "status": final_status})
@@ -256,6 +284,7 @@ class Orchestrator:
 
         except Exception as exc:
             logger.exception("Task %s failed with exception", task_id)
+            await self._log("developer", task_id, "error", f"Task failed: {exc}", details=str(exc))
             await self._update_task_status(task_id, TaskStatus.FAILED)
             await self._emit_event("task.failed", {"task_id": task_id, "error": str(exc)})
 
@@ -312,6 +341,34 @@ class Orchestrator:
                 else:
                     agent.current_task_id = None
                 await session.commit()
+
+    async def _log(
+        self,
+        agent_id: str,
+        task_id: str | None,
+        level: str,
+        message: str,
+        details: str | None = None,
+    ) -> None:
+        """Persist an AgentLog entry to the database."""
+        import uuid as _uuid
+
+        async with self._session_factory() as session:
+            tid: _uuid.UUID | None = None
+            if task_id is not None:
+                try:
+                    tid = _uuid.UUID(task_id)
+                except ValueError:
+                    pass
+            log = AgentLog(
+                agent_id=agent_id,
+                task_id=tid,
+                level=level,
+                message=message,
+                details=details,
+            )
+            session.add(log)
+            await session.commit()
 
     async def _emit_event(self, event_type: str, payload: dict) -> None:
         async with self._session_factory() as session:
