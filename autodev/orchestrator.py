@@ -62,6 +62,7 @@ class Orchestrator:
         )
         self._engine = create_async_engine(self.db_url, echo=False)
         self._session_factory = async_sessionmaker(self._engine, expire_on_commit=False)
+        self.github_token = os.environ.get("GITHUB_TOKEN", "")
 
     # ------------------------------------------------------------------
     # Startup
@@ -181,7 +182,7 @@ class Orchestrator:
         try:
             # 2. Clone repo (develop branch if it exists, else default)
             if repo_name:
-                clone_url = f"git@github.com:zinchenkomig/{repo_name}.git"
+                clone_url = f"https://x-access-token:{self.github_token}@github.com/zinchenkomig/{repo_name}.git" if self.github_token else f"https://github.com/zinchenkomig/{repo_name}.git"
                 await self._run_shell(
                     f"git clone -b develop {clone_url} {workdir} "
                     f"|| git clone {clone_url} {workdir}",
