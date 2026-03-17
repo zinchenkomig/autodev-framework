@@ -1,17 +1,55 @@
 'use client'
 
-import { type Task } from '@/lib/api'
+import { useState } from 'react'
+import { type Task, type TaskStatus, updateTask } from '@/lib/api'
 import { formatDistanceToNow } from '@/lib/utils'
 import { X, GitPullRequest } from 'lucide-react'
-import { PriorityBadge, StatusBadge } from '@/components/Badge'
+import { PriorityBadge } from '@/components/Badge'
 
 interface TaskDetailProps {
   task: Task | null
   onClose: () => void
+  onStatusChange?: (taskId: string, newStatus: TaskStatus) => void
 }
 
-export function TaskDetail({ task, onClose }: TaskDetailProps) {
+const STATUS_PILLS: { id: TaskStatus; label: string }[] = [
+  { id: 'queued',      label: 'Queued'      },
+  { id: 'in_progress', label: 'In Progress' },
+  { id: 'review',      label: 'Review'      },
+  { id: 'done',        label: 'Done'        },
+]
+
+const STATUS_DOT: Record<TaskStatus, string> = {
+  queued:      '#808080',
+  assigned:    '#9876AA',
+  in_progress: '#CC7832',
+  review:      '#3592C4',
+  done:        '#6A8759',
+  failed:      '#CC4E4E',
+}
+
+export function TaskDetail({ task, onClose, onStatusChange }: TaskDetailProps) {
+  const [currentStatus, setCurrentStatus] = useState<TaskStatus | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  // Reset local state whenever the task changes
+  const effectiveStatus: TaskStatus = currentStatus ?? (task?.status ?? 'queued')
+
   if (!task) return null
+
+  async function handleStatusClick(status: TaskStatus) {
+    if (!task || status === effectiveStatus || saving) return
+    setSaving(true)
+    try {
+      await updateTask(task.id, { status })
+      setCurrentStatus(status)
+      onStatusChange?.(task.id, status)
+    } catch (err) {
+      console.warn('[TaskDetail] status update failed', err)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <>
@@ -22,7 +60,6 @@ export function TaskDetail({ task, onClose }: TaskDetailProps) {
         <div className="flex items-start gap-3 px-5 py-4 border-b border-[#1F1F23]">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3 mb-2">
-              <StatusBadge status={task.status} />
               <PriorityBadge priority={task.priority} />
             </div>
             <p className="text-sm text-[#FAFAFA] leading-snug">{task.title}</p>
@@ -37,6 +74,44 @@ export function TaskDetail({ task, onClose }: TaskDetailProps) {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+
+          {/* ── Status picker ── */}
+          <div>
+            <p className="text-xs text-[#71717A] uppercase tracking-wider mb-3">Status</p>
+            <div className="flex flex-wrap gap-2">
+              {STATUS_PILLS.map(({ id, label }) => {
+                const isActive = effectiveStatus === id
+                const dot = STATUS_DOT[id]
+                return (
+                  <button
+                    key={id}
+                    disabled={saving}
+                    onClick={() => handleStatusClick(id)}
+                    className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all disabled:opacity-60"
+                    style={{
+                      border: `1px solid ${isActive ? dot : '#3F3F46'}`,
+                      background: isActive ? `${dot}22` : 'transparent',
+                      color: isActive ? dot : '#71717A',
+                      cursor: saving ? 'not-allowed' : isActive ? 'default' : 'pointer',
+                    }}
+                  >
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        width: '6px',
+                        height: '6px',
+                        borderRadius: '50%',
+                        background: isActive ? dot : '#3F3F46',
+                        flexShrink: 0,
+                      }}
+                    />
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
           {task.description && (
             <div>
               <p className="text-xs text-[#71717A] uppercase tracking-wider mb-2">Description</p>
@@ -89,7 +164,7 @@ export function TaskDetail({ task, onClose }: TaskDetailProps) {
                 <span className="text-xs text-[#3F3F46] mt-0.5">●</span>
                 <div>
                   <p className="text-xs text-[#71717A]">
-                    Status → <span className="text-[#FAFAFA]">{task.status}</span>
+                    Status → <span className="text-[#FAFAFA]">{effectiveStatus}</span>
                     <span className="text-[#3F3F46] ml-1">by {task.assigned_to ?? 'system'}</span>
                   </p>
                   <p className="text-xs text-[#3F3F46]">{formatDistanceToNow(task.updated_at)}</p>

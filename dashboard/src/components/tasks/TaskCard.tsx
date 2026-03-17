@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { type Task } from '@/lib/api'
@@ -53,7 +53,6 @@ export function TaskCard({ task, onClick, onDelete, onRequeue }: TaskCardProps) 
       await deleteTask(task.id)
       onDelete?.(task.id)
     } catch {
-      // silently fail — task still removed optimistically if onDelete called
       onDelete?.(task.id)
     } finally {
       setDeleting(false)
@@ -87,6 +86,8 @@ export function TaskCard({ task, onClick, onDelete, onRequeue }: TaskCardProps) 
         borderRadius: '4px',
         cursor: 'pointer',
         position: 'relative',
+        /* Prevent confirm popover from escaping into sidebar */
+        overflow: 'visible',
       }}
       className="p-3 transition-colors group"
       onClick={() => onClick(task)}
@@ -97,9 +98,10 @@ export function TaskCard({ task, onClick, onDelete, onRequeue }: TaskCardProps) 
         if (!isDragging) (e.currentTarget as HTMLDivElement).style.background = '#3C3F41'
       }}
     >
-      {/* Action buttons — visible on hover */}
+      {/* Action buttons — inside card, top-right corner, visible on hover */}
       <div
         className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+        style={{ zIndex: 10 }}
         onClick={e => e.stopPropagation()}
       >
         {canRequeue && (
@@ -115,51 +117,46 @@ export function TaskCard({ task, onClick, onDelete, onRequeue }: TaskCardProps) 
             <Undo2 className="w-3 h-3" />
           </button>
         )}
-        <div className="relative">
-          <button
-            onClick={e => { e.stopPropagation(); setShowConfirm(v => !v) }}
-            title="Delete task"
-            className="flex items-center justify-center w-5 h-5 rounded transition-colors"
-            style={{ color: '#808080', background: 'transparent' }}
-            onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.color = '#CC4E4E'}
-            onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.color = '#808080'}
-          >
-            <Trash2 className="w-3 h-3" />
-          </button>
 
-          {/* Confirm popover */}
-          {showConfirm && (
-            <div
-              className="absolute right-0 top-6 z-50 flex flex-col gap-2 p-3 rounded shadow-lg"
-              style={{
-                background: '#2B2B2B',
-                border: '1px solid #515151',
-                minWidth: '140px',
-              }}
-              onClick={e => e.stopPropagation()}
-            >
-              <p className="text-xs whitespace-nowrap" style={{ color: '#BABABA' }}>Удалить задачу?</p>
-              <div className="flex gap-1.5">
-                <button
-                  onClick={handleDelete}
-                  disabled={deleting}
-                  className="flex-1 px-2 py-1 text-xs rounded transition-colors disabled:opacity-50"
-                  style={{ background: '#CC4E4E', color: '#FFFFFF', border: 'none' }}
-                >
-                  {deleting ? '...' : 'Да'}
-                </button>
-                <button
-                  onClick={e => { e.stopPropagation(); setShowConfirm(false) }}
-                  className="flex-1 px-2 py-1 text-xs rounded transition-colors"
-                  style={{ background: '#414345', color: '#BABABA', border: '1px solid #515151' }}
-                >
-                  Нет
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+        <button
+          onClick={e => { e.stopPropagation(); setShowConfirm(v => !v) }}
+          title="Delete task"
+          className="flex items-center justify-center w-5 h-5 rounded transition-colors"
+          style={{ color: '#808080', background: 'transparent' }}
+          onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.color = '#CC4E4E'}
+          onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.color = '#808080'}
+        >
+          <Trash2 className="w-3 h-3" />
+        </button>
       </div>
+
+      {/* Confirm panel — renders inside the card below the action buttons */}
+      {showConfirm && (
+        <div
+          className="flex items-center justify-between gap-2 mt-2 pt-2"
+          style={{ borderTop: '1px solid #515151' }}
+          onClick={e => e.stopPropagation()}
+        >
+          <p className="text-xs" style={{ color: '#BABABA' }}>Delete task?</p>
+          <div className="flex gap-1.5">
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="px-2 py-0.5 text-xs rounded transition-colors disabled:opacity-50"
+              style={{ background: '#CC4E4E', color: '#FFFFFF', border: 'none', cursor: 'pointer' }}
+            >
+              {deleting ? '...' : 'Yes'}
+            </button>
+            <button
+              onClick={e => { e.stopPropagation(); setShowConfirm(false) }}
+              className="px-2 py-0.5 text-xs rounded transition-colors"
+              style={{ background: '#414345', color: '#BABABA', border: '1px solid #515151', cursor: 'pointer' }}
+            >
+              No
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="flex items-start gap-2">
         <button

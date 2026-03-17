@@ -26,11 +26,17 @@ export function KanbanColumn({ id, title, tasks, onTaskClick, onTaskDelete, onTa
   const { setNodeRef, isOver } = useDroppable({ id })
   const cfg = columnConfig[id] ?? columnConfig.queued
 
+  // Badge: grey when 0 tasks, column-accent when non-zero
+  const badgeDot = tasks.length === 0 ? '#515151' : cfg.dot
+  const badgeBg = tasks.length === 0 ? 'rgba(81,81,81,0.2)' : cfg.badge
+
   return (
     <div
       className="flex flex-col min-w-[260px] w-full"
       style={{
         borderRight: '1px solid #515151',
+        /* Contain card tooltips/popovers within the column */
+        overflow: 'hidden',
       }}
     >
       {/* Column header */}
@@ -42,7 +48,7 @@ export function KanbanColumn({ id, title, tasks, onTaskClick, onTaskDelete, onTa
         <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: '#BABABA' }}>{title}</span>
         <span
           className="ml-auto text-xs font-mono px-1.5 py-0.5 rounded"
-          style={{ color: cfg.dot, background: cfg.badge }}
+          style={{ color: badgeDot, background: badgeBg }}
         >
           {tasks.length}
         </span>
@@ -54,6 +60,9 @@ export function KanbanColumn({ id, title, tasks, onTaskClick, onTaskDelete, onTa
         className="flex-1 min-h-[120px] p-2 transition-colors"
         style={{
           background: isOver ? '#353739' : cfg.bg,
+          /* Allow card action buttons to visually overflow the drop-zone while
+             still being clipped by the outer column boundary */
+          overflow: 'visible',
         }}
       >
         <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
@@ -62,7 +71,7 @@ export function KanbanColumn({ id, title, tasks, onTaskClick, onTaskDelete, onTa
               <TaskCard key={task.id} task={task} onClick={onTaskClick} onDelete={onTaskDelete} onRequeue={onTaskRequeue} />
             ))}
             {tasks.length === 0 && (
-              <div className="flex items-center justify-center h-16 text-xs" style={{ color: '#515151' }}>
+              <div className="flex items-center justify-center h-16 text-xs" style={{ color: '#636363' }}>
                 drop tasks here
               </div>
             )}

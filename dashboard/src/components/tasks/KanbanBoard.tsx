@@ -118,6 +118,11 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
     if (selectedTask?.id === taskId) setSelectedTask(null)
   }
 
+  function handleStatusChange(taskId: string, newStatus: TaskStatus) {
+    setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, status: newStatus } : t))
+    if (selectedTask?.id === taskId) setSelectedTask((prev) => prev ? { ...prev, status: newStatus } : prev)
+  }
+
   const inputStyle = {
     background: '#3C3F41',
     border: '1px solid #515151',
@@ -284,7 +289,7 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
       </DndContext>
 
       {selectedTask && (
-        <TaskDetail task={selectedTask} onClose={() => setSelectedTask(null)} />
+        <TaskDetail task={selectedTask} onClose={() => setSelectedTask(null)} onStatusChange={handleStatusChange} />
       )}
       {showAddModal && (
         <AddTaskModal onClose={() => setShowAddModal(false)} onAdd={handleAddTask} />

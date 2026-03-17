@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { type Task, type Priority } from '@/lib/api'
+import { type Task, type Priority, createTask } from '@/lib/api'
 import { X } from 'lucide-react'
 
 interface AddTaskModalProps {
@@ -36,29 +36,31 @@ export function AddTaskModal({ onClose, onAdd }: AddTaskModalProps) {
   const [description, setDescription] = useState('')
   const [repo, setRepo] = useState('backend')
   const [priority, setPriority] = useState<Priority>('normal')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!title.trim()) return
+    if (!title.trim() || submitting) return
 
-    const newTask: Task = {
-      id: crypto.randomUUID(),
-      title: title.trim(),
-      description: description.trim(),
-      source: 'manual',
-      priority,
-      status: 'queued',
-      assigned_to: null,
-      repo,
-      issue_number: null,
-      pr_number: null,
-      created_by: 'user',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+    setSubmitting(true)
+    setError(null)
+
+    try {
+      const newTask = await createTask({
+        title: title.trim(),
+        description: description.trim(),
+        repo,
+        priority,
+        status: 'queued',
+      })
+      onAdd(newTask)
+      onClose()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create task')
+    } finally {
+      setSubmitting(false)
     }
-
-    onAdd(newTask)
-    onClose()
   }
 
   return (
@@ -162,11 +164,28 @@ export function AddTaskModal({ onClose, onAdd }: AddTaskModalProps) {
               </div>
             </div>
 
+            {/* Error message */}
+            {error && (
+              <div
+                style={{
+                  padding: '8px 12px',
+                  background: 'rgba(204,78,78,0.15)',
+                  border: '1px solid rgba(204,78,78,0.4)',
+                  borderRadius: '3px',
+                  fontSize: '12px',
+                  color: '#CC4E4E',
+                }}
+              >
+                {error}
+              </div>
+            )}
+
             {/* Buttons */}
             <div style={{ display: 'flex', gap: '10px', paddingTop: '4px' }}>
               <button
                 type="button"
                 onClick={onClose}
+                disabled={submitting}
                 style={{
                   flex: 1,
                   padding: '8px 16px',
@@ -176,13 +195,16 @@ export function AddTaskModal({ onClose, onAdd }: AddTaskModalProps) {
                   background: '#3C3F41',
                   border: '1px solid #515151',
                   borderRadius: '3px',
-                  cursor: 'pointer',
+                  cursor: submitting ? 'not-allowed' : 'pointer',
                   transition: 'color 0.15s, border-color 0.15s',
+                  opacity: submitting ? 0.5 : 1,
                 }}
                 onMouseEnter={e => {
-                  const el = e.currentTarget as HTMLButtonElement
-                  el.style.color = '#BABABA'
-                  el.style.borderColor = '#6A6A6A'
+                  if (!submitting) {
+                    const el = e.currentTarget as HTMLButtonElement
+                    el.style.color = '#BABABA'
+                    el.style.borderColor = '#6A6A6A'
+                  }
                 }}
                 onMouseLeave={e => {
                   const el = e.currentTarget as HTMLButtonElement
@@ -194,28 +216,28 @@ export function AddTaskModal({ onClose, onAdd }: AddTaskModalProps) {
               </button>
               <button
                 type="submit"
-                disabled={!title.trim()}
+                disabled={!title.trim() || submitting}
                 style={{
                   flex: 1,
                   padding: '8px 16px',
                   fontSize: '12px',
                   fontWeight: 600,
                   color: '#FFFFFF',
-                  background: title.trim() ? '#3592C4' : '#2a5f7a',
+                  background: title.trim() && !submitting ? '#3592C4' : '#2a5f7a',
                   border: '1px solid transparent',
                   borderRadius: '3px',
-                  cursor: title.trim() ? 'pointer' : 'not-allowed',
-                  opacity: title.trim() ? 1 : 0.5,
+                  cursor: title.trim() && !submitting ? 'pointer' : 'not-allowed',
+                  opacity: title.trim() && !submitting ? 1 : 0.5,
                   transition: 'background 0.15s',
                 }}
                 onMouseEnter={e => {
-                  if (title.trim()) (e.currentTarget as HTMLButtonElement).style.background = '#2a7aaa'
+                  if (title.trim() && !submitting) (e.currentTarget as HTMLButtonElement).style.background = '#2a7aaa'
                 }}
                 onMouseLeave={e => {
-                  if (title.trim()) (e.currentTarget as HTMLButtonElement).style.background = '#3592C4'
+                  if (title.trim() && !submitting) (e.currentTarget as HTMLButtonElement).style.background = '#3592C4'
                 }}
               >
-                Add Task
+                {submitting ? 'Creating…' : 'Add Task'}
               </button>
             </div>
           </form>
