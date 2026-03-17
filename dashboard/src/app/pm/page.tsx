@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Send, Loader2, RefreshCw } from 'lucide-react'
+import { Send, Loader2, RefreshCw, Download, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? ''
@@ -22,6 +22,12 @@ interface ChatMessage {
   tasks_created?: TaskCreated[]
 }
 
+interface GitHubImportResult {
+  imported: number
+  skipped: number
+  errors: string[]
+}
+
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
 async function sendMessage(message: string): Promise<{ response: string; tasks_created: TaskCreated[] }> {
@@ -37,6 +43,24 @@ async function sendMessage(message: string): Promise<{ response: string; tasks_c
 async function fetchHistory(): Promise<ChatMessage[]> {
   const res = await fetch(`${BASE_URL}/pm/history`)
   if (!res.ok) return []
+  return res.json()
+}
+
+async function importFromGitHub(payload: {
+  repo: string
+  token: string
+  labels: string[]
+  state: string
+}): Promise<GitHubImportResult> {
+  const res = await fetch(`${BASE_URL}/pm/import-from-github`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }))
+    throw new Error(err.detail ?? `HTTP ${res.status}`)
+  }
   return res.json()
 }
 
@@ -145,6 +169,187 @@ const SUGGESTIONS = [
   'Add task search',
 ]
 
+// ─── GitHub Import Modal ──────────────────────────────────────────────────────
+
+const LABEL_OPTIONS = ['bug', 'enhancement', 'feature', 'documentation', 'help wanted', 'question', 'critical']
+
+function GitHubImportModal({
+  onClose,
+  onSuccess,
+}: {
+  onClose: () => void
+  onSuccess: (result: GitHubImportResult) => void
+}) {
+  const [repo, setRepo] = useState('')
+  const [token, setToken] = useState('')
+  const [selectedLabels, setSelectedLabels] = useState<string[]>([])
+  const [state, setState] = useState('open')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const toggleLabel = (label: string) => {
+    setSelectedLabels(prev =>
+      prev.includes(label) ? prev.filter(l => l !== label) : [...prev, label]
+    )
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!repo.trim() || !token.trim()) return
+    setLoading(true)
+    setError(null)
+    try {
+      const result = await importFromGitHub({ repo: repo.trim(), token: token.trim(), labels: selectedLabels, state })
+      onSuccess(result)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.6)' }}
+      onClick={e => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        className="w-full max-w-md mx-4 p-6 relative"
+        style={{ background: '#3C3F41', border: '1px solid #515151', borderRadius: '8px' }}
+      >
+        {/* Title */}
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-base font-semibold" style={{ color: '#FFFFFF' }}>
+            🐙 Импорт из GitHub Issues
+          </h2>
+          <button onClick={onClose} style={{ color: '#808080' }}>
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          {/* Repository */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium" style={{ color: '#BABABA' }}>
+              Repository
+            </label>
+            <input
+              type="text"
+              placeholder="owner/repo"
+              value={repo}
+              onChange={e => setRepo(e.target.value)}
+              required
+              className="px-3 py-2 text-sm focus:outline-none"
+              style={{
+                background: '#2B2B2B',
+                border: '1px solid #515151',
+                borderRadius: '4px',
+                color: '#FFFFFF',
+              }}
+              onFocus={e => (e.currentTarget.style.borderColor = '#3592C4')}
+              onBlur={e => (e.currentTarget.style.borderColor = '#515151')}
+            />
+          </div>
+
+          {/* GitHub Token */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium" style={{ color: '#BABABA' }}>
+              GitHub Token
+            </label>
+            <input
+              type="password"
+              placeholder="ghp_..."
+              value={token}
+              onChange={e => setToken(e.target.value)}
+              required
+              className="px-3 py-2 text-sm focus:outline-none"
+              style={{
+                background: '#2B2B2B',
+                border: '1px solid #515151',
+                borderRadius: '4px',
+                color: '#FFFFFF',
+              }}
+              onFocus={e => (e.currentTarget.style.borderColor = '#3592C4')}
+              onBlur={e => (e.currentTarget.style.borderColor = '#515151')}
+            />
+          </div>
+
+          {/* State */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium" style={{ color: '#BABABA' }}>
+              Issue State
+            </label>
+            <select
+              value={state}
+              onChange={e => setState(e.target.value)}
+              className="px-3 py-2 text-sm focus:outline-none"
+              style={{
+                background: '#2B2B2B',
+                border: '1px solid #515151',
+                borderRadius: '4px',
+                color: '#FFFFFF',
+              }}
+            >
+              <option value="open">Open</option>
+              <option value="closed">Closed</option>
+              <option value="all">All</option>
+            </select>
+          </div>
+
+          {/* Labels */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium" style={{ color: '#BABABA' }}>
+              Labels (filter, optional)
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {LABEL_OPTIONS.map(label => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => toggleLabel(label)}
+                  className="px-2.5 py-1 text-xs transition-colors"
+                  style={{
+                    borderRadius: '4px',
+                    border: `1px solid ${selectedLabels.includes(label) ? '#3592C4' : '#515151'}`,
+                    background: selectedLabels.includes(label) ? '#214283' : '#2B2B2B',
+                    color: selectedLabels.includes(label) ? '#FFFFFF' : '#BABABA',
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Error */}
+          {error && (
+            <div
+              className="px-3 py-2 text-xs"
+              style={{ background: '#4E2828', border: '1px solid #CC4E4E', borderRadius: '4px', color: '#FF8080' }}
+            >
+              {error}
+            </div>
+          )}
+
+          {/* Submit */}
+          <button
+            type="submit"
+            disabled={loading || !repo.trim() || !token.trim()}
+            className="flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{ background: '#3592C4', borderRadius: '4px', color: '#FFFFFF' }}
+            onMouseEnter={e => { if (!loading) (e.currentTarget).style.background = '#2a7aaa' }}
+            onMouseLeave={e => (e.currentTarget).style.background = '#3592C4'}
+          >
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            {loading ? 'Импортирую...' : 'Импортировать'}
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function PMChatPage() {
@@ -152,6 +357,7 @@ export default function PMChatPage() {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [showGitHubImport, setShowGitHubImport] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -227,8 +433,31 @@ export default function PMChatPage() {
       .finally(() => setLoading(false))
   }
 
+  const handleGitHubImportSuccess = (result: GitHubImportResult) => {
+    setShowGitHubImport(false)
+    const resultMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: 'pm',
+      content:
+        `✅ Импорт завершён!\n` +
+        `  📥 Импортировано: ${result.imported} задач\n` +
+        `  ⏭️ Пропущено (дубли): ${result.skipped}\n` +
+        (result.errors.length > 0 ? `  ⚠️ Ошибок: ${result.errors.length}\n` : ''),
+      created_at: new Date().toISOString(),
+    }
+    setMessages(prev => [...prev, resultMsg])
+  }
+
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)] -m-6 md:-m-8" style={{ background: '#2B2B2B' }}>
+
+      {/* GitHub Import Modal */}
+      {showGitHubImport && (
+        <GitHubImportModal
+          onClose={() => setShowGitHubImport(false)}
+          onSuccess={handleGitHubImportSuccess}
+        />
+      )}
 
       {/* Header */}
       <div
@@ -248,15 +477,39 @@ export default function PMChatPage() {
             </div>
           </div>
         </div>
-        <button
-          onClick={handleReload}
-          className="p-1.5 transition-colors"
-          style={{ color: '#808080' }}
-          onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.color = '#BABABA'}
-          onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.color = '#808080'}
-        >
-          <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowGitHubImport(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors"
+            style={{
+              border: '1px solid #515151',
+              borderRadius: '4px',
+              background: '#3C3F41',
+              color: '#BABABA',
+            }}
+            onMouseEnter={e => {
+              (e.currentTarget).style.borderColor = '#3592C4'
+              ;(e.currentTarget).style.color = '#FFFFFF'
+            }}
+            onMouseLeave={e => {
+              (e.currentTarget).style.borderColor = '#515151'
+              ;(e.currentTarget).style.color = '#BABABA'
+            }}
+            title="Импорт задач из GitHub Issues"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Импорт из GitHub
+          </button>
+          <button
+            onClick={handleReload}
+            className="p-1.5 transition-colors"
+            style={{ color: '#808080' }}
+            onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.color = '#BABABA'}
+            onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.color = '#808080'}
+          >
+            <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
+          </button>
+        </div>
       </div>
 
       {/* Messages */}

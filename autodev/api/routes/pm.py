@@ -11,8 +11,10 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
-from fastapi import APIRouter, Depends
+import httpx
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -61,6 +63,19 @@ class ProjectStatus(BaseModel):
     busy_agents: list[str]
 
 
+class GitHubImportRequest(BaseModel):
+    repo: str  # e.g. "owner/repo"
+    token: str
+    labels: list[str] = []  # optional label filter
+    state: str = "open"  # open / closed / all
+
+
+class GitHubImportResponse(BaseModel):
+    imported: int
+    skipped: int
+    errors: list[str]
+
+
 # ---------------------------------------------------------------------------
 # Rule-based PM logic helpers
 # ---------------------------------------------------------------------------
@@ -71,6 +86,8 @@ _STATUS_RE = re.compile(r"\b(стату[с|т]|status|статистик|ста�
 _SUGGEST_RE = re.compile(
     r"(что делать|что можно сделать|suggest|предложи|next tasks?|следующ)", re.IGNORECASE
 )
+# Keywords for GitHub import intent
+_GITHUB_RE = re.compile(r"\b(импорт|import|github)\b", re.IGNORECASE)
 
 # Subtask templates for common high-level requests
 _SUBTASK_TEMPLATES: list[tuple[re.Pattern, list[tuple[str, str]]]] = [
@@ -285,6 +302,13 @@ async def pm_chat(
         response_text = _format_status(ps)
     elif _SUGGEST_RE.search(message):
         response_text = await _suggest_tasks(session)
+    elif _GITHUB_RE.search(message):
+        response_text = (
+            "🐙 Хочешь импортировать задачи из GitHub Issues? "
+            "Укажи репозиторий и я создам задачи.\n\n"
+            "Используй форму «📥 Импорт из GitHub» в шапке страницы, "
+            "либо отправь: POST /api/pm/import-from-github"
+        )
     else:
         response_text, tasks_created = await _create_subtasks(message, session)
 
@@ -328,3 +352,98 @@ async def pm_history(
         }
         for m in reversed(messages)
     ]
+
+
+@router.post("/import-from-github", response_model=GitHubImportResponse)
+async def import_from_github(
+    body: GitHubImportRequest,
+    session: AsyncSession = Depends(get_session),
+) -> GitHubImportResponse:
+    """Import GitHub Issues from a repository into the task queue."""
+    repo = body.repo.strip()
+    if "/" not in repo:
+        raise HTTPException(status_code=400, detail="repo must be in 'owner/repo' format")
+
+    repo_short = repo.split("/")[-1]
+    url = f"https://api.github.com/repos/{repo}/issues"
+    params: dict[str, Any] = {"state": body.state, "per_page": 100}
+    if body.labels:
+        params["labels"] = ",".join(body.labels)
+
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {body.token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    errors: list[str] = []
+    imported = 0
+    skipped = 0
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, params=params, headers=headers)
+            if response.status_code == 401:
+                raise HTTPException(status_code=401, detail="Invalid GitHub token")
+            if response.status_code == 404:
+                raise HTTPException(status_code=404, detail=f"Repository '{repo}' not found")
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"GitHub API error: {response.status_code}",
+                )
+            issues: list[dict[str, Any]] = response.json()
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail=f"Network error: {exc}") from exc
+
+    for issue in issues:
+        # Skip pull requests (GitHub returns PRs in issues endpoint)
+        if issue.get("pull_request"):
+            continue
+
+        issue_number: int = issue["number"]
+        issue_labels: list[str] = [lbl["name"] for lbl in issue.get("labels", [])]
+
+        # Determine priority
+        priority = Priority.NORMAL
+        if any(lbl in issue_labels for lbl in ("bug", "critical")):
+            priority = Priority.HIGH
+
+        # Check for duplicates by github_issue_number in metadata
+        existing_result = await session.execute(select(Task))
+        existing_tasks = existing_result.scalars().all()
+        already_exists = any(
+            (t.metadata_ or {}).get("github_issue_number") == issue_number
+            and (t.metadata_ or {}).get("github_repo") == repo
+            for t in existing_tasks
+        )
+        if already_exists:
+            skipped += 1
+            continue
+
+        try:
+            task = Task(
+                id=uuid.uuid4(),
+                title=issue["title"],
+                description=issue.get("body") or "",
+                source=TaskSource.GITHUB_ISSUE,
+                priority=priority,
+                repo=repo_short,
+                status=TaskStatus.QUEUED,
+                created_by="github_import",
+                metadata_={
+                    "github_issue_number": issue_number,
+                    "github_url": issue["html_url"],
+                    "labels": issue_labels,
+                    "github_repo": repo,
+                },
+            )
+            session.add(task)
+            imported += 1
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"Issue #{issue_number}: {exc}")
+
+    if imported > 0:
+        await session.commit()
+
+    return GitHubImportResponse(imported=imported, skipped=skipped, errors=errors)
