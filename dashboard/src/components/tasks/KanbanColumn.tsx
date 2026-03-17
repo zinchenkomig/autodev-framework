@@ -11,6 +11,8 @@ interface KanbanColumnProps {
   tasks: Task[]
   color: string
   onTaskClick: (task: Task) => void
+  onTaskDelete?: (taskId: string) => void
+  onTaskRequeue?: (taskId: string) => void
 }
 
 const columnConfig: Record<string, { dot: string; bg: string; badge: string }> = {
@@ -20,7 +22,7 @@ const columnConfig: Record<string, { dot: string; bg: string; badge: string }> =
   done:        { dot: '#6A8759',  bg: '#313335', badge: 'rgba(106,135,89,0.2)'  },
 }
 
-export function KanbanColumn({ id, title, tasks, onTaskClick }: KanbanColumnProps) {
+export function KanbanColumn({ id, title, tasks, onTaskClick, onTaskDelete, onTaskRequeue }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id })
   const cfg = columnConfig[id] ?? columnConfig.queued
 
@@ -57,7 +59,7 @@ export function KanbanColumn({ id, title, tasks, onTaskClick }: KanbanColumnProp
         <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
           <div className="flex flex-col gap-2">
             {tasks.map((task) => (
-              <TaskCard key={task.id} task={task} onClick={onTaskClick} />
+              <TaskCard key={task.id} task={task} onClick={onTaskClick} onDelete={onTaskDelete} onRequeue={onTaskRequeue} />
             ))}
             {tasks.length === 0 && (
               <div className="flex items-center justify-center h-16 text-xs" style={{ color: '#515151' }}>

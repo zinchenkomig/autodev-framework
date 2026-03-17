@@ -108,6 +108,16 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
     setTasks((prev) => [newTask, ...prev])
   }
 
+  function handleDeleteTask(taskId: string) {
+    setTasks((prev) => prev.filter((t) => t.id !== taskId))
+    if (selectedTask?.id === taskId) setSelectedTask(null)
+  }
+
+  function handleRequeuTask(taskId: string) {
+    setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, status: 'queued' as const } : t))
+    if (selectedTask?.id === taskId) setSelectedTask(null)
+  }
+
   const inputStyle = {
     background: '#3C3F41',
     border: '1px solid #515151',
@@ -205,6 +215,8 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
               color={col.color}
               tasks={tasksByStatus[col.id]}
               onTaskClick={setSelectedTask}
+              onTaskDelete={handleDeleteTask}
+              onTaskRequeue={handleRequeuTask}
             />
           ))}
         </div>
@@ -256,6 +268,8 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
               color={COLUMNS[mobileColIndex].color}
               tasks={tasksByStatus[COLUMNS[mobileColIndex].id]}
               onTaskClick={setSelectedTask}
+              onTaskDelete={handleDeleteTask}
+              onTaskRequeue={handleRequeuTask}
             />
           </div>
         </div>

@@ -227,3 +227,11 @@ export async function triggerAgent(agentId: string): Promise<{ event_id: string;
   if (!res.ok) throw new Error(`Failed to trigger agent: ${res.status}`)
   return res.json()
 }
+
+export async function deleteTask(id: string): Promise<void> {
+  const res = await fetch(`${BASE_URL}/api/tasks/${id}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  if (!res.ok) throw new Error(`Failed to delete task: ${res.status}`)
+}

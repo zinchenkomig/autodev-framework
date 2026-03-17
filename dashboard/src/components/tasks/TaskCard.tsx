@@ -1,14 +1,18 @@
 'use client'
 
+import { useState, useRef } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { type Task } from '@/lib/api'
+import { deleteTask, updateTask } from '@/lib/api'
 import { formatDistanceToNow } from '@/lib/utils'
-import { GripVertical } from 'lucide-react'
+import { GripVertical, Trash2, Undo2 } from 'lucide-react'
 
 interface TaskCardProps {
   task: Task
   onClick: (task: Task) => void
+  onDelete?: (taskId: string) => void
+  onRequeue?: (taskId: string) => void
 }
 
 const priorityConfig: Record<string, { color: string; bg: string; label: string; border: string }> = {
@@ -18,7 +22,9 @@ const priorityConfig: Record<string, { color: string; bg: string; label: string;
   low:      { color: '#BABABA', bg: '#414345', label: 'low',      border: '#515151' },
 }
 
-export function TaskCard({ task, onClick }: TaskCardProps) {
+const REQUEUE_STATUSES = new Set(['assigned', 'in_progress', 'review', 'done'])
+
+export function TaskCard({ task, onClick, onDelete, onRequeue }: TaskCardProps) {
   const {
     attributes,
     listeners,
@@ -28,6 +34,10 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
     isDragging,
   } = useSortable({ id: task.id })
 
+  const [showConfirm, setShowConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [requeuing, setRequeuing] = useState(false)
+
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -35,6 +45,36 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
   }
 
   const cfg = priorityConfig[task.priority] ?? priorityConfig.normal
+
+  async function handleDelete(e: React.MouseEvent) {
+    e.stopPropagation()
+    setDeleting(true)
+    try {
+      await deleteTask(task.id)
+      onDelete?.(task.id)
+    } catch {
+      // silently fail — task still removed optimistically if onDelete called
+      onDelete?.(task.id)
+    } finally {
+      setDeleting(false)
+      setShowConfirm(false)
+    }
+  }
+
+  async function handleRequeue(e: React.MouseEvent) {
+    e.stopPropagation()
+    setRequeuing(true)
+    try {
+      await updateTask(task.id, { status: 'queued' })
+      onRequeue?.(task.id)
+    } catch {
+      onRequeue?.(task.id)
+    } finally {
+      setRequeuing(false)
+    }
+  }
+
+  const canRequeue = REQUEUE_STATUSES.has(task.status)
 
   return (
     <div
@@ -46,8 +86,9 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
         borderLeft: `3px solid ${cfg.border}`,
         borderRadius: '4px',
         cursor: 'pointer',
+        position: 'relative',
       }}
-      className="p-3 transition-colors"
+      className="p-3 transition-colors group"
       onClick={() => onClick(task)}
       onMouseEnter={e => {
         if (!isDragging) (e.currentTarget as HTMLDivElement).style.background = '#414345'
@@ -56,6 +97,70 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
         if (!isDragging) (e.currentTarget as HTMLDivElement).style.background = '#3C3F41'
       }}
     >
+      {/* Action buttons — visible on hover */}
+      <div
+        className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+        onClick={e => e.stopPropagation()}
+      >
+        {canRequeue && (
+          <button
+            onClick={handleRequeue}
+            disabled={requeuing}
+            title="Move to queue"
+            className="flex items-center justify-center w-5 h-5 rounded transition-colors disabled:opacity-50"
+            style={{ color: '#808080', background: 'transparent' }}
+            onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.color = '#3592C4'}
+            onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.color = '#808080'}
+          >
+            <Undo2 className="w-3 h-3" />
+          </button>
+        )}
+        <div className="relative">
+          <button
+            onClick={e => { e.stopPropagation(); setShowConfirm(v => !v) }}
+            title="Delete task"
+            className="flex items-center justify-center w-5 h-5 rounded transition-colors"
+            style={{ color: '#808080', background: 'transparent' }}
+            onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.color = '#CC4E4E'}
+            onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.color = '#808080'}
+          >
+            <Trash2 className="w-3 h-3" />
+          </button>
+
+          {/* Confirm popover */}
+          {showConfirm && (
+            <div
+              className="absolute right-0 top-6 z-50 flex flex-col gap-2 p-3 rounded shadow-lg"
+              style={{
+                background: '#2B2B2B',
+                border: '1px solid #515151',
+                minWidth: '140px',
+              }}
+              onClick={e => e.stopPropagation()}
+            >
+              <p className="text-xs whitespace-nowrap" style={{ color: '#BABABA' }}>Удалить задачу?</p>
+              <div className="flex gap-1.5">
+                <button
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="flex-1 px-2 py-1 text-xs rounded transition-colors disabled:opacity-50"
+                  style={{ background: '#CC4E4E', color: '#FFFFFF', border: 'none' }}
+                >
+                  {deleting ? '...' : 'Да'}
+                </button>
+                <button
+                  onClick={e => { e.stopPropagation(); setShowConfirm(false) }}
+                  className="flex-1 px-2 py-1 text-xs rounded transition-colors"
+                  style={{ background: '#414345', color: '#BABABA', border: '1px solid #515151' }}
+                >
+                  Нет
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="flex items-start gap-2">
         <button
           {...attributes}
@@ -69,7 +174,7 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
           <GripVertical className="w-3.5 h-3.5" />
         </button>
 
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 pr-10">
           <p className="text-sm leading-snug line-clamp-2 mb-2" style={{ color: '#FFFFFF' }}>
             {task.title}
           </p>
