@@ -7,20 +7,47 @@ sets up middleware, and wires lifecycle events.
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from autodev.api.database import engine
+from autodev.api.database import SessionLocal, engine
 from autodev.api.routes import agents, events, releases, tasks, webhooks
 from autodev.api.routes import metrics as metrics_router
 from autodev.api.routes import pm as pm_router
 from autodev.api.websocket import router as ws_router
-from autodev.core.models import Base
+from autodev.core.models import Agent, AgentStatus, Base
 
 logger = logging.getLogger(__name__)
+
+
+async def register_agents_from_config(config_path: str) -> None:
+    """Upsert agents defined in *config_path* into the database."""
+    try:
+        from autodev.core.config import load_config
+
+        cfg = load_config(config_path)
+        async with SessionLocal() as session:
+            for agent_cfg in cfg.agents:
+                agent_id = agent_cfg.role
+                existing = await session.get(Agent, agent_id)
+                if existing is None:
+                    agent = Agent(
+                        id=agent_id,
+                        role=agent_cfg.role,
+                        status=AgentStatus.IDLE,
+                    )
+                    session.add(agent)
+                    logger.info("Auto-registered agent: %s", agent_id)
+                else:
+                    logger.debug("Agent already registered: %s", agent_id)
+            await session.commit()
+    except Exception as exc:
+        logger.warning("Could not auto-register agents from %s: %s", config_path, exc)
 
 
 @asynccontextmanager
@@ -29,6 +56,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database tables created/verified")
+
+    # Auto-register agents from config if available
+    config_path = os.environ.get("AUTODEV_CONFIG", "autodev.yaml")
+    if Path(config_path).exists():
+        await register_agents_from_config(config_path)
+
     yield
     await engine.dispose()
     logger.info("Database engine disposed")

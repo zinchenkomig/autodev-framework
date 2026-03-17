@@ -135,17 +135,18 @@ release:
 
 @app.command()
 def start(
+    config: str = typer.Option("autodev.yaml", "--config", "-c", help="Path to config file"),
     host: str = typer.Option("0.0.0.0", "--host", help="Bind host"),
     port: int = typer.Option(8000, "--port", "-p", help="Bind port"),
-    reload: bool = typer.Option(False, "--reload", help="Enable auto-reload"),
 ) -> None:
-    """Start the AutoDev FastAPI server with uvicorn."""
-    console.print(f"[green]Starting AutoDev server on {host}:{port}...[/green]")
-    import uvicorn
+    """Start AutoDev orchestrator + API server."""
+    import asyncio
 
-    from autodev.api.app import app as fastapi_app  # type: ignore[attr-defined]
+    from autodev.orchestrator import Orchestrator
 
-    uvicorn.run(fastapi_app, host=host, port=port, reload=reload)
+    console.print(f"[green]Starting AutoDev orchestrator (config={config}, {host}:{port})[/green]")
+    orchestrator = Orchestrator(config_path=config, host=host, port=port)
+    asyncio.run(orchestrator.start())
 
 
 # ---------------------------------------------------------------------------

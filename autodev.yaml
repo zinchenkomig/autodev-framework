@@ -1,0 +1,54 @@
+name: "Great Alerter"
+
+repos:
+  - name: great_alerter_backend
+    url: github.com/zinchenkomig/great_alerter_backend
+    language: python
+    tests_command: "uv run pytest tests/ -x --tb=short"
+    context_file: CLAUDE.md
+
+  - name: great_alerter_frontend
+    url: github.com/zinchenkomig/great_alerter_frontend
+    language: typescript
+    tests_command: "npm run build"
+    context_file: CLAUDE.md
+
+environments:
+  - name: staging
+    url: https://staging.alerter.zinchenkomig.com
+    deploy_command: "/root/.openclaw/workspace/supervisor/deploy.sh staging both"
+    requires_approval: false
+
+  - name: production
+    url: https://alerter.zinchenkomig.com
+    deploy_command: "/root/.openclaw/workspace/supervisor/deploy.sh production both"
+    requires_approval: true
+
+agents:
+  - role: developer
+    runner: claude-code
+    model: claude-sonnet-4
+    max_iterations: 20
+    triggers:
+      - type: event
+        value: task.assigned
+    instructions: |
+      You are a senior developer working on the Great Alerter project.
+      Implement the assigned task with clean code, write tests, and follow
+      the project's coding standards.
+
+release:
+  branch_strategy: gitflow
+  min_prs: 8
+  auto_deploy_staging: true
+  require_human_approval: true
+
+notifications:
+  targets:
+    - type: telegram
+      config:
+        bot_token: "${TELEGRAM_BOT_TOKEN}"
+        chat_id: "861853668"
+  events:
+    - release.ready
+    - bug.found
