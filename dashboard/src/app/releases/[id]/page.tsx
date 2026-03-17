@@ -8,10 +8,13 @@ import { ExternalLink, ArrowLeft, GitPullRequest, Loader2 } from 'lucide-react'
 import { use } from 'react'
 
 const statusColor: Record<ReleaseStatus, string> = {
-  draft:    'text-[#3F3F46]',
-  staging:  'text-[#F59E0B]',
-  approved: 'text-[#6366F1]',
-  deployed: 'text-[#22C55E]',
+  draft:            'text-[#3F3F46]',
+  staging:          'text-[#F59E0B]',
+  testing:          'text-[#FFC66D]',
+  pending_approval: 'text-[#6366F1]',
+  approved:         'text-[#6366F1]',
+  deployed:         'text-[#22C55E]',
+  failed:           'text-[#FF6B6B]',
 }
 
 function formatDate(dateString: string) {

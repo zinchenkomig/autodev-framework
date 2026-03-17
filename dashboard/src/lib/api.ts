@@ -3,7 +3,7 @@ const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? ''
 export type Priority = 'critical' | 'high' | 'normal' | 'low'
 export type TaskStatus = 'queued' | 'assigned' | 'in_progress' | 'review' | 'done' | 'failed'
 export type AgentStatus = 'idle' | 'running' | 'failed'
-export type ReleaseStatus = 'draft' | 'staging' | 'approved' | 'deployed'
+export type ReleaseStatus = 'draft' | 'staging' | 'testing' | 'pending_approval' | 'approved' | 'deployed' | 'failed'
 
 export interface Task {
   id: string
@@ -216,6 +216,16 @@ export async function approveRelease(id: string, approvedBy = 'user'): Promise<R
     body: JSON.stringify({ approved_by: approvedBy }),
   })
   if (!res.ok) throw new Error(`Failed to approve release: ${res.status}`)
+  return res.json()
+}
+
+export async function updateRelease(id: string, data: { status?: string }): Promise<Release> {
+  const res = await fetch(`${BASE_URL}/api/releases/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error(`Failed to update release: ${res.status}`)
   return res.json()
 }
 

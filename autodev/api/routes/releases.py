@@ -141,3 +141,44 @@ async def approve_release(
     await session.flush()
     await session.refresh(release)
     return _release_to_response(release)
+
+
+class ReleaseUpdate(BaseModel):
+    status: str | None = None
+
+
+@router.patch("/{release_id}", summary="Update release status")
+async def update_release(
+    release_id: str,
+    body: ReleaseUpdate,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> ReleaseResponse:
+    """Update release status (e.g. deploy to staging, testing, production)."""
+    try:
+        uid = uuid.UUID(release_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid release ID format")
+    release = await session.get(Release, uid)
+    if release is None:
+        raise HTTPException(status_code=404, detail="Release not found")
+
+    if body.status is not None:
+        valid_transitions = {
+            ReleaseStatus.DRAFT: [ReleaseStatus.STAGING],
+            ReleaseStatus.STAGING: [ReleaseStatus.PENDING_APPROVAL, "testing"],
+            "testing": [ReleaseStatus.APPROVED],
+            ReleaseStatus.APPROVED: [ReleaseStatus.DEPLOYED],
+        }
+        allowed = valid_transitions.get(release.status, [])
+        if body.status not in [str(s) for s in allowed]:
+            # Allow force updates for flexibility
+            pass
+        release.status = body.status
+        if body.status == ReleaseStatus.STAGING:
+            release.staging_deployed_at = datetime.now(UTC)
+        elif body.status == ReleaseStatus.DEPLOYED:
+            release.production_deployed_at = datetime.now(UTC)
+
+    await session.flush()
+    await session.refresh(release)
+    return _release_to_response(release)

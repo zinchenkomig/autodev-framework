@@ -91,7 +91,7 @@ class AgentRunner(Protocol):
 class ClaudeCodeRunner:
     """Runs tasks via the ``claude`` CLI (Claude Code).
 
-    Spawns ``claude --print --permission-mode bypassPermissions`` as a
+    Spawns ``claude --print`` as a
     subprocess, pipes *instructions* to stdin, collects stdout, and
     returns an :class:`AgentResult`.
 
@@ -121,8 +121,6 @@ class ClaudeCodeRunner:
         cmd = [
             "claude",
             "--print",
-            "--permission-mode",
-            "bypassPermissions",
             "--model",
             self.model,
         ]
