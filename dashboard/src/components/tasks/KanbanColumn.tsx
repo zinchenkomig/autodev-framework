@@ -60,9 +60,8 @@ export function KanbanColumn({ id, title, tasks, onTaskClick, onTaskDelete, onTa
         className="flex-1 min-h-[120px] p-2 transition-colors"
         style={{
           background: isOver ? '#353739' : cfg.bg,
-          /* Allow card action buttons to visually overflow the drop-zone while
-             still being clipped by the outer column boundary */
-          overflow: 'visible',
+          overflowY: 'auto',
+          maxHeight: 'calc(100vh - 200px)',
         }}
       >
         <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
