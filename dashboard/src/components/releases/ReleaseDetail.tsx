@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { updateRelease, approveRelease, unapproveRelease, type Release, type Task, type ReleaseStatus, type MergeResult } from '@/lib/api'
-import { CheckSquare, Square, GitPullRequest, ExternalLink, Loader2, CheckCircle, XCircle } from 'lucide-react'
+import { updateRelease, approveRelease, unapproveRelease, rollbackRelease, cancelRelease, revertRelease, type Release, type Task, type ReleaseStatus, type MergeResult } from '@/lib/api'
+import { CheckSquare, Square, GitPullRequest, ExternalLink, Loader2, CheckCircle, XCircle, AlertTriangle } from 'lucide-react'
 
 interface Props {
   release: Release
@@ -13,13 +13,15 @@ interface Props {
 const STATUS_ORDER: ReleaseStatus[] = ['draft', 'staging', 'testing', 'approved', 'deployed']
 
 const statusConfig: Record<string, { color: string; bg: string; label: string }> = {
-  draft:           { color: '#808080',  bg: 'rgba(128,128,128,0.15)', label: 'draft'    },
-  staging:         { color: '#CC7832',  bg: 'rgba(204,120,50,0.15)',  label: 'staging'  },
-  testing:         { color: '#FFC66D',  bg: 'rgba(255,198,109,0.15)', label: 'testing'  },
-  pending_approval:{ color: '#6A8759',  bg: 'rgba(106,135,89,0.15)',  label: 'pending'  },
-  approved:        { color: '#6A8759',  bg: 'rgba(106,135,89,0.15)',  label: 'approved' },
-  deployed:        { color: '#3592C4',  bg: 'rgba(53,146,196,0.15)',  label: 'deployed' },
-  failed:          { color: '#FF6B6B',  bg: 'rgba(255,107,107,0.15)', label: 'failed'   },
+  draft:           { color: '#808080',  bg: 'rgba(128,128,128,0.15)', label: 'draft'     },
+  staging:         { color: '#CC7832',  bg: 'rgba(204,120,50,0.15)',  label: 'staging'   },
+  testing:         { color: '#FFC66D',  bg: 'rgba(255,198,109,0.15)', label: 'testing'   },
+  pending_approval:{ color: '#6A8759',  bg: 'rgba(106,135,89,0.15)',  label: 'pending'   },
+  approved:        { color: '#6A8759',  bg: 'rgba(106,135,89,0.15)',  label: 'approved'  },
+  deployed:        { color: '#3592C4',  bg: 'rgba(53,146,196,0.15)',  label: 'deployed'  },
+  failed:          { color: '#FF6B6B',  bg: 'rgba(255,107,107,0.15)', label: 'failed'    },
+  cancelled:       { color: '#808080',  bg: 'rgba(128,128,128,0.15)', label: 'cancelled' },
+  reverted:        { color: '#FF6B6B',  bg: 'rgba(255,107,107,0.15)', label: 'reverted'  },
 }
 
 function priorityColor(p: string): string {
@@ -121,7 +123,32 @@ export default function ReleaseDetail({ release, allTasks, onUpdated }: Props) {
 
   const cfg = statusConfig[release.status] ?? statusConfig.draft
 
-  async function handleAction(action: 'staging' | 'approve' | 'unapprove' | 'production') {
+  const rollbackMap: Record<string, string> = {
+    deployed: 'approved',
+    approved: 'staging',
+    staging: 'draft',
+    testing: 'staging',
+    pending_approval: 'staging',
+  }
+
+  async function handleAction(action: 'staging' | 'approve' | 'unapprove' | 'production' | 'rollback' | 'cancel' | 'revert') {
+    // Confirmation dialogs
+    if (action === 'rollback') {
+      const prev = rollbackMap[release.status]
+      if (!window.confirm(`Откатить релиз с "${release.status}" на "${prev}"?`)) return
+    } else if (action === 'cancel') {
+      if (!window.confirm(`Отменить релиз ${release.version}? Это действие нельзя отменить.`)) return
+    } else if (action === 'revert') {
+      if (!window.confirm(
+        `⚠️ ОТКАТ PRODUCTION\n\n` +
+        `Вы собираетесь откатить релиз ${release.version} из production.\n\n` +
+        `Это действие:\n` +
+        `• Помечает релиз как reverted\n` +
+        `• Требует ручного отката инфраструктуры\n\n` +
+        `Продолжить?`
+      )) return
+    }
+
     setActionLoading(true)
     setError(null)
     setMergeResults(null)
@@ -133,6 +160,12 @@ export default function ReleaseDetail({ release, allTasks, onUpdated }: Props) {
         updated = await approveRelease(release.id)
       } else if (action === 'unapprove') {
         updated = await unapproveRelease(release.id)
+      } else if (action === 'rollback') {
+        updated = await rollbackRelease(release.id)
+      } else if (action === 'cancel') {
+        updated = await cancelRelease(release.id)
+      } else if (action === 'revert') {
+        updated = await revertRelease(release.id)
       } else {
         updated = await updateRelease(release.id, { status: 'deployed' })
       }
@@ -151,6 +184,9 @@ export default function ReleaseDetail({ release, allTasks, onUpdated }: Props) {
   const canApprove = release.status === 'staging' || release.status === 'testing'
   const canUnapprove = release.status === 'approved' || release.status === 'staging' || release.status === 'testing'
   const canDeployProd = release.status === 'approved'
+  const canRollback = release.status !== 'draft' && release.status !== 'cancelled' && release.status !== 'reverted' && rollbackMap[release.status] !== undefined
+  const canCancel = release.status !== 'deployed' && release.status !== 'cancelled' && release.status !== 'reverted'
+  const canRevertProd = release.status === 'deployed'
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -395,64 +431,128 @@ export default function ReleaseDetail({ release, allTasks, onUpdated }: Props) {
       )}
 
       {/* Action buttons */}
-      {(canDeployStaging || canApprove || canDeployProd) && (
+      {(canDeployStaging || canApprove || canDeployProd || canRollback || canCancel || canRevertProd) && (
         <div
-          className="flex items-center gap-3 p-4"
+          className="p-4 space-y-3"
           style={{ background: '#2B2B2B', border: '1px solid #515151', borderRadius: '4px' }}
         >
-          {actionLoading && (
-            <Loader2 className="w-4 h-4 animate-spin shrink-0" style={{ color: '#808080' }} />
-          )}
+          {/* Primary actions */}
+          <div className="flex items-center gap-3 flex-wrap">
+            {actionLoading && (
+              <Loader2 className="w-4 h-4 animate-spin shrink-0" style={{ color: '#808080' }} />
+            )}
 
-          {canDeployStaging && (
-            <button
-              onClick={() => handleAction('staging')}
-              disabled={actionLoading}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium transition-opacity"
-              style={{
-                background: '#CC7832',
-                color: '#FFFFFF',
-                borderRadius: '4px',
-                opacity: actionLoading ? 0.6 : 1,
-                cursor: actionLoading ? 'not-allowed' : 'pointer',
-              }}
-            >
-              🚀 Deploy to Staging
-            </button>
-          )}
+            {canDeployStaging && (
+              <button
+                onClick={() => handleAction('staging')}
+                disabled={actionLoading}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium transition-opacity"
+                style={{
+                  background: '#CC7832',
+                  color: '#FFFFFF',
+                  borderRadius: '4px',
+                  opacity: actionLoading ? 0.6 : 1,
+                  cursor: actionLoading ? 'not-allowed' : 'pointer',
+                }}
+              >
+                🚀 Deploy to Staging
+              </button>
+            )}
 
-          {canApprove && (
-            <button
-              onClick={() => handleAction('approve')}
-              disabled={actionLoading}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium transition-opacity"
-              style={{
-                background: '#6A8759',
-                color: '#FFFFFF',
-                borderRadius: '4px',
-                opacity: actionLoading ? 0.6 : 1,
-                cursor: actionLoading ? 'not-allowed' : 'pointer',
-              }}
-            >
-              ✅ Approve
-            </button>
-          )}
+            {canApprove && (
+              <button
+                onClick={() => handleAction('approve')}
+                disabled={actionLoading}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium transition-opacity"
+                style={{
+                  background: '#6A8759',
+                  color: '#FFFFFF',
+                  borderRadius: '4px',
+                  opacity: actionLoading ? 0.6 : 1,
+                  cursor: actionLoading ? 'not-allowed' : 'pointer',
+                }}
+              >
+                ✅ Approve
+              </button>
+            )}
 
-          {canDeployProd && (
-            <button
-              onClick={() => handleAction('production')}
-              disabled={actionLoading}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium transition-opacity"
-              style={{
-                background: '#3592C4',
-                color: '#FFFFFF',
-                borderRadius: '4px',
-                opacity: actionLoading ? 0.6 : 1,
-                cursor: actionLoading ? 'not-allowed' : 'pointer',
-              }}
+            {canDeployProd && (
+              <button
+                onClick={() => handleAction('production')}
+                disabled={actionLoading}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium transition-opacity"
+                style={{
+                  background: '#3592C4',
+                  color: '#FFFFFF',
+                  borderRadius: '4px',
+                  opacity: actionLoading ? 0.6 : 1,
+                  cursor: actionLoading ? 'not-allowed' : 'pointer',
+                }}
+              >
+                🚀 Deploy to Production
+              </button>
+            )}
+          </div>
+
+          {/* Rollback / cancel / revert actions */}
+          {(canRollback || canCancel || canRevertProd) && (
+            <div
+              className="flex items-center gap-3 flex-wrap pt-3"
+              style={{ borderTop: '1px solid #515151' }}
             >
-              🚀 Deploy to Production
-            </button>
+              {canRollback && (
+                <button
+                  onClick={() => handleAction('rollback')}
+                  disabled={actionLoading}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium transition-opacity"
+                  style={{
+                    background: '#515151',
+                    color: '#A9B7C6',
+                    borderRadius: '4px',
+                    opacity: actionLoading ? 0.6 : 1,
+                    cursor: actionLoading ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  ⬅️ Rollback
+                </button>
+              )}
+
+              {canCancel && (
+                <button
+                  onClick={() => handleAction('cancel')}
+                  disabled={actionLoading}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium transition-opacity"
+                  style={{
+                    background: 'transparent',
+                    color: '#FF6B6B',
+                    border: '1px solid #FF6B6B',
+                    borderRadius: '4px',
+                    opacity: actionLoading ? 0.6 : 1,
+                    cursor: actionLoading ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  ❌ Cancel Release
+                </button>
+              )}
+
+              {canRevertProd && (
+                <button
+                  onClick={() => handleAction('revert')}
+                  disabled={actionLoading}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium transition-opacity"
+                  style={{
+                    background: '#FF6B6B',
+                    color: '#FFFFFF',
+                    borderRadius: '4px',
+                    opacity: actionLoading ? 0.6 : 1,
+                    cursor: actionLoading ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  <AlertTriangle className="w-4 h-4" />
+                  🔄 Revert Production
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}

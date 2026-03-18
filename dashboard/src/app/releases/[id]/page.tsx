@@ -15,6 +15,8 @@ const statusColor: Record<ReleaseStatus, string> = {
   approved:         'text-[#6366F1]',
   deployed:         'text-[#22C55E]',
   failed:           'text-[#FF6B6B]',
+  cancelled:        'text-[#71717A]',
+  reverted:         'text-[#FF6B6B]',
 }
 
 function formatDate(dateString: string) {

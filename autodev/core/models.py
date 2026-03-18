@@ -178,6 +178,8 @@ class ReleaseStatus(enum.StrEnum):
     APPROVED = "approved"
     DEPLOYED = "deployed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
+    REVERTED = "reverted"
 
 
 # ---------------------------------------------------------------------------
@@ -364,6 +366,9 @@ class Release(Base):
     )
     approved_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reverted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reverted_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    previous_status: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )

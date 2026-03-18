@@ -46,6 +46,9 @@ class ReleaseResponse(BaseModel):
     production_deployed_at: datetime | None
     approved_by: str | None
     approved_at: datetime | None
+    reverted_at: datetime | None = None
+    reverted_by: str | None = None
+    previous_status: str | None = None
     created_at: datetime
     merge_results: list[dict] = []
 
@@ -65,6 +68,9 @@ def _release_to_response(
         production_deployed_at=release.production_deployed_at,
         approved_by=release.approved_by,
         approved_at=release.approved_at,
+        reverted_at=release.reverted_at,
+        reverted_by=release.reverted_by,
+        previous_status=release.previous_status,
         created_at=release.created_at,
         merge_results=merge_results or [],
     )
@@ -296,6 +302,136 @@ async def _merge_develop_to_main_for_release(
         results.append({"repo": repo, "success": success})
 
     return results
+
+
+# Rollback status mapping: current → previous
+_ROLLBACK_MAP: dict[str, str] = {
+    ReleaseStatus.DEPLOYED: ReleaseStatus.APPROVED,
+    ReleaseStatus.APPROVED: ReleaseStatus.STAGING,
+    ReleaseStatus.STAGING: ReleaseStatus.DRAFT,
+    "testing": ReleaseStatus.STAGING,
+    ReleaseStatus.PENDING_APPROVAL: ReleaseStatus.STAGING,
+}
+
+
+@router.post("/{release_id}/rollback", summary="Roll back release one step")
+async def rollback_release(
+    release_id: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> ReleaseResponse:
+    """Roll back a release to the previous lifecycle step."""
+    try:
+        uid = uuid.UUID(release_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid release ID format")
+    release = await session.get(Release, uid)
+    if release is None:
+        raise HTTPException(status_code=404, detail="Release not found")
+
+    previous = _ROLLBACK_MAP.get(release.status)
+    if previous is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot roll back release in '{release.status}' status",
+        )
+
+    release.previous_status = release.status
+    release.status = previous
+    await session.flush()
+    await session.refresh(release)
+    return _release_to_response(release)
+
+
+@router.post("/{release_id}/cancel", summary="Cancel a release")
+async def cancel_release(
+    release_id: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> ReleaseResponse:
+    """Cancel a release (cannot cancel an already-deployed release)."""
+    try:
+        uid = uuid.UUID(release_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid release ID format")
+    release = await session.get(Release, uid)
+    if release is None:
+        raise HTTPException(status_code=404, detail="Release not found")
+
+    if release.status == ReleaseStatus.DEPLOYED:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot cancel a deployed release. Use /revert to roll back production.",
+        )
+    if release.status == ReleaseStatus.CANCELLED:
+        raise HTTPException(status_code=409, detail="Release is already cancelled")
+
+    release.previous_status = release.status
+    release.status = ReleaseStatus.CANCELLED
+    await session.flush()
+    await session.refresh(release)
+    return _release_to_response(release)
+
+
+@router.post("/{release_id}/revert", summary="Revert a deployed release in production")
+async def revert_release(
+    release_id: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> ReleaseResponse:
+    """Revert a deployed release: marks it as reverted and records the timestamp."""
+    try:
+        uid = uuid.UUID(release_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid release ID format")
+    release = await session.get(Release, uid)
+    if release is None:
+        raise HTTPException(status_code=404, detail="Release not found")
+
+    if release.status != ReleaseStatus.DEPLOYED:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only deployed releases can be reverted (current status: {release.status})",
+        )
+
+    # Find previous deployed release for context
+    result = await session.execute(
+        select(Release)
+        .where(
+            Release.status == ReleaseStatus.DEPLOYED,
+            Release.id != release.id,
+        )
+        .order_by(Release.production_deployed_at.desc())
+        .limit(1)
+    )
+    previous_release = result.scalar_one_or_none()
+
+    release.previous_status = release.status
+    release.status = ReleaseStatus.REVERTED
+    release.reverted_at = datetime.now(UTC)
+    release.reverted_by = "user"
+
+    revert_info: dict = {
+        "reverted_release": str(release.id),
+        "reverted_version": release.version,
+    }
+    if previous_release is not None:
+        revert_info["previous_release_id"] = str(previous_release.id)
+        revert_info["previous_version"] = previous_release.version
+        logger.info(
+            "Reverting release %s (%s) — previous deployed release was %s (%s)",
+            release.id,
+            release.version,
+            previous_release.id,
+            previous_release.version,
+        )
+    else:
+        logger.warning(
+            "Reverting release %s (%s) — no previous deployed release found",
+            release.id,
+            release.version,
+        )
+
+    await session.flush()
+    await session.refresh(release)
+    return _release_to_response(release, [revert_info])
 
 
 @router.post("/{release_id}/unapprove", summary="Remove approval from a release")

@@ -3,7 +3,7 @@ const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? ''
 export type Priority = 'critical' | 'high' | 'normal' | 'low'
 export type TaskStatus = 'queued' | 'assigned' | 'in_progress' | 'review' | 'done' | 'failed'
 export type AgentStatus = 'idle' | 'running' | 'failed'
-export type ReleaseStatus = 'draft' | 'staging' | 'testing' | 'pending_approval' | 'approved' | 'deployed' | 'failed'
+export type ReleaseStatus = 'draft' | 'staging' | 'testing' | 'pending_approval' | 'approved' | 'deployed' | 'failed' | 'cancelled' | 'reverted'
 
 export interface Task {
   id: string
@@ -74,6 +74,9 @@ export interface Release {
   staging_deployed_at: string | null
   production_deployed_at: string | null
   approved_by: string | null
+  reverted_at: string | null
+  reverted_by: string | null
+  previous_status: string | null
   created_at: string
   merge_results?: MergeResult[]
 }
@@ -278,5 +281,23 @@ export async function deleteTask(id: string): Promise<void> {
 export async function unapproveRelease(id: string): Promise<Release> {
   const res = await fetch(`${BASE_URL}/releases/${id}/unapprove`, { method: 'POST' })
   if (!res.ok) throw new Error(`Failed to unapprove release: ${res.statusText}`)
+  return res.json()
+}
+
+export async function rollbackRelease(id: string): Promise<Release> {
+  const res = await fetch(`${BASE_URL}/api/releases/${id}/rollback`, { method: 'POST' })
+  if (!res.ok) throw new Error(`Failed to rollback release: ${res.statusText}`)
+  return res.json()
+}
+
+export async function cancelRelease(id: string): Promise<Release> {
+  const res = await fetch(`${BASE_URL}/api/releases/${id}/cancel`, { method: 'POST' })
+  if (!res.ok) throw new Error(`Failed to cancel release: ${res.statusText}`)
+  return res.json()
+}
+
+export async function revertRelease(id: string): Promise<Release> {
+  const res = await fetch(`${BASE_URL}/api/releases/${id}/revert`, { method: 'POST' })
+  if (!res.ok) throw new Error(`Failed to revert release: ${res.statusText}`)
   return res.json()
 }
