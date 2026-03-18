@@ -6,7 +6,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { type Task } from '@/lib/api'
 import { deleteTask, updateTask } from '@/lib/api'
 import { formatDistanceToNow } from '@/lib/utils'
-import { ExternalLink, GripVertical, GitPullRequest, Trash2, Undo2 } from 'lucide-react'
+import { ExternalLink, GitBranch, GripVertical, GitPullRequest, Trash2, Undo2 } from 'lucide-react'
 
 interface TaskCardProps {
   task: Task
@@ -184,6 +184,22 @@ export function TaskCard({ task, onClick, onDelete, onRequeue }: TaskCardProps) 
               {cfg.label}
             </span>
             <span className="text-xs font-mono" style={{ color: '#808080' }}>{task.repo}</span>
+            {task.branch && (
+              <a
+                href={`https://github.com/zinchenkomig/${task.repo}/tree/${task.branch}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={e => e.stopPropagation()}
+                className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded transition-colors"
+                style={{ color: '#9876AA', background: 'rgba(152,118,170,0.15)' }}
+                onMouseEnter={e => (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(152,118,170,0.3)'}
+                onMouseLeave={e => (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(152,118,170,0.15)'}
+                title={task.branch}
+              >
+                <GitBranch className="w-3 h-3" />
+                branch
+              </a>
+            )}
             {task.status === 'done' && task.pr_url && (
               <a
                 href={task.pr_url}

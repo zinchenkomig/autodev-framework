@@ -55,6 +55,7 @@ export interface ReleasePR {
 export interface MergeResult {
   task_id?: string
   pr_url?: string
+  branch?: string
   repo?: string
   pr_number?: number
   success: boolean
