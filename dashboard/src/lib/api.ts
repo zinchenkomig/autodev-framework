@@ -16,6 +16,7 @@ export interface Task {
   repo: string
   issue_number: number | null
   pr_number: number | null
+  pr_url: string | null
   created_by: string
   created_at: string
   updated_at: string
