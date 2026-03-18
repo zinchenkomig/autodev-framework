@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated
@@ -12,7 +13,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from autodev.api.database import get_session
-from autodev.core.models import Release, ReleaseStatus
+from autodev.core.github_ops import extract_pr_info, merge_develop_to_main, merge_pr
+from autodev.core.models import Release, ReleaseStatus, Task
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -43,11 +47,14 @@ class ReleaseResponse(BaseModel):
     approved_by: str | None
     approved_at: datetime | None
     created_at: datetime
+    merge_results: list[dict] = []
 
     model_config = {"from_attributes": True}
 
 
-def _release_to_response(release: Release) -> ReleaseResponse:
+def _release_to_response(
+    release: Release, merge_results: list[dict] | None = None
+) -> ReleaseResponse:
     return ReleaseResponse(
         id=str(release.id),
         version=release.version,
@@ -59,6 +66,7 @@ def _release_to_response(release: Release) -> ReleaseResponse:
         approved_by=release.approved_by,
         approved_at=release.approved_at,
         created_at=release.created_at,
+        merge_results=merge_results or [],
     )
 
 
@@ -162,6 +170,8 @@ async def update_release(
     if release is None:
         raise HTTPException(status_code=404, detail="Release not found")
 
+    merge_results: list[dict] = []
+
     if body.status is not None:
         valid_transitions = {
             ReleaseStatus.DRAFT: [ReleaseStatus.STAGING],
@@ -174,40 +184,148 @@ async def update_release(
             # Allow force updates for flexibility
             pass
         release.status = body.status
+
         if body.status == ReleaseStatus.STAGING:
             release.staging_deployed_at = datetime.now(UTC)
+            # Merge PRs for all tasks in this release
+            merge_results = await _merge_release_prs(release, session)
+
         elif body.status == ReleaseStatus.DEPLOYED:
             release.production_deployed_at = datetime.now(UTC)
+            # Merge develop to main for all repos
+            merge_results = await _merge_develop_to_main_for_release(release, session)
 
     await session.flush()
     await session.refresh(release)
-    return _release_to_response(release)
+    return _release_to_response(release, merge_results)
+
+
+async def _merge_release_prs(
+    release: Release, session: AsyncSession
+) -> list[dict]:
+    """Merge all PRs associated with release tasks. Returns list of results."""
+    results: list[dict] = []
+    task_uuids = release.tasks or []
+    if not task_uuids:
+        return results
+
+    for task_uuid in task_uuids:
+        task = await session.get(Task, task_uuid)
+        if task is None:
+            continue
+        if not task.pr_url:
+            logger.info("Task %s has no pr_url, skipping merge", task.id)
+            continue
+
+        info = extract_pr_info(task.pr_url)
+        if info is None:
+            logger.warning("Could not parse pr_url for task %s: %s", task.id, task.pr_url)
+            results.append(
+                {
+                    "task_id": str(task.id),
+                    "pr_url": task.pr_url,
+                    "success": False,
+                    "error": "Could not parse PR URL",
+                }
+            )
+            continue
+
+        repo, pr_number = info
+        logger.info("Merging PR #%d in %s for task %s", pr_number, repo, task.id)
+        try:
+            success = await merge_pr(repo, pr_number)
+        except Exception as exc:
+            logger.error("Error merging PR #%d in %s: %s", pr_number, repo, exc)
+            success = False
+            results.append(
+                {
+                    "task_id": str(task.id),
+                    "pr_url": task.pr_url,
+                    "repo": repo,
+                    "pr_number": pr_number,
+                    "success": False,
+                    "error": str(exc),
+                }
+            )
+            continue
+
+        logger.info(
+            "PR #%d in %s merge result: %s", pr_number, repo, "success" if success else "failed"
+        )
+        results.append(
+            {
+                "task_id": str(task.id),
+                "pr_url": task.pr_url,
+                "repo": repo,
+                "pr_number": pr_number,
+                "success": success,
+            }
+        )
+
+    return results
+
+
+async def _merge_develop_to_main_for_release(
+    release: Release, session: AsyncSession
+) -> list[dict]:
+    """Merge develop into main for each unique repo in the release tasks."""
+    results: list[dict] = []
+    task_uuids = release.tasks or []
+    if not task_uuids:
+        return results
+
+    repos: set[str] = set()
+    for task_uuid in task_uuids:
+        task = await session.get(Task, task_uuid)
+        if task and task.repo:
+            repos.add(task.repo)
+
+    for repo in repos:
+        logger.info("Merging develop→main for repo %s", repo)
+        try:
+            success = await merge_develop_to_main(repo)
+        except Exception as exc:
+            logger.error("Error merging develop→main for %s: %s", repo, exc)
+            success = False
+            results.append({"repo": repo, "success": False, "error": str(exc)})
+            continue
+
+        logger.info(
+            "develop→main merge for %s: %s", repo, "success" if success else "failed"
+        )
+        results.append({"repo": repo, "success": success})
+
+    return results
 
 
 @router.post("/{release_id}/unapprove", summary="Remove approval from a release")
 async def unapprove_release(
     release_id: str,
-    db: AsyncSession = Depends(get_db),
-):
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> ReleaseResponse:
     """Remove approval from a release (transitions back to staging status)."""
     try:
-        release_uuid = UUID(release_id)
+        release_uuid = uuid.UUID(release_id)
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid release ID format")
 
-    release = await db.get(Release, release_uuid)
+    release = await session.get(Release, release_uuid)
     if not release:
         raise HTTPException(status_code=404, detail="Release not found")
 
-    if release.status not in (ReleaseStatus.APPROVED, ReleaseStatus.STAGING, ReleaseStatus.TESTING):
+    if release.status not in (
+        ReleaseStatus.APPROVED,
+        ReleaseStatus.STAGING,
+        "testing",
+    ):
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot unapprove release in {release.status} status"
+            detail=f"Cannot unapprove release in {release.status} status",
         )
 
     release.status = ReleaseStatus.STAGING
     release.approved_by = None
     release.approved_at = None
-    await db.commit()
-    await db.refresh(release)
-    return _to_response(release)
+    await session.flush()
+    await session.refresh(release)
+    return _release_to_response(release)

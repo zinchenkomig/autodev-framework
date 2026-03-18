@@ -247,6 +247,7 @@ class Orchestrator:
             )
 
             pr_number: int | None = None
+            pr_url: str | None = None
 
             if result.status == "success" and repo_name:
                 # 6. Commit & push
@@ -269,8 +270,14 @@ class Orchestrator:
                     body=f"Automated PR for task {task_id}\n\n{task.description or ''}",
                 )
                 if pr_number:
+                    pr_url = (
+                        f"https://github.com/zinchenkomig/{repo_name}/pull/{pr_number}"
+                    )
                     await self._log(
-                        "developer", task_id, "info", f"PR #{pr_number} created successfully"
+                        "developer",
+                        task_id,
+                        "info",
+                        f"PR #{pr_number} created successfully: {pr_url}",
                     )
                 else:
                     await self._log(
@@ -280,7 +287,9 @@ class Orchestrator:
 
             # 8. Update task status
             final_status = TaskStatus.DONE if result.status == "success" else TaskStatus.FAILED
-            await self._update_task_status(task_id, final_status, pr_number=pr_number)
+            await self._update_task_status(
+                task_id, final_status, pr_number=pr_number, pr_url=pr_url
+            )
             await self._log(
                 "developer", task_id, "info", f"Task completed with status: {final_status}"
             )
@@ -319,6 +328,7 @@ class Orchestrator:
         task_id: str,
         status: TaskStatus,
         pr_number: int | None = None,
+        pr_url: str | None = None,
     ) -> None:
         import uuid as _uuid
 
@@ -332,6 +342,8 @@ class Orchestrator:
                 task.status = status
                 if pr_number is not None:
                     task.pr_number = pr_number
+                if pr_url is not None:
+                    task.pr_url = pr_url
                 await session.commit()
 
     async def _update_agent_status(

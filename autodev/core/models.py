@@ -202,6 +202,7 @@ class Task(Base):
     repo: Mapped[str | None] = mapped_column(String(255), nullable=True)
     issue_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     pr_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pr_url: Mapped[str | None] = mapped_column(String, nullable=True)
     depends_on: Mapped[list[uuid.UUID] | None] = mapped_column(
         _JSONEncodedList(), nullable=True, default=list
     )

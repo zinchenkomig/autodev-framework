@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from autodev.agents.pm import Improvement, PMAgent, TaskDecomposition
+from autodev.agents.pm import Improvement, PMAgent
 from autodev.core.events import EventBus
 from autodev.core.models import Priority, Task, TaskSource, TaskStatus
 from autodev.core.queue import TaskQueue
-
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -9,9 +9,8 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from autodev.core.learning import Lesson, LearningStore
+from autodev.core.learning import LearningStore, Lesson
 from autodev.core.models import Base, Priority, Task, TaskSource, TaskStatus
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

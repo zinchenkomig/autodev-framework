@@ -51,6 +51,15 @@ export interface ReleasePR {
   merged_at: string | null
 }
 
+export interface MergeResult {
+  task_id?: string
+  pr_url?: string
+  repo?: string
+  pr_number?: number
+  success: boolean
+  error?: string
+}
+
 export interface Release {
   id: string
   version: string
@@ -65,6 +74,7 @@ export interface Release {
   production_deployed_at: string | null
   approved_by: string | null
   created_at: string
+  merge_results?: MergeResult[]
 }
 
 export interface DashboardStats {

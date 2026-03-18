@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { updateRelease, approveRelease, unapproveRelease, type Release, type Task, type ReleaseStatus } from '@/lib/api'
-import { CheckSquare, Square, GitPullRequest, ExternalLink, Loader2 } from 'lucide-react'
+import { updateRelease, approveRelease, unapproveRelease, type Release, type Task, type ReleaseStatus, type MergeResult } from '@/lib/api'
+import { CheckSquare, Square, GitPullRequest, ExternalLink, Loader2, CheckCircle, XCircle } from 'lucide-react'
 
 interface Props {
   release: Release
@@ -89,6 +89,7 @@ export default function ReleaseDetail({ release, allTasks, onUpdated }: Props) {
   const [checked, setChecked] = useState<Set<string>>(() => loadChecked(release.id))
   const [actionLoading, setActionLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [mergeResults, setMergeResults] = useState<MergeResult[] | null>(null)
 
   // Reload checked when release changes
   useEffect(() => {
@@ -123,6 +124,7 @@ export default function ReleaseDetail({ release, allTasks, onUpdated }: Props) {
   async function handleAction(action: 'staging' | 'approve' | 'unapprove' | 'production') {
     setActionLoading(true)
     setError(null)
+    setMergeResults(null)
     try {
       let updated: Release
       if (action === 'staging') {
@@ -133,6 +135,9 @@ export default function ReleaseDetail({ release, allTasks, onUpdated }: Props) {
         updated = await unapproveRelease(release.id)
       } else {
         updated = await updateRelease(release.id, { status: 'deployed' })
+      }
+      if (updated.merge_results && updated.merge_results.length > 0) {
+        setMergeResults(updated.merge_results)
       }
       onUpdated(updated)
     } catch (e) {
@@ -351,6 +356,39 @@ export default function ReleaseDetail({ release, allTasks, onUpdated }: Props) {
           </div>
         </div>
       </div>
+
+      {mergeResults && mergeResults.length > 0 && (
+        <div
+          className="p-4 space-y-2"
+          style={{ background: '#3C3F41', border: '1px solid #515151', borderRadius: '4px' }}
+        >
+          <p className="text-xs font-medium uppercase tracking-wider mb-3" style={{ color: '#808080' }}>
+            Результаты merge
+          </p>
+          {mergeResults.map((r, i) => (
+            <div key={i} className="flex items-start gap-2">
+              {r.success ? (
+                <CheckCircle className="w-4 h-4 shrink-0 mt-0.5" style={{ color: '#6A8759' }} />
+              ) : (
+                <XCircle className="w-4 h-4 shrink-0 mt-0.5" style={{ color: '#FF6B6B' }} />
+              )}
+              <div className="text-xs" style={{ color: r.success ? '#A9B7C6' : '#FF6B6B' }}>
+                {r.repo && <span className="font-mono">{r.repo}</span>}
+                {r.pr_number && <span className="ml-1 font-mono">#{r.pr_number}</span>}
+                {r.pr_url && !r.pr_number && (
+                  <a href={r.pr_url} target="_blank" rel="noopener noreferrer" className="ml-1 underline" style={{ color: '#3592C4' }}>
+                    {r.pr_url}
+                  </a>
+                )}
+                {!r.success && r.error && (
+                  <span className="ml-2" style={{ color: '#808080' }}>— {r.error}</span>
+                )}
+                {r.success && <span className="ml-2" style={{ color: '#6A8759' }}>✓ merged</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {error && (
         <p className="text-xs" style={{ color: '#FF6B6B' }}>{error}</p>

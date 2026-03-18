@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import httpx
 import pytest
 
 from autodev.core.providers import (
@@ -18,7 +16,6 @@ from autodev.core.providers import (
     OpenAIProvider,
     ProviderRegistry,
 )
-
 
 # ---------------------------------------------------------------------------
 # LLMResponse

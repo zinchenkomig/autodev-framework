@@ -10,7 +10,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from autodev.core.models import Base, Task, TaskStatus, Release, ReleaseStatus
+from autodev.core.models import Base, Task, TaskStatus
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -129,9 +129,10 @@ async def test_chat_suggest_tasks(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_chat_suggest_shows_queued_tasks(app, client: AsyncClient):
     """Suggest should list queued tasks when they exist."""
-    import autodev.api.database as db_module
     import uuid
     from datetime import UTC, datetime
+
+    import autodev.api.database as db_module
 
     task = Task(
         id=uuid.uuid4(),
