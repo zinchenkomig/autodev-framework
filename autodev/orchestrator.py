@@ -171,6 +171,19 @@ class Orchestrator:
         """Process a single task end-to-end."""
         task_id = str(task.id)
         repo_name = task.repo or ""
+        # Map short names to full repo names from config
+        if self.config and self.config.repos:
+            for repo_cfg in self.config.repos:
+                if repo_name in (repo_cfg.name, repo_cfg.name.split("/")[-1]):
+                    repo_name = repo_cfg.name
+                    break
+        # Also handle partial matches
+        _REPO_ALIASES = {
+            "backend": "great_alerter_backend",
+            "frontend": "great_alerter_frontend",
+        }
+        if repo_name in _REPO_ALIASES:
+            repo_name = _REPO_ALIASES[repo_name]
         workdir = f"/tmp/autodev-{task_id}"
 
         logger.info("Processing task %s: %s (repo=%s)", task_id, task.title, repo_name)

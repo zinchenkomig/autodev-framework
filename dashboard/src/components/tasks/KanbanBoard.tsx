@@ -24,9 +24,10 @@ const COLUMNS: { id: TaskStatus; title: string; color: string }[] = [
   { id: 'in_progress', title: 'In Progress', color: '#CC7832' },
   { id: 'review',      title: 'Review',      color: '#3592C4' },
   { id: 'done',        title: 'Done',        color: '#6A8759' },
+  { id: 'failed',     title: 'Failed',     color: '#CC4E4E' },
 ]
 
-const KANBAN_STATUSES = new Set<TaskStatus>(['queued', 'in_progress', 'review', 'done'])
+const KANBAN_STATUSES = new Set<TaskStatus>(['queued', 'in_progress', 'review', 'done', 'failed'])
 
 interface KanbanBoardProps {
   initialTasks: Task[]
