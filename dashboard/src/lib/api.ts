@@ -265,7 +265,7 @@ export async function deleteTask(id: string): Promise<void> {
 }
 
 export async function unapproveRelease(id: string): Promise<Release> {
-  const res = await fetch(`${API_BASE}/releases/${id}/unapprove`, { method: 'POST' })
+  const res = await fetch(`${BASE_URL}/releases/${id}/unapprove`, { method: 'POST' })
   if (!res.ok) throw new Error(`Failed to unapprove release: ${res.statusText}`)
   return res.json()
 }
