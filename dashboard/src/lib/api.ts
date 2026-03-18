@@ -263,3 +263,9 @@ export async function deleteTask(id: string): Promise<void> {
   })
   if (!res.ok) throw new Error(`Failed to delete task: ${res.status}`)
 }
+
+export async function unapproveRelease(id: string): Promise<Release> {
+  const res = await fetch(`${API_BASE}/releases/${id}/unapprove`, { method: 'POST' })
+  if (!res.ok) throw new Error(`Failed to unapprove release: ${res.statusText}`)
+  return res.json()
+}

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { updateRelease, approveRelease, type Release, type Task, type ReleaseStatus } from '@/lib/api'
+import { updateRelease, approveRelease, unapproveRelease, type Release, type Task, type ReleaseStatus } from '@/lib/api'
 import { CheckSquare, Square, GitPullRequest, ExternalLink, Loader2 } from 'lucide-react'
 
 interface Props {
@@ -120,7 +120,7 @@ export default function ReleaseDetail({ release, allTasks, onUpdated }: Props) {
 
   const cfg = statusConfig[release.status] ?? statusConfig.draft
 
-  async function handleAction(action: 'staging' | 'approve' | 'production') {
+  async function handleAction(action: 'staging' | 'approve' | 'unapprove' | 'production') {
     setActionLoading(true)
     setError(null)
     try {
@@ -129,6 +129,8 @@ export default function ReleaseDetail({ release, allTasks, onUpdated }: Props) {
         updated = await updateRelease(release.id, { status: 'staging' })
       } else if (action === 'approve') {
         updated = await approveRelease(release.id)
+      } else if (action === 'unapprove') {
+        updated = await unapproveRelease(release.id)
       } else {
         updated = await updateRelease(release.id, { status: 'deployed' })
       }
@@ -142,6 +144,7 @@ export default function ReleaseDetail({ release, allTasks, onUpdated }: Props) {
 
   const canDeployStaging = release.status === 'draft'
   const canApprove = release.status === 'staging' || release.status === 'testing'
+  const canUnapprove = release.status === 'approved' || release.status === 'staging' || release.status === 'testing'
   const canDeployProd = release.status === 'approved'
 
   return (

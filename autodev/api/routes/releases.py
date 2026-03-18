@@ -182,3 +182,32 @@ async def update_release(
     await session.flush()
     await session.refresh(release)
     return _release_to_response(release)
+
+
+@router.post("/{release_id}/unapprove", summary="Remove approval from a release")
+async def unapprove_release(
+    release_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove approval from a release (transitions back to staging status)."""
+    try:
+        release_uuid = UUID(release_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid release ID format")
+
+    release = await db.get(Release, release_uuid)
+    if not release:
+        raise HTTPException(status_code=404, detail="Release not found")
+
+    if release.status not in (ReleaseStatus.APPROVED, ReleaseStatus.STAGING, ReleaseStatus.TESTING):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot unapprove release in {release.status} status"
+        )
+
+    release.status = ReleaseStatus.STAGING
+    release.approved_by = None
+    release.approved_at = None
+    await db.commit()
+    await db.refresh(release)
+    return _to_response(release)
