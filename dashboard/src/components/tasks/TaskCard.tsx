@@ -32,7 +32,7 @@ export function TaskCard({ task, onClick, onDelete, onRequeue }: TaskCardProps) 
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: task.id })
+  } = useSortable({ id: task.id, disabled: task.status === 'released' })
 
   const [showConfirm, setShowConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
