@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy import types as sa_types
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB  # used in TypeDecorators below
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
