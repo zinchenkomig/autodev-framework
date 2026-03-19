@@ -1,8 +1,9 @@
 'use client'
 
-import { type AgentMonitor, type AgentMonitorStatus } from '@/lib/api'
+import { useState } from 'react'
+import { type AgentMonitor, type AgentMonitorStatus, toggleAgent } from '@/lib/api'
 import { formatDistanceToNow } from '@/lib/utils'
-import { Square } from 'lucide-react'
+import { Square, Power } from 'lucide-react'
 
 interface AgentMonitorCardProps {
   agent: AgentMonitor
@@ -15,6 +16,8 @@ const statusConfig: Record<AgentMonitorStatus, { color: string; label: string; p
 }
 
 export function AgentMonitorCard({ agent }: AgentMonitorCardProps) {
+  const [isEnabled, setIsEnabled] = useState(agent.enabled ?? true)
+  
   const cfg = statusConfig[agent.status]
   const successRate =
     agent.total_runs > 0
@@ -22,6 +25,15 @@ export function AgentMonitorCard({ agent }: AgentMonitorCardProps) {
       : 100
 
   const successColor = successRate >= 80 ? '#6A8759' : successRate >= 50 ? '#CC7832' : '#CC4E4E'
+
+  async function handleToggle() {
+    try {
+      const updated = await toggleAgent(agent.id)
+      setIsEnabled(updated.enabled)
+    } catch (err) {
+      console.error('Failed to toggle agent', err)
+    }
+  }
 
   return (
     <div
@@ -31,6 +43,7 @@ export function AgentMonitorCard({ agent }: AgentMonitorCardProps) {
         border: '1px solid #515151',
         borderRadius: '4px',
         padding: '14px',
+        opacity: isEnabled ? 1 : 0.6,
       }}
       onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.borderColor = '#808080'}
       onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.borderColor = '#515151'}
@@ -39,13 +52,13 @@ export function AgentMonitorCard({ agent }: AgentMonitorCardProps) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span
-            className={cfg.pulse ? 'animate-status-pulse' : ''}
+            className={cfg.pulse && isEnabled ? 'animate-status-pulse' : ''}
             style={{
               display: 'inline-block',
               width: '8px',
               height: '8px',
               borderRadius: '50%',
-              background: cfg.color,
+              background: isEnabled ? cfg.color : '#515151',
               flexShrink: 0,
             }}
           />
@@ -53,9 +66,9 @@ export function AgentMonitorCard({ agent }: AgentMonitorCardProps) {
         </div>
         <span
           className="text-xs font-mono px-1.5 py-0.5 rounded"
-          style={{ color: cfg.color, background: `${cfg.color}20` }}
+          style={{ color: isEnabled ? cfg.color : '#515151', background: `${isEnabled ? cfg.color : '#515151'}20` }}
         >
-          {cfg.label}
+          {isEnabled ? cfg.label : 'disabled'}
         </span>
       </div>
 
@@ -65,7 +78,7 @@ export function AgentMonitorCard({ agent }: AgentMonitorCardProps) {
       <div
         style={{
           background: '#313335',
-          borderLeft: `3px solid ${cfg.color}`,
+          borderLeft: `3px solid ${isEnabled ? cfg.color : '#515151'}`,
           padding: '6px 10px',
           borderRadius: '0 4px 4px 0',
         }}

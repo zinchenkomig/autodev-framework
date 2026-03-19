@@ -105,6 +105,7 @@ export interface AgentMonitor {
   total_runs: number
   total_failures: number
   avg_time: string
+  enabled: boolean
 }
 
 export type AgentRunStatus = 'success' | 'failed' | 'running' | 'cancelled'
