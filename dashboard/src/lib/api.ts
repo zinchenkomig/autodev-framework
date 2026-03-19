@@ -303,3 +303,10 @@ export async function revertRelease(id: string): Promise<Release> {
   if (!res.ok) throw new Error(`Failed to revert release: ${res.statusText}`)
   return res.json()
 }
+
+
+export async function toggleAgent(agentId: string): Promise<Agent> {
+  const res = await fetch(`${BASE_URL}/api/agents/${agentId}/toggle`, { method: 'POST' })
+  if (!res.ok) throw new Error(`Failed to toggle agent: ${res.status}`)
+  return res.json()
+}

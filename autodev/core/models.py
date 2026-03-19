@@ -245,6 +245,7 @@ class Agent(Base):
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     total_runs: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     total_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     # Relationships
     current_task: Mapped[Task | None] = relationship("Task", foreign_keys=[current_task_id])

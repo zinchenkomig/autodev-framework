@@ -32,6 +32,7 @@ class AgentResponse(BaseModel):
     last_run_at: datetime | None
     total_runs: int
     total_failures: int
+    enabled: bool
 
     model_config = {"from_attributes": True}
 
@@ -152,4 +153,31 @@ async def trigger_agent(
         event_id=str(event.id),
         agent_id=agent_id,
         message=f"Agent {agent_id} triggered",
+    )
+
+
+@router.post("/{agent_id}/toggle", summary="Toggle agent enabled/disabled")
+async def toggle_agent(
+    agent_id: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> AgentResponse:
+    """Toggle an agent's enabled state."""
+    agent = await session.get(Agent, agent_id)
+    if agent is None:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    agent.enabled = not agent.enabled
+    await session.flush()
+    await session.refresh(agent)
+
+    return AgentResponse(
+        id=agent.id,
+        role=agent.role,
+        status=agent.status,
+        current_task_id=str(agent.current_task_id) if agent.current_task_id else None,
+        current_task_title=agent.current_task.title if agent.current_task else None,
+        last_run_at=agent.last_run_at,
+        total_runs=agent.total_runs,
+        total_failures=agent.total_failures,
+        enabled=agent.enabled,
     )
