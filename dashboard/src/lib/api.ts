@@ -198,6 +198,7 @@ export async function getAgentMonitors(): Promise<AgentMonitor[]> {
     total_runs: a.total_runs,
     total_failures: a.total_failures,
     avg_time: '',
+    enabled: a.enabled,
   }))
 }
 
