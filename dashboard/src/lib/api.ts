@@ -32,6 +32,7 @@ export interface Agent {
   last_run_at: string | null
   total_runs: number
   total_failures: number
+  enabled: boolean
 }
 
 export interface Event {
