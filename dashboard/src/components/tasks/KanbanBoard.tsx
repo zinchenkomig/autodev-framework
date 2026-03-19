@@ -210,8 +210,8 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
       >
         {/* Desktop: all columns side-by-side */}
         <div
-          className="hidden md:flex overflow-x-auto pb-4 flex-1"
-          style={{ border: '1px solid #515151', borderRadius: '4px', overflow: 'hidden' }}
+          className="hidden md:flex pb-4 flex-1"
+          style={{ border: '1px solid #515151', borderRadius: '4px', overflowX: 'auto', overflowY: 'hidden' }}
         >
           {COLUMNS.map((col) => (
             <KanbanColumn
