@@ -5,7 +5,7 @@ import { createRelease, type Task } from '@/lib/api'
 import { CheckSquare, Square, Package, Loader2 } from 'lucide-react'
 
 interface Props {
-  doneTasks: Task[]
+  readyTasks: Task[]
   onCreated: () => void
 }
 
@@ -25,19 +25,19 @@ function priorityColor(p: string): string {
   }
 }
 
-export default function ReleaseCreate({ doneTasks, onCreated }: Props) {
+export default function ReleaseCreate({ readyTasks, onCreated }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [version, setVersion] = useState(generateVersion)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const allSelected = doneTasks.length > 0 && selected.size === doneTasks.length
+  const allSelected = readyTasks.length > 0 && selected.size === readyTasks.length
 
   function toggleAll() {
     if (allSelected) {
       setSelected(new Set())
     } else {
-      setSelected(new Set(doneTasks.map((t) => t.id)))
+      setSelected(new Set(readyTasks.map((t) => t.id)))
     }
   }
 
@@ -109,7 +109,7 @@ export default function ReleaseCreate({ doneTasks, onCreated }: Props) {
             <Square className="w-4 h-4 shrink-0" style={{ color: '#808080' }} />
           )}
           <span className="text-xs font-medium" style={{ color: '#A9B7C6' }}>
-            Select all ({doneTasks.length} done tasks)
+            Select all ({readyTasks.length} ready tasks)
           </span>
           {selected.size > 0 && (
             <span
@@ -121,19 +121,19 @@ export default function ReleaseCreate({ doneTasks, onCreated }: Props) {
           )}
         </div>
 
-        {doneTasks.length === 0 ? (
+        {readyTasks.length === 0 ? (
           <div className="py-10 text-center" style={{ background: '#3C3F41' }}>
             <Package className="w-6 h-6 mx-auto mb-2" style={{ color: '#515151' }} />
             <p className="text-xs" style={{ color: '#808080' }}>No completed tasks to include</p>
           </div>
         ) : (
-          doneTasks.map((task, idx) => (
+          readyTasks.map((task, idx) => (
             <div
               key={task.id}
               className="flex items-center gap-3 px-4 py-3 cursor-pointer"
               style={{
                 background: selected.has(task.id) ? 'rgba(53,146,196,0.06)' : '#3C3F41',
-                borderBottom: idx < doneTasks.length - 1 ? '1px solid #515151' : 'none',
+                borderBottom: idx < readyTasks.length - 1 ? '1px solid #515151' : 'none',
               }}
               onClick={() => toggleTask(task.id)}
               onMouseEnter={(e) => {

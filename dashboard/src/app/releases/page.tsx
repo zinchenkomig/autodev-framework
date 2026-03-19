@@ -35,7 +35,7 @@ export default function ReleasesPage() {
   }
 
   const activeRelease = releases.find(isActive) ?? null
-  const doneTasks = tasks.filter((t) => t.status === 'done')
+  const readyTasks = tasks.filter((t) => t.status === 'ready_to_release')
 
   if (activeRelease) {
     return (
@@ -53,7 +53,7 @@ export default function ReleasesPage() {
 
   return (
     <ReleaseCreate
-      doneTasks={doneTasks}
+      readyTasks={readyTasks}
       onCreated={() => {
         setLoading(true)
         load()
