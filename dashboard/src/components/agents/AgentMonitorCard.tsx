@@ -2,7 +2,7 @@
 
 import { type AgentMonitor, type AgentMonitorStatus } from '@/lib/api'
 import { formatDistanceToNow } from '@/lib/utils'
-import { Play, Square } from 'lucide-react'
+import { Square } from 'lucide-react'
 
 interface AgentMonitorCardProps {
   agent: AgentMonitor
