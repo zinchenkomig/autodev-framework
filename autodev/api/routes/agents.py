@@ -68,6 +68,7 @@ def _agent_to_response(agent: Agent) -> AgentResponse:
         last_run_at=agent.last_run_at,
         total_runs=agent.total_runs,
         total_failures=agent.total_failures,
+        enabled=agent.enabled,
     )
 
 
