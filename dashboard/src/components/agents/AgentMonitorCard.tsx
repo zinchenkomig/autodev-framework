@@ -109,24 +109,6 @@ export function AgentMonitorCard({ agent }: AgentMonitorCardProps) {
       {/* Actions */}
       <div className="flex gap-2 pt-1">
         <button
-          className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs transition-colors"
-          style={{
-            border: '1px solid #515151',
-            color: '#BABABA',
-            borderRadius: '3px',
-          }}
-          onMouseEnter={e => {
-            (e.currentTarget as HTMLButtonElement).style.color = '#6A8759'
-            ;(e.currentTarget as HTMLButtonElement).style.borderColor = '#6A8759'
-          }}
-          onMouseLeave={e => {
-            (e.currentTarget as HTMLButtonElement).style.color = '#BABABA'
-            ;(e.currentTarget as HTMLButtonElement).style.borderColor = '#515151'
-          }}
-        >
-          <Play className="w-3 h-3" /> Trigger
-        </button>
-        <button
           className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           style={{
             border: '1px solid #515151',
