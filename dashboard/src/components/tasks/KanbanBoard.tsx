@@ -67,7 +67,7 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
 
   const tasksByStatus = useMemo(() => {
     const map: Record<TaskStatus, Task[]> = {
-      queued: [], assigned: [], in_progress: [], review: [], done: [], failed: [],
+      queued: [], assigned: [], in_progress: [], review: [], done: [], ready_to_release: [], failed: [],
     }
     for (const task of filteredTasks) {
       map[task.status].push(task)
