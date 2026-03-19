@@ -16,8 +16,8 @@ const STATUS_PILLS: { id: TaskStatus; label: string }[] = [
   { id: 'queued',      label: 'Queued'      },
   { id: 'in_progress', label: 'In Progress' },
   { id: 'review',      label: 'Review'      },
-  { id: 'done',        label: 'Done'        },
   { id: 'ready_to_release', label: 'Ready to Release' },
+  { id: 'released',    label: 'Released'    },
 ]
 
 const STATUS_DOT: Record<TaskStatus, string> = {
@@ -25,8 +25,8 @@ const STATUS_DOT: Record<TaskStatus, string> = {
   assigned:    '#9876AA',
   in_progress: '#CC7832',
   review:      '#3592C4',
-  done:        '#6A8759',
   ready_to_release: '#9876AA',
+  released:    '#6A8759',
   failed:      '#CC4E4E',
 }
 

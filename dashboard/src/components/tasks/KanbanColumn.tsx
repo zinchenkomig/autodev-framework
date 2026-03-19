@@ -19,8 +19,8 @@ const columnConfig: Record<string, { dot: string; bg: string; badge: string }> =
   queued:      { dot: '#808080',  bg: '#313335', badge: 'rgba(128,128,128,0.2)' },
   in_progress: { dot: '#CC7832',  bg: '#313335', badge: 'rgba(204,120,50,0.2)'  },
   review:      { dot: '#3592C4',  bg: '#313335', badge: 'rgba(53,146,196,0.2)'  },
-  done:        { dot: '#6A8759',  bg: '#313335', badge: 'rgba(106,135,89,0.2)'  },
   ready_to_release: { dot: '#9876AA', bg: '#313335', badge: 'rgba(152,118,170,0.2)' },
+  released:    { dot: '#6A8759',  bg: '#313335', badge: 'rgba(106,135,89,0.2)'  },
 }
 
 export function KanbanColumn({ id, title, tasks, onTaskClick, onTaskDelete, onTaskRequeue }: KanbanColumnProps) {

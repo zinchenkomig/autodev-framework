@@ -135,8 +135,8 @@ class TaskStatus(enum.StrEnum):
     ASSIGNED = "assigned"
     IN_PROGRESS = "in_progress"
     REVIEW = "review"
-    DONE = "done"
     READY_TO_RELEASE = "ready_to_release"
+    RELEASED = "released"
     FAILED = "failed"
 
 

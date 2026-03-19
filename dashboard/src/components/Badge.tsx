@@ -12,8 +12,8 @@ const statusConfig: Record<TaskStatus, { label: string; color: string; bg: strin
   assigned:    { label: 'assigned',    color: '#9876AA', bg: 'rgba(152,118,170,0.15)' },
   in_progress: { label: 'in progress', color: '#CC7832', bg: 'rgba(204,120,50,0.15)'  },
   review:      { label: 'review',      color: '#3592C4', bg: 'rgba(53,146,196,0.15)'  },
-  done:        { label: 'done',        color: '#6A8759', bg: 'rgba(106,135,89,0.15)'  },
-  ready_to_release: { label: 'ready', color: '#9876AA', bg: 'rgba(152,118,170,0.15)' },
+  ready_to_release: { label: 'staging', color: '#9876AA', bg: 'rgba(152,118,170,0.15)' },
+  released:    { label: 'released',    color: '#6A8759', bg: 'rgba(106,135,89,0.15)'  },
   failed:      { label: 'failed',      color: '#CC4E4E', bg: 'rgba(204,78,78,0.15)'   },
 }
 
