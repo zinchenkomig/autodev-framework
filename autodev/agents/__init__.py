@@ -1,5 +1,4 @@
-"""Agents module — concrete agent implementations for each development role.
+"""AutoDev Agents."""
+from autodev.agents.tester import TesterAgent
 
-Each agent extends BaseAgent and implements a specific slice of the
-software development lifecycle.
-"""
+__all__ = ["TesterAgent"]

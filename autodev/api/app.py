@@ -19,6 +19,7 @@ from autodev.api.database import SessionLocal, engine
 from autodev.api.routes import agents, events, releases, tasks, webhooks
 from autodev.api.routes import metrics as metrics_router
 from autodev.api.routes import pm as pm_router
+from autodev.api.routes import tester as tester_router
 from autodev.api.websocket import router as ws_router
 from autodev.core.models import Agent, AgentStatus, Base
 
@@ -100,6 +101,7 @@ def create_app() -> FastAPI:
     app.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
     app.include_router(metrics_router.router, prefix="/metrics", tags=["metrics"])
     app.include_router(pm_router.router, prefix="/pm", tags=["pm"])
+    app.include_router(tester_router.router, prefix="/tester", tags=["tester"])
 
     # WebSocket
     app.include_router(ws_router, prefix="/ws", tags=["websocket"])
