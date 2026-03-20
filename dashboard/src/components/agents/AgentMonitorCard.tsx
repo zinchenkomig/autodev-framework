@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { type AgentMonitor, type AgentMonitorStatus, toggleAgent } from '@/lib/api'
 import { formatDistanceToNow } from '@/lib/utils'
-import { Square, Power } from 'lucide-react'
+import { Square } from 'lucide-react'
 
 interface AgentMonitorCardProps {
   agent: AgentMonitor
@@ -64,12 +64,35 @@ export function AgentMonitorCard({ agent }: AgentMonitorCardProps) {
           />
           <span className="text-sm font-semibold" style={{ color: '#FFFFFF' }}>{agent.role}</span>
         </div>
-        <span
-          className="text-xs font-mono px-1.5 py-0.5 rounded"
-          style={{ color: isEnabled ? cfg.color : '#515151', background: `${isEnabled ? cfg.color : '#515151'}20` }}
+        
+        {/* Toggle Switch */}
+        <button
+          onClick={handleToggle}
+          className="relative transition-colors"
+          style={{
+            width: '36px',
+            height: '20px',
+            borderRadius: '10px',
+            background: isEnabled ? '#6A8759' : '#515151',
+            border: 'none',
+            cursor: 'pointer',
+            padding: 0,
+          }}
+          title={isEnabled ? 'Disable agent' : 'Enable agent'}
         >
-          {isEnabled ? cfg.label : 'disabled'}
-        </span>
+          <span
+            style={{
+              position: 'absolute',
+              top: '2px',
+              left: isEnabled ? '18px' : '2px',
+              width: '16px',
+              height: '16px',
+              borderRadius: '50%',
+              background: '#FFFFFF',
+              transition: 'left 0.2s ease',
+            }}
+          />
+        </button>
       </div>
 
       <p className="text-xs font-mono" style={{ color: '#808080' }}>{agent.id}</p>
@@ -119,42 +142,14 @@ export function AgentMonitorCard({ agent }: AgentMonitorCardProps) {
         </p>
       )}
 
-      {/* Actions */}
-      <div className="flex gap-2 pt-1">
-        <button
-          className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs transition-colors"
-          style={{
-            border: `1px solid ${isEnabled ? '#6A8759' : '#515151'}`,
-            color: isEnabled ? '#6A8759' : '#808080',
-            borderRadius: '3px',
-            background: isEnabled ? 'rgba(106,135,89,0.1)' : 'transparent',
-          }}
-          onClick={handleToggle}
+      {/* Status label */}
+      <div className="flex justify-end">
+        <span
+          className="text-xs font-mono px-1.5 py-0.5 rounded"
+          style={{ color: isEnabled ? cfg.color : '#515151', background: `${isEnabled ? cfg.color : '#515151'}20` }}
         >
-          <Power className="w-3 h-3" />
-          {isEnabled ? 'On' : 'Off'}
-        </button>
-        <button
-          className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-          style={{
-            border: '1px solid #515151',
-            color: '#BABABA',
-            borderRadius: '3px',
-          }}
-          disabled={agent.status !== 'working'}
-          onMouseEnter={e => {
-            if (agent.status === 'working') {
-              (e.currentTarget as HTMLButtonElement).style.color = '#CC4E4E'
-              ;(e.currentTarget as HTMLButtonElement).style.borderColor = '#CC4E4E'
-            }
-          }}
-          onMouseLeave={e => {
-            (e.currentTarget as HTMLButtonElement).style.color = '#BABABA'
-            ;(e.currentTarget as HTMLButtonElement).style.borderColor = '#515151'
-          }}
-        >
-          <Square className="w-3 h-3" /> Stop
-        </button>
+          {isEnabled ? cfg.label : 'disabled'}
+        </span>
       </div>
     </div>
   )
