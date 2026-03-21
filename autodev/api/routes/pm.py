@@ -1,4 +1,4 @@
-"""PM Agent API routes - reads docs from repositories."""
+"""PM Agent API routes - thoughtful task creation."""
 
 from __future__ import annotations
 
@@ -72,17 +72,7 @@ class SessionDetail(BaseModel):
     messages: list[dict]
 
 
-class ProjectContextResponse(BaseModel):
-    repo: str
-    name: str
-    description: str | None
-    stack: str | None
-    features: str | None
-    api_summary: str | None
-    last_updated: datetime | None
-
-
-# === Documentation Fetching ===
+# === Documentation ===
 
 async def fetch_from_github(repo: str, path: str) -> str | None:
     """Fetch a file from GitHub repo."""
@@ -98,84 +88,32 @@ async def fetch_from_github(repo: str, path: str) -> str | None:
     return None
 
 
-async def fetch_openapi_spec(repo: str) -> dict | None:
-    """Fetch OpenAPI spec from repo or live endpoint."""
-    # Try common locations
-    for path in ["openapi.json", "openapi/openapi.json", "docs/openapi.json"]:
-        content = await fetch_from_github(repo, path)
-        if content:
-            try:
-                return json.loads(content)
-            except Exception:
-                pass
-    return None
+async def get_repo_docs(repo: str) -> str:
+    """Get documentation for a repo."""
+    project_md = await fetch_from_github(repo, "PROJECT.md")
+    claude_md = await fetch_from_github(repo, "CLAUDE.md")
+    
+    docs = []
+    if project_md:
+        docs.append(f"### PROJECT.md\n{project_md[:2000]}")
+    if claude_md:
+        docs.append(f"### CLAUDE.md\n{claude_md[:1500]}")
+    
+    return "\n\n".join(docs) if docs else "Документация не найдена"
 
 
-def summarize_openapi(spec: dict) -> str:
-    """Create summary of API endpoints."""
-    if not spec:
-        return ""
+async def build_full_context(session: AsyncSession) -> str:
+    """Build context from all repos."""
+    result = await session.execute(select(ProjectContext.repo))
+    repos = [r[0] for r in result.all()]
     
-    paths = spec.get("paths", {})
-    endpoints = []
+    contexts = []
+    for repo in repos:
+        repo_type = "frontend" if "frontend" in repo.lower() else "backend"
+        docs = await get_repo_docs(repo)
+        contexts.append(f"## {repo} ({repo_type})\n{docs}")
     
-    for path, methods in paths.items():
-        for method, details in methods.items():
-            if method in ["get", "post", "put", "delete", "patch"]:
-                summary = details.get("summary", details.get("operationId", ""))
-                endpoints.append(f"- {method.upper()} {path}: {summary}")
-    
-    if len(endpoints) > 20:
-        return "\n".join(endpoints[:20]) + f"\n... и ещё {len(endpoints) - 20} эндпоинтов"
-    
-    return "\n".join(endpoints)
-
-
-async def get_repo_documentation(repo: str) -> dict:
-    """Fetch all documentation for a repo."""
-    docs = {
-        "repo": repo,
-        "name": repo.split("/")[-1],
-        "project_md": None,
-        "claude_md": None,
-        "readme": None,
-        "openapi_summary": None,
-    }
-    
-    # Fetch docs in parallel
-    docs["project_md"] = await fetch_from_github(repo, "PROJECT.md")
-    docs["claude_md"] = await fetch_from_github(repo, "CLAUDE.md")
-    docs["readme"] = await fetch_from_github(repo, "README.md")
-    
-    # Fetch OpenAPI for backends
-    if "backend" in repo.lower():
-        openapi = await fetch_openapi_spec(repo)
-        if openapi:
-            docs["openapi_summary"] = summarize_openapi(openapi)
-    
-    return docs
-
-
-def build_project_context(docs: dict) -> str:
-    """Build context string from documentation."""
-    parts = []
-    repo = docs["repo"]
-    repo_type = "frontend" if "frontend" in repo.lower() else "backend"
-    
-    parts.append(f"### {docs['name']} (`{repo}`) — {repo_type}")
-    
-    # Prefer PROJECT.md, fallback to CLAUDE.md, then README
-    main_doc = docs.get("project_md") or docs.get("claude_md") or docs.get("readme")
-    if main_doc:
-        # Take first 1500 chars
-        parts.append(main_doc[:1500])
-    
-    # Add API summary for backends
-    if docs.get("openapi_summary"):
-        parts.append("\n**API Endpoints:**")
-        parts.append(docs["openapi_summary"])
-    
-    return "\n".join(parts)
+    return "\n\n---\n\n".join(contexts)
 
 
 # === LLM ===
@@ -199,59 +137,69 @@ async def call_llm(messages: list[dict]) -> str:
             json={
                 "model": model,
                 "messages": messages,
-                "max_tokens": 2048,
+                "max_tokens": 3000,
             },
-            timeout=60.0,
+            timeout=90.0,
         )
         response.raise_for_status()
         data = response.json()
         return data["choices"][0]["message"]["content"]
 
 
-# === Context Management ===
-
-async def get_all_repos(session: AsyncSession) -> list[str]:
-    """Get all tracked repos from DB."""
-    result = await session.execute(select(ProjectContext.repo))
-    return [r[0] for r in result.all()]
-
-
-async def build_full_context(session: AsyncSession) -> str:
-    """Build full project context from repo documentation."""
-    repos = await get_all_repos(session)
-    
-    if not repos:
-        return "Нет отслеживаемых проектов."
-    
-    contexts = []
-    for repo in repos:
-        docs = await get_repo_documentation(repo)
-        ctx = build_project_context(docs)
-        contexts.append(ctx)
-    
-    return "\n\n---\n\n".join(contexts)
-
-
 def build_system_prompt(context: str) -> str:
-    """Build system prompt."""
-    return f"""Ты PM агент AutoDev. Ты знаешь проекты на основе их документации.
+    """Build system prompt for thoughtful PM."""
+    return f"""Ты опытный PM. Когда пользователь описывает что хочет — ты анализируешь задачу и предлагаешь план.
 
-## Проекты (документация из репозиториев):
+# Проекты (документация):
 {context}
 
-## Правила:
-1. САМ определяй репозиторий по контексту задачи
-2. НЕ создавай задачу сразу — ПРЕДЛОЖИ для подтверждения
-3. Если задача затрагивает оба репо — предложи 2 задачи
-4. Используй знание API эндпоинтов и структуры проекта
+# Как работать:
 
-## Формат предложения:
+1. **Понять задачу** — перескажи своими словами что нужно сделать
+2. **Продумать реализацию** — какие компоненты затронуты, какие шаги нужны
+3. **Декомпозировать** — если задача сложная, разбей на 2-4 отдельные таски
+4. **Предложить** — покажи структурированные карточки задач
+
+# Формат ответа:
+
+## Понимание
+<Своими словами что хочет пользователь>
+
+## Анализ
+<Какие части системы затронуты, как это реализовать>
+
+## Задачи
+
 ---PROPOSAL---
-title: краткое название
+title: Название задачи 1
 repo: owner/repo
-priority: low/normal/high/critical
-description: подробное описание (с учётом архитектуры проекта)
----END---"""
+priority: normal
+description: |
+  **Что сделать:**
+  - Пункт 1
+  - Пункт 2
+  
+  **Где менять:**
+  - файл/компонент
+  
+  **Acceptance criteria:**
+  - Критерий готовности
+---END---
+
+---PROPOSAL---
+title: Название задачи 2 (если нужна)
+repo: owner/repo
+priority: normal
+description: |
+  ...
+---END---
+
+# Правила:
+- Определяй репозиторий сам (frontend/backend) по контексту
+- Одна фича может = несколько тасок (backend API + frontend UI)
+- В description пиши конкретно: файлы, функции, компоненты
+- Priority: low (мелочь), normal (обычная), high (важно), critical (блокер)
+- НЕ спрашивай уточнений если можешь решить сам на основе документации"""
 
 
 def parse_proposals(response: str) -> list[dict]:
@@ -259,12 +207,28 @@ def parse_proposals(response: str) -> list[dict]:
     proposals = []
     for match in re.finditer(r"---PROPOSAL---\s*(.*?)\s*---END---", response, re.DOTALL):
         proposal = {}
+        current_key = None
+        current_value = []
+        
         for line in match.group(1).strip().split("\n"):
-            if ":" in line:
+            if ":" in line and not line.startswith(" ") and not line.startswith("-"):
+                # Save previous key
+                if current_key:
+                    proposal[current_key] = "\n".join(current_value).strip()
+                # Start new key
                 key, value = line.split(":", 1)
-                proposal[key.strip().lower()] = value.strip()
-        if "title" in proposal and "description" in proposal:
+                current_key = key.strip().lower()
+                current_value = [value.strip()] if value.strip() else []
+            else:
+                current_value.append(line)
+        
+        # Save last key
+        if current_key:
+            proposal[current_key] = "\n".join(current_value).strip()
+        
+        if "title" in proposal:
             proposals.append(proposal)
+    
     return proposals
 
 
@@ -311,7 +275,7 @@ async def pm_chat(
     )
     history = list(history_result.scalars().all())
     
-    # Build context from repo documentation
+    # Build context
     project_context = await build_full_context(session)
     system_prompt = build_system_prompt(project_context)
     
@@ -339,6 +303,7 @@ async def pm_chat(
         for p in proposals_data
     ]
     
+    # Clean response (keep analysis, remove proposal blocks)
     clean_response = re.sub(r"---PROPOSAL---.*?---END---", "", llm_response, flags=re.DOTALL).strip()
     
     # Save PM response
@@ -410,12 +375,11 @@ async def approve_tasks(
     return ApproveResponse(created_tasks=created_tasks)
 
 
-@router.get("/sessions", summary="List chat sessions")
+@router.get("/sessions")
 async def list_sessions(
     session: Annotated[AsyncSession, Depends(get_session)],
     limit: int = 20,
 ) -> list[SessionSummary]:
-    """List recent chat sessions."""
     result = await session.execute(
         select(ChatSession)
         .options(selectinload(ChatSession.messages))
@@ -432,12 +396,11 @@ async def list_sessions(
     ]
 
 
-@router.get("/sessions/{session_id}", summary="Get chat session")
+@router.get("/sessions/{session_id}")
 async def get_session_detail(
     session_id: str,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> SessionDetail:
-    """Get chat session with messages."""
     try:
         session_uuid = UUID(session_id)
     except ValueError:
@@ -471,7 +434,6 @@ async def delete_session(
     session_id: str,
     session: Annotated[AsyncSession, Depends(get_session)],
 ):
-    """Delete a chat session."""
     try:
         chat_session = await session.get(ChatSession, UUID(session_id))
     except ValueError:
@@ -482,45 +444,3 @@ async def delete_session(
     
     await session.delete(chat_session)
     return {"deleted": True}
-
-
-@router.get("/contexts", summary="Get project contexts")
-async def list_contexts(
-    session: Annotated[AsyncSession, Depends(get_session)],
-) -> list[ProjectContextResponse]:
-    """Get documentation from all tracked repos."""
-    repos = await get_all_repos(session)
-    
-    result = []
-    for repo in repos:
-        docs = await get_repo_documentation(repo)
-        
-        # Extract description from docs
-        main_doc = docs.get("project_md") or docs.get("claude_md") or docs.get("readme") or ""
-        description = main_doc[:300] if main_doc else None
-        
-        result.append(ProjectContextResponse(
-            repo=repo,
-            name=docs["name"],
-            description=description,
-            stack=None,  # Could parse from docs
-            features=None,
-            api_summary=docs.get("openapi_summary"),
-            last_updated=datetime.now(UTC),
-        ))
-    
-    return result
-
-
-@router.post("/refresh", summary="Refresh project documentation")
-async def refresh_contexts(
-    session: Annotated[AsyncSession, Depends(get_session)],
-) -> dict:
-    """Force refresh documentation from all repos."""
-    repos = await get_all_repos(session)
-    
-    for repo in repos:
-        # Fetch fresh docs (will be used on next PM chat)
-        await get_repo_documentation(repo)
-    
-    return {"refreshed": len(repos)}
