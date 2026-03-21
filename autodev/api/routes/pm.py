@@ -4,22 +4,28 @@ from __future__ import annotations
 
 import os
 import re
+import yaml
 from datetime import UTC, datetime
 from typing import Annotated
 from uuid import uuid4
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
 
-from autodev.api.database import get_session
+from autodev.api.database import get_session, SessionLocal
 from autodev.core.models import Task, TaskStatus, Priority, ProjectContext
 
 router = APIRouter(tags=["pm"])
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+AUTODEV_CONFIG = os.environ.get("AUTODEV_CONFIG", "/app/autodev.yaml")
+
+# Track if we've done initial sync
+_initial_sync_done = False
 
 
 class ChatMessage(BaseModel):
@@ -49,10 +55,6 @@ class ProjectContextResponse(BaseModel):
     last_analyzed_at: datetime | None
 
 
-class AnalyzeRequest(BaseModel):
-    repo: str
-
-
 async def fetch_file_from_github(repo: str, path: str) -> str | None:
     """Fetch a file from GitHub."""
     url = f"https://raw.githubusercontent.com/{repo}/main/{path}"
@@ -78,7 +80,6 @@ async def get_repo_structure(repo: str) -> str:
                 data = resp.json()
                 tree = data.get("tree", [])
                 paths = [item["path"] for item in tree if item["type"] == "blob"]
-                # Filter to important files
                 important = [p for p in paths if any(x in p.lower() for x in 
                     ["readme", "claude", "package.json", "pyproject.toml", "requirements", 
                      "dockerfile", "main.py", "app.py", "index.ts", "page.tsx"])]
@@ -86,65 +87,6 @@ async def get_repo_structure(repo: str) -> str:
         except Exception:
             pass
     return ""
-
-
-async def analyze_repo_with_llm(repo: str, claude_md: str | None, readme: str | None, 
-                                 structure: str, package_info: str | None) -> dict:
-    """Use LLM to analyze repo and create context."""
-    
-    context_parts = []
-    if claude_md:
-        context_parts.append(f"## CLAUDE.md:\n{claude_md[:4000]}")
-    if readme:
-        context_parts.append(f"## README.md:\n{readme[:2000]}")
-    if structure:
-        context_parts.append(f"## File structure:\n{structure}")
-    if package_info:
-        context_parts.append(f"## Dependencies:\n{package_info[:1000]}")
-    
-    combined = "\n\n".join(context_parts)
-    
-    prompt = f"""Проанализируй этот репозиторий и создай краткий контекст для PM агента.
-
-Репозиторий: {repo}
-
-{combined}
-
-Ответь в формате JSON:
-{{
-    "name": "Название проекта",
-    "description": "Краткое описание (1-2 предложения)",
-    "stack": "Технологический стек через запятую",
-    "features": "Ключевые фичи и возможности (bullet points)",
-    "architecture": "Краткое описание архитектуры (основные компоненты)",
-    "current_focus": "На чём сейчас фокус разработки (если понятно)"
-}}
-
-Только JSON, без markdown."""
-
-    response = await call_llm([
-        {"role": "system", "content": "Ты анализатор репозиториев. Отвечай только JSON."},
-        {"role": "user", "content": prompt}
-    ])
-    
-    # Parse JSON from response
-    try:
-        # Try to extract JSON from response
-        json_match = re.search(r'\{[\s\S]*\}', response)
-        if json_match:
-            import json
-            return json.loads(json_match.group())
-    except Exception:
-        pass
-    
-    return {
-        "name": repo.split("/")[-1],
-        "description": "Не удалось проанализировать",
-        "stack": "",
-        "features": "",
-        "architecture": "",
-        "current_focus": ""
-    }
 
 
 async def call_llm(messages: list[dict]) -> str:
@@ -175,14 +117,129 @@ async def call_llm(messages: list[dict]) -> str:
         return data["choices"][0]["message"]["content"]
 
 
+async def analyze_repo(repo: str) -> dict:
+    """Analyze a repository and return context dict."""
+    claude_md = await fetch_file_from_github(repo, "CLAUDE.md")
+    readme = await fetch_file_from_github(repo, "README.md")
+    structure = await get_repo_structure(repo)
+    package_json = await fetch_file_from_github(repo, "package.json")
+    pyproject = await fetch_file_from_github(repo, "pyproject.toml")
+    
+    context_parts = []
+    if claude_md:
+        context_parts.append(f"## CLAUDE.md:\n{claude_md[:4000]}")
+    if readme:
+        context_parts.append(f"## README.md:\n{readme[:2000]}")
+    if structure:
+        context_parts.append(f"## File structure:\n{structure}")
+    if package_json or pyproject:
+        context_parts.append(f"## Dependencies:\n{(package_json or pyproject)[:1000]}")
+    
+    if not context_parts:
+        return {
+            "name": repo.split("/")[-1],
+            "description": "Не удалось получить данные репозитория",
+        }
+    
+    combined = "\n\n".join(context_parts)
+    
+    prompt = f"""Проанализируй репозиторий и создай контекст. Репозиторий: {repo}
+
+{combined}
+
+Ответь JSON:
+{{"name": "Название", "description": "Описание", "stack": "Стек", "features": "Фичи", "architecture": "Архитектура", "current_focus": "Фокус"}}"""
+
+    response = await call_llm([
+        {"role": "system", "content": "Ты анализатор репозиториев. Только JSON."},
+        {"role": "user", "content": prompt}
+    ])
+    
+    try:
+        import json
+        json_match = re.search(r'\{[\s\S]*\}', response)
+        if json_match:
+            return json.loads(json_match.group())
+    except Exception:
+        pass
+    
+    return {"name": repo.split("/")[-1], "description": "Не удалось проанализировать"}
+
+
+async def ensure_context_exists(session: AsyncSession, repo: str) -> ProjectContext | None:
+    """Ensure project context exists, analyze if not."""
+    existing = await session.scalar(
+        select(ProjectContext).where(ProjectContext.repo == repo)
+    )
+    
+    if existing:
+        return existing
+    
+    # Analyze and create
+    try:
+        analysis = await analyze_repo(repo)
+        
+        ctx = ProjectContext(
+            id=uuid4(),
+            repo=repo,
+            name=analysis.get("name", repo),
+            description=analysis.get("description"),
+            stack=analysis.get("stack"),
+            features=analysis.get("features"),
+            architecture=analysis.get("architecture"),
+            current_focus=analysis.get("current_focus"),
+            last_analyzed_at=datetime.now(UTC),
+        )
+        session.add(ctx)
+        await session.flush()
+        return ctx
+    except Exception:
+        return None
+
+
+async def sync_repos_from_config(session: AsyncSession):
+    """Sync repos from autodev.yaml config."""
+    global _initial_sync_done
+    if _initial_sync_done:
+        return
+    
+    config_path = Path(AUTODEV_CONFIG)
+    if not config_path.exists():
+        _initial_sync_done = True
+        return
+    
+    try:
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+        
+        repos = config.get("repos", [])
+        for repo_config in repos:
+            repo_url = repo_config.get("url", "")
+            # Convert github.com/owner/repo to owner/repo
+            if "github.com/" in repo_url:
+                repo = repo_url.split("github.com/")[-1]
+            else:
+                repo = repo_url
+            
+            if "/" in repo:
+                await ensure_context_exists(session, repo)
+        
+        _initial_sync_done = True
+    except Exception:
+        _initial_sync_done = True
+
+
 async def get_all_contexts(session: AsyncSession) -> str:
     """Get all project contexts from DB."""
+    # Sync from config on first call
+    await sync_repos_from_config(session)
+    
     stmt = select(ProjectContext)
     result = await session.execute(stmt)
     contexts = result.scalars().all()
     
     if not contexts:
-        return "Нет сохранённых контекстов проектов. Используй команду 'изучи проект owner/repo' чтобы добавить."
+        return "Нет контекстов проектов."
     
     parts = []
     for ctx in contexts:
@@ -204,28 +261,23 @@ async def get_all_contexts(session: AsyncSession) -> str:
 
 
 def get_pm_system_prompt(contexts: str) -> str:
-    """Build PM system prompt with project contexts."""
-    return f"""Ты PM агент в системе AutoDev. Твоя задача — помогать создавать задачи для разработчиков.
+    """Build PM system prompt."""
+    return f"""Ты PM агент в системе AutoDev.
 
-## Проекты которыми ты управляешь:
+## Проекты:
 {contexts}
 
-## Специальные команды:
-- "изучи проект owner/repo" — проанализировать репозиторий и сохранить контекст
-- "покажи контексты" — показать все сохранённые контексты
-
 ## Как работать:
-1. Ты знаешь контекст проектов — не спрашивай про стек/архитектуру
-2. Уточни только ЧТО именно делать если непонятно
-3. Сразу предлагай конкретное решение
+1. Ты знаешь контексты проектов
+2. Не спрашивай про стек — ты его знаешь
+3. Сразу предлагай решение
 
 ## Создание задачи:
-Когда готов, ответь в формате:
 ---TASK---
-title: <краткое название>
+title: <название>
 repo: <owner/repo>
 priority: <low/normal/high/critical>
-description: <подробное описание с техническими деталями>
+description: <описание>
 ---END---
 """
 
@@ -252,6 +304,14 @@ def parse_task_from_response(response: str) -> dict | None:
     return None
 
 
+def extract_repo_mentions(text: str) -> list[str]:
+    """Extract GitHub repo mentions from text."""
+    # Match patterns like owner/repo, github.com/owner/repo
+    pattern = r'(?:github\.com/)?([a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+)'
+    matches = re.findall(pattern, text)
+    return [m for m in matches if not m.startswith('api/')]
+
+
 @router.post("/chat", summary="Chat with PM agent")
 async def pm_chat(
     request: ChatRequest,
@@ -259,78 +319,12 @@ async def pm_chat(
 ) -> ChatResponse:
     """Process a message and optionally create a task."""
     
-    msg_lower = request.message.lower().strip()
+    # Auto-learn any mentioned repos
+    mentioned_repos = extract_repo_mentions(request.message)
+    for repo in mentioned_repos:
+        await ensure_context_exists(session, repo)
     
-    # Check for analyze command
-    if msg_lower.startswith("изучи проект") or msg_lower.startswith("analyze"):
-        # Extract repo name
-        parts = request.message.split()
-        if len(parts) >= 3:
-            repo = parts[-1]
-            if "/" in repo:
-                # Do the analysis
-                claude_md = await fetch_file_from_github(repo, "CLAUDE.md")
-                readme = await fetch_file_from_github(repo, "README.md")
-                structure = await get_repo_structure(repo)
-                package_json = await fetch_file_from_github(repo, "package.json")
-                pyproject = await fetch_file_from_github(repo, "pyproject.toml")
-                
-                analysis = await analyze_repo_with_llm(
-                    repo, claude_md, readme, structure, 
-                    package_json or pyproject
-                )
-                
-                # Save to DB
-                existing = await session.scalar(
-                    select(ProjectContext).where(ProjectContext.repo == repo)
-                )
-                
-                if existing:
-                    existing.name = analysis.get("name", repo)
-                    existing.description = analysis.get("description")
-                    existing.stack = analysis.get("stack")
-                    existing.features = analysis.get("features")
-                    existing.architecture = analysis.get("architecture")
-                    existing.current_focus = analysis.get("current_focus")
-                    existing.last_analyzed_at = datetime.now(UTC)
-                else:
-                    ctx = ProjectContext(
-                        id=uuid4(),
-                        repo=repo,
-                        name=analysis.get("name", repo),
-                        description=analysis.get("description"),
-                        stack=analysis.get("stack"),
-                        features=analysis.get("features"),
-                        architecture=analysis.get("architecture"),
-                        current_focus=analysis.get("current_focus"),
-                        last_analyzed_at=datetime.now(UTC),
-                    )
-                    session.add(ctx)
-                
-                await session.flush()
-                
-                return ChatResponse(
-                    response=f"""✅ Проект `{repo}` проанализирован и сохранён!
-
-**{analysis.get('name', repo)}**
-{analysis.get('description', '')}
-
-**Стек:** {analysis.get('stack', 'не определён')}
-
-**Фичи:**
-{analysis.get('features', 'не определены')}
-
-Теперь я знаю этот проект и могу создавать задачи."""
-                )
-        
-        return ChatResponse(response="Укажи репозиторий в формате: изучи проект owner/repo")
-    
-    # Check for show contexts command
-    if "покажи контекст" in msg_lower or "show context" in msg_lower:
-        contexts = await get_all_contexts(session)
-        return ChatResponse(response=f"## Сохранённые контексты проектов:\n\n{contexts}")
-    
-    # Regular chat - get contexts and respond
+    # Get contexts (also syncs from config on first call)
     contexts = await get_all_contexts(session)
     system_prompt = get_pm_system_prompt(contexts)
     
@@ -347,7 +341,7 @@ async def pm_chat(
     except Exception as e:
         return ChatResponse(response=f"Ошибка LLM: {e}")
     
-    # Check if task should be created
+    # Check for task
     task_data = parse_task_from_response(llm_response)
     task_id = None
     task_created = False
@@ -387,11 +381,13 @@ async def pm_chat(
     )
 
 
-@router.get("/contexts", summary="List all project contexts")
+@router.get("/contexts", summary="List project contexts")
 async def list_contexts(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> list[ProjectContextResponse]:
-    """List all saved project contexts."""
+    """List all project contexts."""
+    await sync_repos_from_config(session)
+    
     stmt = select(ProjectContext)
     result = await session.execute(stmt)
     contexts = result.scalars().all()
@@ -409,63 +405,3 @@ async def list_contexts(
         )
         for c in contexts
     ]
-
-
-@router.post("/analyze", summary="Analyze a repository")
-async def analyze_repo(
-    request: AnalyzeRequest,
-    session: Annotated[AsyncSession, Depends(get_session)],
-) -> ProjectContextResponse:
-    """Analyze a repository and save its context."""
-    repo = request.repo
-    
-    claude_md = await fetch_file_from_github(repo, "CLAUDE.md")
-    readme = await fetch_file_from_github(repo, "README.md")
-    structure = await get_repo_structure(repo)
-    package_json = await fetch_file_from_github(repo, "package.json")
-    pyproject = await fetch_file_from_github(repo, "pyproject.toml")
-    
-    analysis = await analyze_repo_with_llm(
-        repo, claude_md, readme, structure,
-        package_json or pyproject
-    )
-    
-    existing = await session.scalar(
-        select(ProjectContext).where(ProjectContext.repo == repo)
-    )
-    
-    if existing:
-        existing.name = analysis.get("name", repo)
-        existing.description = analysis.get("description")
-        existing.stack = analysis.get("stack")
-        existing.features = analysis.get("features")
-        existing.architecture = analysis.get("architecture")
-        existing.current_focus = analysis.get("current_focus")
-        existing.last_analyzed_at = datetime.now(UTC)
-        ctx = existing
-    else:
-        ctx = ProjectContext(
-            id=uuid4(),
-            repo=repo,
-            name=analysis.get("name", repo),
-            description=analysis.get("description"),
-            stack=analysis.get("stack"),
-            features=analysis.get("features"),
-            architecture=analysis.get("architecture"),
-            current_focus=analysis.get("current_focus"),
-            last_analyzed_at=datetime.now(UTC),
-        )
-        session.add(ctx)
-    
-    await session.flush()
-    
-    return ProjectContextResponse(
-        repo=ctx.repo,
-        name=ctx.name,
-        description=ctx.description,
-        stack=ctx.stack,
-        features=ctx.features,
-        architecture=ctx.architecture,
-        current_focus=ctx.current_focus,
-        last_analyzed_at=ctx.last_analyzed_at,
-    )
