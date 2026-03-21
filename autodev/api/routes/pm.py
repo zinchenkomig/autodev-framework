@@ -147,59 +147,46 @@ async def call_llm(messages: list[dict]) -> str:
 
 
 def build_system_prompt(context: str) -> str:
-    """Build system prompt for thoughtful PM."""
-    return f"""Ты опытный PM. Когда пользователь описывает что хочет — ты анализируешь задачу и предлагаешь план.
+    """Build system prompt for PM."""
+    return f"""Ты PM. Пользователь описывает фичу — ты продумываешь реализацию и создаёшь задачи.
 
-# Проекты (документация):
+# Проекты:
 {context}
 
-# Как работать:
+# Что делать:
 
-1. **Понять задачу** — перескажи своими словами что нужно сделать
-2. **Продумать реализацию** — какие компоненты затронуты, какие шаги нужны
-3. **Декомпозировать** — если задача сложная, разбей на 2-4 отдельные таски
-4. **Предложить** — покажи структурированные карточки задач
+1. **Продумай** — как реализовать фичу с учётом архитектуры проекта
+2. **Декомпозируй** — если сложная фича, разбей на 2-4 задачи (backend/frontend отдельно)
+3. **Опиши конкретно** — что именно нужно сделать, какая логика, какие edge cases
 
-# Формат ответа:
+# Формат:
 
-## Понимание
-<Своими словами что хочет пользователь>
-
-## Анализ
-<Какие части системы затронуты, как это реализовать>
+## Как реализовать
+<Твои мысли по реализации: какие компоненты затронуты, какой подход выбрать, на что обратить внимание>
 
 ## Задачи
 
 ---PROPOSAL---
-title: Название задачи 1
+title: Краткое название
 repo: owner/repo
 priority: normal
 description: |
-  **Что сделать:**
-  - Пункт 1
-  - Пункт 2
+  **Суть:** что должна делать эта часть
   
-  **Где менять:**
-  - файл/компонент
+  **Логика:**
+  - Как это должно работать
+  - Какие сценарии учесть
   
   **Acceptance criteria:**
-  - Критерий готовности
----END---
-
----PROPOSAL---
-title: Название задачи 2 (если нужна)
-repo: owner/repo
-priority: normal
-description: |
-  ...
+  - Готово когда...
 ---END---
 
 # Правила:
-- Определяй репозиторий сам (frontend/backend) по контексту
-- Одна фича может = несколько тасок (backend API + frontend UI)
-- В description пиши конкретно: файлы, функции, компоненты
-- Priority: low (мелочь), normal (обычная), high (важно), critical (блокер)
-- НЕ спрашивай уточнений если можешь решить сам на основе документации"""
+- НЕ пересказывай запрос пользователя — добавляй ценность
+- Определяй репозиторий сам по контексту (UI→frontend, API/логика→backend)
+- description должен быть полезен разработчику, а не копией запроса
+- Если нужны уточнения — спроси кратко, но обычно можешь решить сам
+- priority: low/normal/high/critical"""
 
 
 def parse_proposals(response: str) -> list[dict]:
@@ -212,17 +199,14 @@ def parse_proposals(response: str) -> list[dict]:
         
         for line in match.group(1).strip().split("\n"):
             if ":" in line and not line.startswith(" ") and not line.startswith("-"):
-                # Save previous key
                 if current_key:
                     proposal[current_key] = "\n".join(current_value).strip()
-                # Start new key
                 key, value = line.split(":", 1)
                 current_key = key.strip().lower()
                 current_value = [value.strip()] if value.strip() else []
             else:
                 current_value.append(line)
         
-        # Save last key
         if current_key:
             proposal[current_key] = "\n".join(current_value).strip()
         
@@ -241,7 +225,6 @@ async def pm_chat(
 ) -> ChatResponse:
     """Send message to PM agent."""
     
-    # Get or create chat session
     chat_session: ChatSession | None = None
     
     if request.session_id:
@@ -258,7 +241,6 @@ async def pm_chat(
         session.add(chat_session)
         await session.flush()
     
-    # Save user message
     user_msg = PMChatMessage(
         id=uuid4(),
         session_id=chat_session.id,
@@ -267,7 +249,6 @@ async def pm_chat(
     )
     session.add(user_msg)
     
-    # Load chat history
     history_result = await session.execute(
         select(PMChatMessage)
         .where(PMChatMessage.session_id == chat_session.id)
@@ -275,7 +256,6 @@ async def pm_chat(
     )
     history = list(history_result.scalars().all())
     
-    # Build context
     project_context = await build_full_context(session)
     system_prompt = build_system_prompt(project_context)
     
@@ -291,7 +271,6 @@ async def pm_chat(
     except Exception as e:
         return ChatResponse(response=f"Ошибка: {e}", session_id=str(chat_session.id))
     
-    # Parse proposals
     proposals_data = parse_proposals(llm_response)
     proposals = [
         TaskProposal(
@@ -303,10 +282,8 @@ async def pm_chat(
         for p in proposals_data
     ]
     
-    # Clean response (keep analysis, remove proposal blocks)
     clean_response = re.sub(r"---PROPOSAL---.*?---END---", "", llm_response, flags=re.DOTALL).strip()
     
-    # Save PM response
     pm_msg = PMChatMessage(
         id=uuid4(),
         session_id=chat_session.id,
@@ -328,7 +305,6 @@ async def approve_tasks(
     request: ApproveRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> ApproveResponse:
-    """Approve proposed tasks."""
     created_tasks = []
     
     for proposal in request.proposals:
@@ -357,7 +333,6 @@ async def approve_tasks(
             "url": f"{DASHBOARD_URL}/tasks?id={task.id}",
         })
     
-    # Add confirmation to chat
     if request.session_id:
         try:
             task_links = "\n".join([f"• [{t['title']}]({t['url']})" for t in created_tasks])
