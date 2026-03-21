@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from autodev.core.database import get_session
+from autodev.api.database import get_session
 from autodev.core.models import Task, TaskStatus, Project
 
 router = APIRouter(tags=["pm"])

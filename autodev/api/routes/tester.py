@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from autodev.core.database import get_session
+from autodev.api.database import get_session
 from autodev.core.models import Task, TaskStatus
 
 router = APIRouter(tags=["tester"])
@@ -36,7 +36,7 @@ async def trigger_tester(
         from autodev.agents.tester import TesterAgent
         
         async def run_tester():
-            from autodev.core.database import async_session_factory
+            from autodev.api.database import async_session_factory
             async with async_session_factory() as sess:
                 agent = TesterAgent(sess)
                 await agent.run()
