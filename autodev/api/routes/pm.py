@@ -65,7 +65,7 @@ async def call_llm(messages: list[dict]) -> str:
     openrouter_key = os.environ.get("OPENROUTER_API_KEY")
     if openrouter_key:
         base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-        model = os.environ.get("PM_MODEL", "anthropic/claude-sonnet-4-20250514")
+        model = os.environ.get("PM_MODEL", "z-ai/glm-5")
         
         async with httpx.AsyncClient() as client:
             response = await client.post(
