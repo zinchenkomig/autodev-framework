@@ -286,7 +286,7 @@ class Orchestrator:
                     )
 
             # 8. Update task status
-            final_status = TaskStatus.DONE if result.status == "success" else TaskStatus.FAILED
+            final_status = TaskStatus.REVIEW if result.status == "success" else TaskStatus.FAILED
             await self._update_task_status(
                 task_id, final_status, pr_number=pr_number, pr_url=pr_url
             )

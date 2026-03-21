@@ -215,7 +215,7 @@ class TaskQueue:
                 task = await session.get(Task, task_id)
                 if task is None:
                     raise TaskNotFoundError(task_id)
-                task.status = TaskStatus.DONE
+                task.status = TaskStatus.REVIEW
                 task.updated_at = datetime.now(UTC)
                 if pr_number is not None:
                     task.pr_number = pr_number
@@ -351,7 +351,7 @@ class TaskQueue:
         stmt = select(func.count()).select_from(Task).where(
             and_(
                 Task.id.in_(dep_ids),
-                Task.status != TaskStatus.DONE,
+                Task.status != TaskStatus.REVIEW,
             )
         )
         result = await session.execute(stmt)

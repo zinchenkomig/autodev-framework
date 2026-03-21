@@ -195,7 +195,7 @@ class MetricsCollector:
             # Tasks completed in period
             completed_rows = await session.execute(
                 select(Task).where(
-                    Task.status == TaskStatus.DONE,
+                    Task.status == TaskStatus.REVIEW,
                     Task.updated_at >= since,
                 )
             )
@@ -416,7 +416,7 @@ class MetricsCollector:
             # Avg task duration (hours) — from done tasks in last 30 days
             done_tasks_rows = await session.execute(
                 select(Task).where(
-                    Task.status == TaskStatus.DONE,
+                    Task.status == TaskStatus.REVIEW,
                     Task.updated_at >= since_month,
                 )
             )
@@ -444,7 +444,7 @@ class MetricsCollector:
             # Tasks completed this week
             week_tasks_row = await session.execute(
                 select(func.count(Task.id)).where(
-                    Task.status == TaskStatus.DONE,
+                    Task.status == TaskStatus.REVIEW,
                     Task.updated_at >= since_week,
                 )
             )
