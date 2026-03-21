@@ -378,3 +378,31 @@ class Release(Base):
 
     def __repr__(self) -> str:
         return f"<Release id={self.id} version={self.version!r} status={self.status}>"
+
+
+class ProjectContext(Base):
+    """Project context for PM agent."""
+
+    __tablename__ = "project_contexts"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        _UUID(), primary_key=True, default=uuid.uuid4
+    )
+    repo: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stack: Mapped[str | None] = mapped_column(Text, nullable=True)
+    features: Mapped[str | None] = mapped_column(Text, nullable=True)
+    architecture: Mapped[str | None] = mapped_column(Text, nullable=True)
+    current_focus: Mapped[str | None] = mapped_column(Text, nullable=True)
+    raw_context: Mapped[str | None] = mapped_column(Text, nullable=True)  # Full analyzed context
+    last_analyzed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
