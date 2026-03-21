@@ -10,11 +10,10 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from autodev.api.database import get_session
-from autodev.core.models import Task, TaskStatus, Project
+from autodev.core.models import Task, TaskStatus, Priority
 
 router = APIRouter(tags=["pm"])
 
@@ -35,28 +34,27 @@ class ChatResponse(BaseModel):
     task_id: str | None = None
 
 
-# PM Agent system prompt
 PM_SYSTEM_PROMPT = """Ты PM агент в системе AutoDev. Твоя задача — помогать создавать задачи для разработчиков.
 
 Когда пользователь описывает что нужно сделать:
-1. Уточни детали если нужно (проект, приоритет, acceptance criteria)
+1. Уточни детали если нужно (репозиторий, приоритет, acceptance criteria)
 2. Сформулируй чёткое название задачи
 3. Напиши подробное описание
 
 Когда готов создать задачу, ответь в формате:
 ---TASK---
 title: <название задачи>
-project: <проект, например great_alerter_backend или great_alerter_frontend>
-priority: <low/medium/high/critical>
+repo: <репозиторий, например zinchenkomig/great_alerter_backend или zinchenkomig/great_alerter_frontend>
+priority: <low/normal/high/critical>
 description: <подробное описание что нужно сделать>
 ---END---
 
-Доступные проекты:
-- great_alerter_backend
-- great_alerter_frontend
-- autodev-framework
+Доступные репозитории:
+- zinchenkomig/great_alerter_backend
+- zinchenkomig/great_alerter_frontend
+- zinchenkomig/autodev-framework
 
-После создания задачи, сообщи пользователю номер задачи."""
+После создания задачи, сообщи пользователю что задача создана."""
 
 
 async def call_llm(messages: list[dict]) -> str:
@@ -65,7 +63,7 @@ async def call_llm(messages: list[dict]) -> str:
     
     api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY")
     if not api_key:
-        return "Ошибка: API ключ не настроен"
+        return "Ошибка: API ключ не настроен. Установите OPENROUTER_API_KEY."
     
     base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     model = os.environ.get("PM_MODEL", "anthropic/claude-sonnet-4-20250514")
@@ -122,12 +120,18 @@ async def pm_chat(
     messages = [{"role": "system", "content": PM_SYSTEM_PROMPT}]
     
     for msg in request.history:
-        messages.append({"role": msg.role if msg.role != "pm" else "assistant", "content": msg.content})
+        messages.append({
+            "role": "user" if msg.role == "user" else "assistant",
+            "content": msg.content
+        })
     
     messages.append({"role": "user", "content": request.message})
     
     # Call LLM
-    llm_response = await call_llm(messages)
+    try:
+        llm_response = await call_llm(messages)
+    except Exception as e:
+        return ChatResponse(response=f"Ошибка при вызове LLM: {e}")
     
     # Check if task should be created
     task_data = parse_task_from_response(llm_response)
@@ -135,33 +139,25 @@ async def pm_chat(
     task_created = False
     
     if task_data:
-        # Find or create project
-        project_name = task_data.get("project", "autodev-framework")
-        project = await session.scalar(select(Project).where(Project.name == project_name))
-        
-        if not project:
-            # Create project if doesn't exist
-            project = Project(
-                id=uuid4(),
-                name=project_name,
-                repo_url=f"https://github.com/zinchenkomig/{project_name}",
-                created_at=datetime.now(UTC),
-            )
-            session.add(project)
-            await session.flush()
+        # Map priority
+        priority_map = {
+            "low": Priority.LOW,
+            "normal": Priority.NORMAL,
+            "high": Priority.HIGH,
+            "critical": Priority.CRITICAL,
+        }
+        priority = priority_map.get(task_data.get("priority", "normal"), Priority.NORMAL)
         
         # Create task
-        priority_map = {"low": 1, "medium": 2, "high": 3, "critical": 4}
-        priority = priority_map.get(task_data.get("priority", "medium"), 2)
-        
         task = Task(
             id=uuid4(),
             title=task_data["title"],
             description=task_data["description"],
             status=TaskStatus.QUEUED,
             priority=priority,
-            project_id=project.id,
+            repo=task_data.get("repo", "zinchenkomig/great_alerter_backend"),
             created_at=datetime.now(UTC),
+            created_by="pm_agent",
         )
         session.add(task)
         await session.flush()
@@ -169,9 +165,9 @@ async def pm_chat(
         task_id = str(task.id)
         task_created = True
         
-        # Clean response - remove task block and add confirmation
+        # Clean response
         clean_response = re.sub(r"---TASK---.*?---END---", "", llm_response, flags=re.DOTALL).strip()
-        llm_response = f"{clean_response}\n\n✅ Задача создана: #{task_id[:8]}"
+        llm_response = f"{clean_response}\n\n✅ Задача создана: `{task.title}`\nID: {task_id[:8]}"
     
     return ChatResponse(
         response=llm_response,
