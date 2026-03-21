@@ -58,33 +58,68 @@ description: <подробное описание что нужно сделат
 
 
 async def call_llm(messages: list[dict]) -> str:
-    """Call LLM API."""
+    """Call LLM API - supports OpenRouter and Anthropic direct."""
     import httpx
     
-    api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        return "Ошибка: API ключ не настроен. Установите OPENROUTER_API_KEY."
+    # Try OpenRouter first
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+    if openrouter_key:
+        base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+        model = os.environ.get("PM_MODEL", "anthropic/claude-sonnet-4-20250514")
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {openrouter_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "messages": messages,
+                    "max_tokens": 1024,
+                },
+                timeout=60.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data["choices"][0]["message"]["content"]
     
-    base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-    model = os.environ.get("PM_MODEL", "anthropic/claude-sonnet-4-20250514")
+    # Try Anthropic direct
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+    if anthropic_key:
+        model = os.environ.get("PM_MODEL", "claude-sonnet-4-20250514")
+        
+        # Extract system message
+        system_content = ""
+        user_messages = []
+        for msg in messages:
+            if msg["role"] == "system":
+                system_content = msg["content"]
+            else:
+                user_messages.append(msg)
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": anthropic_key,
+                    "anthropic-version": "2023-06-01",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "max_tokens": 1024,
+                    "system": system_content,
+                    "messages": user_messages,
+                },
+                timeout=60.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data["content"][0]["text"]
     
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            f"{base_url}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": model,
-                "messages": messages,
-                "max_tokens": 1024,
-            },
-            timeout=60.0,
-        )
-        response.raise_for_status()
-        data = response.json()
-        return data["choices"][0]["message"]["content"]
+    return "Ошибка: API ключ не настроен. Установите OPENROUTER_API_KEY или ANTHROPIC_API_KEY."
 
 
 def parse_task_from_response(response: str) -> dict | None:
