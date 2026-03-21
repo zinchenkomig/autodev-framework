@@ -302,6 +302,13 @@ class Orchestrator:
                     {"task_id": task_id, "pr_number": pr_number, "repo": repo_name},
                 )
 
+            # 10. Send Telegram notification
+            await notify_task_status(
+                task_id, task.title,
+                "review" if final_status == TaskStatus.REVIEW else "failed",
+                pr_url=pr_url or ""
+            )
+
             logger.info("Task %s finished: %s (pr=%s)", task_id, final_status, pr_number)
 
         except Exception as exc:
@@ -309,6 +316,9 @@ class Orchestrator:
             await self._log("developer", task_id, "error", f"Task failed: {exc}", details=str(exc))
             await self._update_task_status(task_id, TaskStatus.FAILED)
             await self._emit_event("task.failed", {"task_id": task_id, "error": str(exc)})
+            
+            # Send Telegram notification
+            await notify_task_status(task_id, task.title, "failed", error=str(exc))
 
         finally:
             # 10. Reset agent status
@@ -464,3 +474,19 @@ class Orchestrator:
 if __name__ == "__main__":
     orchestrator = Orchestrator()
     asyncio.run(orchestrator.start())
+
+
+# ============ Telegram Notifications ============
+
+async def notify_task_status(task_id: str, title: str, status: str, error: str = "", pr_url: str = "") -> None:
+    """Send Telegram notification about task status change."""
+    try:
+        from autodev.integrations.telegram_pm import get_telegram_bot
+        bot = get_telegram_bot()
+        
+        if status == "failed":
+            await bot.notify_task_failed(task_id, title, error)
+        elif status == "review":
+            await bot.notify_task_ready_for_review(task_id, title, pr_url)
+    except Exception as e:
+        logger.warning(f"Failed to send Telegram notification: {e}")
