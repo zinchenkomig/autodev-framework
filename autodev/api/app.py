@@ -22,7 +22,7 @@ from autodev.api.routes import agents, events, releases, tasks, webhooks
 from autodev.api.routes import metrics as metrics_router
 from autodev.api.routes import pm as pm_router
 from autodev.api.routes import tester as tester_router
-from autodev.api.ws import router as ws_router
+from autodev.api.websocket import router as ws_router
 from autodev.core.models import Base
 
 logger = logging.getLogger(__name__)
