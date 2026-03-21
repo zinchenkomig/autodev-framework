@@ -196,7 +196,7 @@ class Orchestrator:
         try:
             # 2. Clone repo (develop branch if it exists, else default)
             if repo_name:
-                clone_url = f"https://x-access-token:{self.github_token}@github.com/zinchenkomig/{repo_name}.git" if self.github_token else f"https://github.com/zinchenkomig/{repo_name}.git"
+                clone_url = f"https://x-access-token:{self.github_token}@github.com/{repo_name}.git" if self.github_token else f"https://github.com/{repo_name}.git"
                 await self._log("developer", task_id, "info", f"Cloning repo {repo_name}...")
                 await self._run_shell(
                     f"git clone -b develop {clone_url} {workdir} "
@@ -271,7 +271,7 @@ class Orchestrator:
                 )
                 if pr_number:
                     pr_url = (
-                        f"https://github.com/zinchenkomig/{repo_name}/pull/{pr_number}"
+                        f"https://github.com/{repo_name}/pull/{pr_number}"
                     )
                     await self._log(
                         "developer",
