@@ -406,3 +406,48 @@ class ProjectContext(Base):
         onupdate=lambda: datetime.now(UTC),
         nullable=False,
     )
+
+
+class ChatSession(Base):
+    """PM chat session/conversation."""
+
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        _UUID(), primary_key=True, default=uuid.uuid4
+    )
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+    
+    messages: Mapped[list["PMChatMessage"]] = relationship(
+        "PMChatMessage", back_populates="session", order_by="PMChatMessage.created_at"
+    )
+
+
+class PMChatMessage(Base):
+    """Message in PM chat session."""
+
+    __tablename__ = "pm_chat_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        _UUID(), primary_key=True, default=uuid.uuid4
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        _UUID(), ForeignKey("chat_sessions.id"), nullable=False
+    )
+    role: Mapped[str] = mapped_column(String(20), nullable=False)  # user or pm
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    task_id: Mapped[uuid.UUID | None] = mapped_column(_UUID(), nullable=True)  # If task was created
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    
+    session: Mapped["ChatSession"] = relationship("ChatSession", back_populates="messages")
