@@ -34,6 +34,31 @@ interface CreatedTask {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || ''
 
+function formatTime(dateStr: string): string {
+  const date = new Date(dateStr)
+  return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+}
+
+function formatDate(dateStr: string): string {
+  const date = new Date(dateStr)
+  const today = new Date()
+  const yesterday = new Date(today)
+  yesterday.setDate(yesterday.getDate() - 1)
+  
+  if (date.toDateString() === today.toDateString()) {
+    return 'Сегодня'
+  } else if (date.toDateString() === yesterday.toDateString()) {
+    return 'Вчера'
+  } else {
+    return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+  }
+}
+
+function formatSessionDate(dateStr: string): string {
+  const date = new Date(dateStr)
+  return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
+
 export default function PMChatPage() {
   const [sessions, setSessions] = useState<Session[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
@@ -78,7 +103,7 @@ export default function PMChatPage() {
       if (res.ok) {
         const data = await res.json()
         setMessages(data.messages)
-        setProposals([]) // Clear proposals when loading old session
+        setProposals([])
       }
     } catch (err) {
       console.error('Failed to load session', err)
@@ -126,7 +151,6 @@ export default function PMChatPage() {
 
       setMessages(prev => [...prev, pmMessage])
       
-      // Set proposals for approval
       if (data.proposals && data.proposals.length > 0) {
         setProposals(data.proposals)
       }
@@ -154,7 +178,6 @@ export default function PMChatPage() {
 
       const data = await res.json()
       
-      // Add confirmation message with links
       const taskLinks = data.created_tasks.map((t: CreatedTask) => 
         `• [${t.title}](${t.url})`
       ).join('\n')
@@ -205,9 +228,7 @@ export default function PMChatPage() {
     }
   }
 
-  // Render message content with markdown-like links
   function renderContent(content: string) {
-    // Convert [text](url) to clickable links
     const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g
     const parts = []
     let lastIndex = 0
@@ -238,6 +259,11 @@ export default function PMChatPage() {
     }
 
     return parts.length > 0 ? parts : content
+  }
+
+  // Group messages by date
+  function getMessageDate(msg: Message): string {
+    return new Date(msg.created_at).toDateString()
   }
 
   return (
@@ -274,8 +300,8 @@ export default function PMChatPage() {
                 <p className="text-xs truncate" style={{ color: '#BABABA' }}>
                   {session.title || 'Без названия'}
                 </p>
-                <p className="text-xs" style={{ color: '#515151' }}>
-                  {session.message_count} сообщ.
+                <p className="text-xs" style={{ color: '#606060' }}>
+                  {formatSessionDate(session.updated_at)}
                 </p>
               </div>
               <button
@@ -320,25 +346,44 @@ export default function PMChatPage() {
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
           {messages.length === 0 && (
             <div className="text-center py-8" style={{ color: '#808080' }}>
-              <p>Опиши задачу — я предложу её для подтверждения</p>
+              <p>Опиши фичу — я продумаю реализацию и предложу задачи</p>
             </div>
           )}
-          {messages.map(msg => (
-            <div
-              key={msg.id}
-              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              <div
-                className="max-w-[70%] px-4 py-3 rounded-lg"
-                style={{
-                  background: msg.role === 'user' ? '#214283' : '#3C3F41',
-                  color: '#BABABA',
-                }}
-              >
-                <p className="text-sm whitespace-pre-wrap">{renderContent(msg.content)}</p>
+          {messages.map((msg, idx) => {
+            const showDateSeparator = idx === 0 || getMessageDate(msg) !== getMessageDate(messages[idx - 1])
+            
+            return (
+              <div key={msg.id}>
+                {showDateSeparator && (
+                  <div className="flex items-center justify-center my-4">
+                    <span 
+                      className="px-3 py-1 text-xs rounded-full"
+                      style={{ background: '#3C3F41', color: '#808080' }}
+                    >
+                      {formatDate(msg.created_at)}
+                    </span>
+                  </div>
+                )}
+                <div className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div
+                    className="max-w-[70%] px-4 py-3 rounded-lg"
+                    style={{
+                      background: msg.role === 'user' ? '#214283' : '#3C3F41',
+                      color: '#BABABA',
+                    }}
+                  >
+                    <p className="text-sm whitespace-pre-wrap">{renderContent(msg.content)}</p>
+                    <p 
+                      className="text-right mt-1"
+                      style={{ color: '#606060', fontSize: '10px' }}
+                    >
+                      {formatTime(msg.created_at)}
+                    </p>
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
           {isLoading && (
             <div className="flex justify-start">
               <div
@@ -352,7 +397,7 @@ export default function PMChatPage() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Proposals for approval */}
+        {/* Proposals */}
         {proposals.length > 0 && (
           <div className="px-6 py-4" style={{ borderTop: '1px solid #515151', background: '#313335' }}>
             <p className="text-xs mb-3" style={{ color: '#808080' }}>
@@ -376,7 +421,7 @@ export default function PMChatPage() {
                   </span>
                 </div>
                 <p className="text-xs mb-1" style={{ color: '#6A8759' }}>{p.repo}</p>
-                <p className="text-xs" style={{ color: '#808080' }}>{p.description.slice(0, 100)}...</p>
+                <p className="text-xs" style={{ color: '#808080' }}>{p.description.slice(0, 150)}...</p>
               </div>
             ))}
             <button
@@ -398,7 +443,7 @@ export default function PMChatPage() {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Опиши задачу..."
+              placeholder="Опиши фичу..."
               rows={2}
               className="flex-1 px-4 py-3 text-sm resize-none"
               style={{
