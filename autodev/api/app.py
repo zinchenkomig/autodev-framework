@@ -122,33 +122,64 @@ app = create_app()
 @app.on_event("startup")
 async def sync_project_contexts():
     """Sync project contexts from autodev.yaml on startup."""
-    import yaml
-    from pathlib import Path
-    from autodev.api.database import SessionLocal
-    from autodev.api.routes.pm import ensure_context_exists
-    
-    config_path = Path(os.environ.get("AUTODEV_CONFIG", "/app/autodev.yaml"))
-    if not config_path.exists():
-        return
-    
-    try:
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
+
+    @app.on_event("startup")
+    async def sync_project_contexts():
+        """Sync project contexts from autodev.yaml on startup."""
+        import yaml
+        from pathlib import Path
+        from uuid import uuid4
+        from datetime import datetime, UTC
+        from autodev.core.models import ProjectContext
+        from sqlalchemy import select
         
-        repos = config.get("repos", [])
-        async with SessionLocal() as session:
-            for repo_config in repos:
+        config_path = Path(os.environ.get("AUTODEV_CONFIG", "/app/autodev.yaml"))
+        if not config_path.exists():
+            logger.info("No autodev.yaml found, skipping context sync")
+            return
+        
+        try:
+            with open(config_path) as f:
+                config = yaml.safe_load(f)
+            
+            repos_config = config.get("repos", [])
+            repos = []
+            for repo_config in repos_config:
                 repo_url = repo_config.get("url", "")
                 if "github.com/" in repo_url:
                     repo = repo_url.split("github.com/")[-1]
                 else:
                     repo = repo_url
-                
                 if "/" in repo:
-                    await ensure_context_exists(session, repo)
+                    repos.append(repo)
             
-            await session.commit()
-        
-        print(f"✓ Synced {len(repos)} project contexts")
-    except Exception as e:
-        print(f"Warning: Failed to sync project contexts: {e}")
+            if not repos:
+                return
+            
+            async with SessionLocal() as session:
+                for repo in repos:
+                    existing = await session.scalar(
+                        select(ProjectContext).where(ProjectContext.repo == repo)
+                    )
+                    if not existing:
+                        # Create placeholder - will be analyzed on first PM chat
+                        ctx = ProjectContext(
+                            id=uuid4(),
+                            repo=repo,
+                            name=repo.split("/")[-1],
+                            description=f"Project from {repo} (pending analysis)",
+                        )
+                        session.add(ctx)
+                        logger.info(f"Added project context placeholder: {repo}")
+                
+                await session.commit()
+            
+            logger.info(f"Synced {len(repos)} project contexts from config")
+        except Exception as e:
+            logger.warning(f"Failed to sync project contexts: {e}")
+
+    logger.info("AutoDev API application created")
+    return app
+
+
+app = create_app()
