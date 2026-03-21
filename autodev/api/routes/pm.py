@@ -85,9 +85,9 @@ async def get_repo_docs(repo: str) -> str:
     claude = await fetch_github(repo, "CLAUDE.md")
     docs = []
     if project:
-        docs.append(project[:1500])
+        docs.append(project[:4000])
     if claude:
-        docs.append(claude[:1000])
+        docs.append(claude[:3000])
     return "\n\n".join(docs) if docs else ""
 
 
@@ -108,13 +108,13 @@ async def call_llm(messages: list[dict]) -> str:
         return "No API key"
     
     base = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-    model = os.environ.get("PM_MODEL", "z-ai/glm-5")
+    model = os.environ.get("PM_MODEL", "z-ai/glm-5-turbo")
     
     async with httpx.AsyncClient() as client:
         r = await client.post(
             f"{base}/chat/completions",
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-            json={"model": model, "messages": messages, "max_tokens": 2500},
+            json={"model": model, "messages": messages, "max_tokens": 8000},
             timeout=120.0,
         )
         r.raise_for_status()
