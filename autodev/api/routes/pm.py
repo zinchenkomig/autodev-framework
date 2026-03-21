@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from autodev.api.database import get_session
 from autodev.core.models import Task, TaskStatus, Priority
+from autodev.project_contexts import get_all_projects_context
 
 router = APIRouter(tags=["pm"])
 
@@ -34,27 +35,33 @@ class ChatResponse(BaseModel):
     task_id: str | None = None
 
 
-PM_SYSTEM_PROMPT = """Ты PM агент в системе AutoDev. Твоя задача — помогать создавать задачи для разработчиков.
+def get_pm_system_prompt() -> str:
+    """Build PM system prompt with project contexts."""
+    projects_context = get_all_projects_context()
+    
+    return f"""Ты PM агент в системе AutoDev. Твоя задача — помогать создавать задачи для разработчиков.
 
-Когда пользователь описывает что нужно сделать:
-1. Уточни детали если нужно (репозиторий, приоритет, acceptance criteria)
-2. Сформулируй чёткое название задачи
-3. Напиши подробное описание
+## Проекты которыми ты управляешь:
+{projects_context}
 
+## Как работать:
+1. Когда пользователь описывает что нужно — ты уже знаешь контекст проекта
+2. Уточни детали только если непонятно ЧТО именно делать
+3. Не спрашивай про стек/архитектуру — ты это знаешь
+4. Сразу предлагай конкретное решение исходя из знания проекта
+
+## Создание задачи:
 Когда готов создать задачу, ответь в формате:
 ---TASK---
-title: <название задачи>
-repo: <репозиторий, например zinchenkomig/great_alerter_backend или zinchenkomig/great_alerter_frontend>
+title: <краткое название задачи>
+repo: <полный путь репозитория, например zinchenkomig/great_alerter_backend>
 priority: <low/normal/high/critical>
-description: <подробное описание что нужно сделать>
+description: <подробное описание что нужно сделать, с техническими деталями>
 ---END---
 
-Доступные репозитории:
-- zinchenkomig/great_alerter_backend
-- zinchenkomig/great_alerter_frontend
-- zinchenkomig/autodev-framework
-
-После создания задачи, сообщи пользователю что задача создана."""
+Пиши description так, чтобы разработчик мог сразу приступить к работе.
+Включай конкретные файлы/компоненты если знаешь где менять.
+"""
 
 
 async def call_llm(messages: list[dict]) -> str:
@@ -77,7 +84,7 @@ async def call_llm(messages: list[dict]) -> str:
                 json={
                     "model": model,
                     "messages": messages,
-                    "max_tokens": 1024,
+                    "max_tokens": 2048,
                 },
                 timeout=60.0,
             )
@@ -90,7 +97,6 @@ async def call_llm(messages: list[dict]) -> str:
     if anthropic_key:
         model = os.environ.get("PM_MODEL", "claude-sonnet-4-20250514")
         
-        # Extract system message
         system_content = ""
         user_messages = []
         for msg in messages:
@@ -109,7 +115,7 @@ async def call_llm(messages: list[dict]) -> str:
                 },
                 json={
                     "model": model,
-                    "max_tokens": 1024,
+                    "max_tokens": 2048,
                     "system": system_content,
                     "messages": user_messages,
                 },
@@ -152,7 +158,8 @@ async def pm_chat(
     """Process a message and optionally create a task."""
     
     # Build messages for LLM
-    messages = [{"role": "system", "content": PM_SYSTEM_PROMPT}]
+    system_prompt = get_pm_system_prompt()
+    messages = [{"role": "system", "content": system_prompt}]
     
     for msg in request.history:
         messages.append({
