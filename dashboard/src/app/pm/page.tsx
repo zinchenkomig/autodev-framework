@@ -1,13 +1,20 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Send, Plus, Trash2, MessageSquare } from 'lucide-react'
+import { Send, Plus, Trash2, MessageSquare, Check, ExternalLink } from 'lucide-react'
 
 interface Message {
   id: string
   role: 'user' | 'pm'
   content: string
   created_at: string
+}
+
+interface TaskProposal {
+  title: string
+  repo: string
+  priority: string
+  description: string
 }
 
 interface Session {
@@ -18,31 +25,38 @@ interface Session {
   message_count: number
 }
 
+interface CreatedTask {
+  id: string
+  title: string
+  repo: string
+  url: string
+}
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || ''
 
 export default function PMChatPage() {
   const [sessions, setSessions] = useState<Session[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
+  const [proposals, setProposals] = useState<TaskProposal[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [isApproving, setIsApproving] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  // Load sessions on mount
   useEffect(() => {
     loadSessions()
   }, [])
 
-  // Load messages when session changes
   useEffect(() => {
     if (currentSessionId) {
       loadSession(currentSessionId)
     } else {
       setMessages([])
+      setProposals([])
     }
   }, [currentSessionId])
 
-  // Scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
@@ -51,8 +65,7 @@ export default function PMChatPage() {
     try {
       const res = await fetch(`${API_URL}/api/pm/sessions`)
       if (res.ok) {
-        const data = await res.json()
-        setSessions(data)
+        setSessions(await res.json())
       }
     } catch (err) {
       console.error('Failed to load sessions', err)
@@ -64,12 +77,8 @@ export default function PMChatPage() {
       const res = await fetch(`${API_URL}/api/pm/sessions/${sessionId}`)
       if (res.ok) {
         const data = await res.json()
-        setMessages(data.messages.map((m: any) => ({
-          id: m.id,
-          role: m.role,
-          content: m.content,
-          created_at: m.created_at,
-        })))
+        setMessages(data.messages)
+        setProposals([]) // Clear proposals when loading old session
       }
     } catch (err) {
       console.error('Failed to load session', err)
@@ -89,6 +98,7 @@ export default function PMChatPage() {
     setMessages(prev => [...prev, userMessage])
     setInput('')
     setIsLoading(true)
+    setProposals([])
 
     try {
       const res = await fetch(`${API_URL}/api/pm/chat`, {
@@ -102,10 +112,9 @@ export default function PMChatPage() {
 
       const data = await res.json()
 
-      // Update session ID if new
       if (data.session_id && data.session_id !== currentSessionId) {
         setCurrentSessionId(data.session_id)
-        loadSessions() // Refresh sidebar
+        loadSessions()
       }
 
       const pmMessage: Message = {
@@ -116,10 +125,54 @@ export default function PMChatPage() {
       }
 
       setMessages(prev => [...prev, pmMessage])
+      
+      // Set proposals for approval
+      if (data.proposals && data.proposals.length > 0) {
+        setProposals(data.proposals)
+      }
     } catch (err) {
       console.error('Failed to send message', err)
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  async function handleApprove() {
+    if (!proposals.length || isApproving) return
+    
+    setIsApproving(true)
+    
+    try {
+      const res = await fetch(`${API_URL}/api/pm/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: currentSessionId,
+          proposals: proposals,
+        }),
+      })
+
+      const data = await res.json()
+      
+      // Add confirmation message with links
+      const taskLinks = data.created_tasks.map((t: CreatedTask) => 
+        `• [${t.title}](${t.url})`
+      ).join('\n')
+      
+      const confirmMessage: Message = {
+        id: Date.now().toString(),
+        role: 'pm',
+        content: `✅ Создано задач: ${data.created_tasks.length}\n\n${taskLinks}`,
+        created_at: new Date().toISOString(),
+      }
+      
+      setMessages(prev => [...prev, confirmMessage])
+      setProposals([])
+      loadSessions()
+    } catch (err) {
+      console.error('Failed to approve', err)
+    } finally {
+      setIsApproving(false)
     }
   }
 
@@ -132,6 +185,7 @@ export default function PMChatPage() {
       if (currentSessionId === sessionId) {
         setCurrentSessionId(null)
         setMessages([])
+        setProposals([])
       }
     } catch (err) {
       console.error('Failed to delete session', err)
@@ -141,6 +195,7 @@ export default function PMChatPage() {
   function handleNewChat() {
     setCurrentSessionId(null)
     setMessages([])
+    setProposals([])
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -150,11 +205,46 @@ export default function PMChatPage() {
     }
   }
 
+  // Render message content with markdown-like links
+  function renderContent(content: string) {
+    // Convert [text](url) to clickable links
+    const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g
+    const parts = []
+    let lastIndex = 0
+    let match
+
+    while ((match = linkRegex.exec(content)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push(content.slice(lastIndex, match.index))
+      }
+      parts.push(
+        <a
+          key={match.index}
+          href={match[2]}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 underline"
+          style={{ color: '#6A8759' }}
+        >
+          {match[1]}
+          <ExternalLink className="w-3 h-3" />
+        </a>
+      )
+      lastIndex = match.index + match[0].length
+    }
+
+    if (lastIndex < content.length) {
+      parts.push(content.slice(lastIndex))
+    }
+
+    return parts.length > 0 ? parts : content
+  }
+
   return (
     <div className="flex h-[calc(100vh-120px)]" style={{ background: '#2B2B2B' }}>
       {/* Sessions Sidebar */}
       <div
-        className="w-64 flex flex-col"
+        className="w-64 flex flex-col shrink-0"
         style={{ borderRight: '1px solid #515151', background: '#313335' }}
       >
         <div className="p-3" style={{ borderBottom: '1px solid #515151' }}>
@@ -172,9 +262,7 @@ export default function PMChatPage() {
           {sessions.map(session => (
             <div
               key={session.id}
-              className={`group flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors ${
-                currentSessionId === session.id ? 'bg-opacity-100' : ''
-              }`}
+              className="group flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors"
               style={{
                 background: currentSessionId === session.id ? '#214283' : 'transparent',
                 borderLeft: currentSessionId === session.id ? '2px solid #3592C4' : '2px solid transparent',
@@ -206,14 +294,14 @@ export default function PMChatPage() {
       </div>
 
       {/* Chat Area */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
         <div
-          className="flex items-center gap-3 px-6 py-4"
+          className="flex items-center gap-3 px-6 py-4 shrink-0"
           style={{ borderBottom: '1px solid #515151' }}
         >
           <div
-            className="w-10 h-10 rounded-full flex items-center justify-center text-lg"
+            className="w-10 h-10 rounded-full flex items-center justify-center text-lg shrink-0"
             style={{ background: '#6A8759', color: '#FFFFFF' }}
           >
             PM
@@ -232,7 +320,7 @@ export default function PMChatPage() {
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
           {messages.length === 0 && (
             <div className="text-center py-8" style={{ color: '#808080' }}>
-              <p>Опиши задачу — я создам её в нужном репозитории</p>
+              <p>Опиши задачу — я предложу её для подтверждения</p>
             </div>
           )}
           {messages.map(msg => (
@@ -247,7 +335,7 @@ export default function PMChatPage() {
                   color: '#BABABA',
                 }}
               >
-                <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                <p className="text-sm whitespace-pre-wrap">{renderContent(msg.content)}</p>
               </div>
             </div>
           ))}
@@ -264,8 +352,47 @@ export default function PMChatPage() {
           <div ref={messagesEndRef} />
         </div>
 
+        {/* Proposals for approval */}
+        {proposals.length > 0 && (
+          <div className="px-6 py-4" style={{ borderTop: '1px solid #515151', background: '#313335' }}>
+            <p className="text-xs mb-3" style={{ color: '#808080' }}>
+              Предложенные задачи:
+            </p>
+            {proposals.map((p, i) => (
+              <div
+                key={i}
+                className="mb-2 p-3 rounded"
+                style={{ background: '#3C3F41', border: '1px solid #515151' }}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-medium" style={{ color: '#FFFFFF' }}>
+                    {p.title}
+                  </span>
+                  <span
+                    className="text-xs px-1.5 py-0.5 rounded"
+                    style={{ background: '#214283', color: '#BABABA' }}
+                  >
+                    {p.priority}
+                  </span>
+                </div>
+                <p className="text-xs mb-1" style={{ color: '#6A8759' }}>{p.repo}</p>
+                <p className="text-xs" style={{ color: '#808080' }}>{p.description.slice(0, 100)}...</p>
+              </div>
+            ))}
+            <button
+              onClick={handleApprove}
+              disabled={isApproving}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded transition-colors disabled:opacity-50"
+              style={{ background: '#6A8759', color: '#FFFFFF' }}
+            >
+              <Check className="w-4 h-4" />
+              {isApproving ? 'Создаю...' : `Создать ${proposals.length} задач${proposals.length > 1 ? 'и' : 'у'}`}
+            </button>
+          </div>
+        )}
+
         {/* Input */}
-        <div className="px-6 py-4" style={{ borderTop: '1px solid #515151' }}>
+        <div className="px-6 py-4 shrink-0" style={{ borderTop: '1px solid #515151' }}>
           <div className="flex gap-3">
             <textarea
               value={input}

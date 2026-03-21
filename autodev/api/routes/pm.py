@@ -1,9 +1,10 @@
-"""PM Agent API routes with chat history."""
+"""PM Agent API routes with approval flow."""
 
 from __future__ import annotations
 
 import os
 import re
+import json
 from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID, uuid4
@@ -24,25 +25,36 @@ from autodev.core.models import (
 router = APIRouter(tags=["pm"])
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "https://autodev.zinchenkomig.com")
 
 
-# === Request/Response Models ===
-
-class ChatMessageIn(BaseModel):
-    role: str
-    content: str
-
+# === Models ===
 
 class ChatRequest(BaseModel):
     message: str
-    session_id: str | None = None  # None = new session
+    session_id: str | None = None
+
+
+class TaskProposal(BaseModel):
+    title: str
+    repo: str
+    priority: str
+    description: str
 
 
 class ChatResponse(BaseModel):
     response: str
     session_id: str
-    task_created: bool = False
-    task_ids: list[str] = []
+    proposals: list[TaskProposal] = []  # Tasks waiting for approval
+
+
+class ApproveRequest(BaseModel):
+    session_id: str
+    proposals: list[TaskProposal]
+
+
+class ApproveResponse(BaseModel):
+    created_tasks: list[dict]  # id, title, url
 
 
 class SessionSummary(BaseModel):
@@ -69,7 +81,7 @@ class ProjectContextResponse(BaseModel):
     last_analyzed_at: datetime | None
 
 
-# === Helper Functions ===
+# === Helpers ===
 
 async def call_llm(messages: list[dict]) -> str:
     """Call LLM API."""
@@ -135,7 +147,6 @@ JSON: {{"name": "...", "description": "...", "stack": "...", "features": "..."}}
     ])
     
     try:
-        import json
         match = re.search(r'\{[\s\S]*\}', response)
         if match:
             return json.loads(match.group())
@@ -188,7 +199,7 @@ async def get_all_contexts(session: AsyncSession) -> list[ProjectContext]:
 
 
 def build_system_prompt(contexts: list[ProjectContext]) -> str:
-    """Build system prompt."""
+    """Build system prompt with approval flow."""
     projects_info = []
     for ctx in contexts:
         repo_type = "frontend" if "frontend" in ctx.repo.lower() else "backend" if "backend" in ctx.repo.lower() else "general"
@@ -202,36 +213,38 @@ def build_system_prompt(contexts: list[ProjectContext]) -> str:
 {projects_str}
 
 ## Правила:
-1. САМ определяй репозиторий: UI/React → frontend, API/модели → backend
-2. Сразу создавай задачу без лишних вопросов
-3. Если нужны оба репо — создай 2 задачи
+1. САМ определяй репозиторий: UI/React/компоненты → frontend, API/модели/эндпоинты → backend
+2. НЕ создавай задачу сразу — ПРЕДЛОЖИ её для подтверждения
+3. Если нужны оба репо — предложи 2 задачи
 
-## Формат задачи:
----TASK---
-title: название
-repo: owner/repo
+## Формат ПРЕДЛОЖЕНИЯ задачи (пользователь должен подтвердить):
+---PROPOSAL---
+title: краткое название
+repo: owner/repo  
 priority: low/normal/high/critical
-description: что сделать
----END---"""
+description: подробное описание что сделать
+---END---
+
+После блока PROPOSAL напиши краткое объяснение и спроси подтверждение.
+Пользователь нажмёт кнопку "Создать" в интерфейсе."""
 
 
-def parse_tasks_from_response(response: str) -> list[dict]:
-    """Parse tasks from response."""
-    tasks = []
-    for match in re.finditer(r"---TASK---\s*(.*?)\s*---END---", response, re.DOTALL):
-        task = {}
+def parse_proposals_from_response(response: str) -> list[dict]:
+    """Parse task proposals from response."""
+    proposals = []
+    for match in re.finditer(r"---PROPOSAL---\s*(.*?)\s*---END---", response, re.DOTALL):
+        proposal = {}
         for line in match.group(1).strip().split("\n"):
             if ":" in line:
                 key, value = line.split(":", 1)
-                task[key.strip().lower()] = value.strip()
-        if "title" in task and "description" in task:
-            tasks.append(task)
-    return tasks
+                proposal[key.strip().lower()] = value.strip()
+        if "title" in proposal and "description" in proposal:
+            proposals.append(proposal)
+    return proposals
 
 
 def generate_session_title(message: str) -> str:
     """Generate title from first message."""
-    # Take first 50 chars, clean up
     title = message[:50].strip()
     if len(message) > 50:
         title += "..."
@@ -308,38 +321,20 @@ async def pm_chat(
             session_id=str(chat_session.id),
         )
     
-    # Parse and create tasks
-    tasks_data = parse_tasks_from_response(llm_response)
-    created_task_ids = []
-    
-    for task_data in tasks_data:
-        priority_map = {
-            "low": Priority.LOW,
-            "normal": Priority.NORMAL,
-            "high": Priority.HIGH,
-            "critical": Priority.CRITICAL,
-        }
-        priority = priority_map.get(task_data.get("priority", "normal"), Priority.NORMAL)
-        
-        task = Task(
-            id=uuid4(),
-            title=task_data["title"],
-            description=task_data["description"],
-            status=TaskStatus.QUEUED,
-            priority=priority,
-            repo=task_data.get("repo", ""),
-            created_at=datetime.now(UTC),
-            created_by="pm_agent",
+    # Parse proposals (not creating tasks yet)
+    proposals_data = parse_proposals_from_response(llm_response)
+    proposals = [
+        TaskProposal(
+            title=p.get("title", ""),
+            repo=p.get("repo", ""),
+            priority=p.get("priority", "normal"),
+            description=p.get("description", ""),
         )
-        session.add(task)
-        await session.flush()
-        created_task_ids.append(str(task.id))
+        for p in proposals_data
+    ]
     
-    # Clean response
-    clean_response = re.sub(r"---TASK---.*?---END---", "", llm_response, flags=re.DOTALL).strip()
-    
-    if created_task_ids:
-        clean_response += f"\n\n✅ Создано задач: {len(created_task_ids)}"
+    # Clean response (remove proposal blocks for display)
+    clean_response = re.sub(r"---PROPOSAL---.*?---END---", "", llm_response, flags=re.DOTALL).strip()
     
     # Save PM response
     pm_msg = PMChatMessage(
@@ -347,19 +342,75 @@ async def pm_chat(
         session_id=chat_session.id,
         role="pm",
         content=clean_response,
-        task_id=UUID(created_task_ids[0]) if created_task_ids else None,
     )
     session.add(pm_msg)
     
-    # Update session timestamp
     chat_session.updated_at = datetime.now(UTC)
     
     return ChatResponse(
         response=clean_response,
         session_id=str(chat_session.id),
-        task_created=len(created_task_ids) > 0,
-        task_ids=created_task_ids,
+        proposals=proposals,
     )
+
+
+@router.post("/approve", summary="Approve and create tasks")
+async def approve_tasks(
+    request: ApproveRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> ApproveResponse:
+    """Approve proposed tasks and create them."""
+    
+    created_tasks = []
+    
+    for proposal in request.proposals:
+        priority_map = {
+            "low": Priority.LOW,
+            "normal": Priority.NORMAL,
+            "high": Priority.HIGH,
+            "critical": Priority.CRITICAL,
+        }
+        priority = priority_map.get(proposal.priority, Priority.NORMAL)
+        
+        task = Task(
+            id=uuid4(),
+            title=proposal.title,
+            description=proposal.description,
+            status=TaskStatus.QUEUED,
+            priority=priority,
+            repo=proposal.repo,
+            created_at=datetime.now(UTC),
+            created_by="pm_agent",
+        )
+        session.add(task)
+        await session.flush()
+        
+        task_url = f"{DASHBOARD_URL}/tasks?id={task.id}"
+        
+        created_tasks.append({
+            "id": str(task.id),
+            "title": task.title,
+            "repo": task.repo,
+            "url": task_url,
+        })
+    
+    # Add confirmation message to chat
+    if request.session_id:
+        try:
+            session_uuid = UUID(request.session_id)
+            task_links = "\n".join([f"• [{t['title']}]({t['url']})" for t in created_tasks])
+            confirm_msg = PMChatMessage(
+                id=uuid4(),
+                session_id=session_uuid,
+                role="pm",
+                content=f"✅ Создано задач: {len(created_tasks)}\n\n{task_links}",
+                task_id=UUID(created_tasks[0]["id"]) if created_tasks else None,
+            )
+            session.add(confirm_msg)
+        except ValueError:
+            pass
+    
+    return ApproveResponse(created_tasks=created_tasks)
 
 
 @router.get("/sessions", summary="List chat sessions")
