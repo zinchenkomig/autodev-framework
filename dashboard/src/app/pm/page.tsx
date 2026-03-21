@@ -63,6 +63,7 @@ export default function PMChatPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [approvingIdx, setApprovingIdx] = useState<number | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => { fetch(`${API_URL}/api/pm/sessions`).then(r => r.ok ? r.json() : []).then(setSessions) }, [])
   useEffect(() => {
@@ -70,6 +71,14 @@ export default function PMChatPage() {
     else { setMessages([]); setProposals([]) }
   }, [currentSessionId])
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, proposals])
+
+  // Auto-resize textarea
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 150) + 'px'
+    }
+  }, [input])
 
   async function handleSend() {
     if (!input.trim() || isLoading) return
@@ -83,6 +92,14 @@ export default function PMChatPage() {
       if (d.proposals?.length) setProposals(d.proposals)
     } catch (e) { console.error(e) }
     setIsLoading(false)
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSend()
+    }
+    // Shift+Enter will naturally create new line
   }
 
   async function handleApproveOne(idx: number) {
@@ -152,7 +169,7 @@ export default function PMChatPage() {
               )}
               <div className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} mb-2`}>
                 <div className="max-w-[80%] px-3 py-2 rounded-lg text-sm" style={{ background: m.role === 'user' ? '#214283' : '#3C3F41', color: '#BABABA' }}>
-                  <div>{m.role === 'user' ? m.content : parseMarkdown(m.content)}</div>
+                  <div className="whitespace-pre-wrap">{m.role === 'user' ? m.content : parseMarkdown(m.content)}</div>
                   <p className="text-right mt-1" style={{ color: '#606060', fontSize: '10px' }}>{formatTime(m.created_at)}</p>
                 </div>
               </div>
@@ -192,10 +209,18 @@ export default function PMChatPage() {
         </div>
 
         {/* Input */}
-        <div className="flex gap-2 px-4 py-3 border-t border-gray-700 flex-shrink-0">
-          <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSend()}
-            placeholder="Опиши фичу..." className="flex-1 px-3 py-2 text-sm rounded-lg border border-gray-700 outline-none focus:border-blue-500 transition-colors" style={{ background: '#3C3F41', color: '#BABABA' }} />
-          <button onClick={handleSend} disabled={!input.trim() || isLoading} className="px-4 py-2 rounded-lg disabled:opacity-50 transition-colors hover:opacity-90" style={{ background: '#6A8759', color: '#FFF' }}>
+        <div className="flex gap-2 px-4 py-3 border-t border-gray-700 flex-shrink-0 items-end">
+          <textarea 
+            ref={textareaRef}
+            value={input} 
+            onChange={e => setInput(e.target.value)} 
+            onKeyDown={handleKeyDown}
+            placeholder="Опиши фичу... (Shift+Enter для новой строки)"
+            rows={1}
+            className="flex-1 px-3 py-2 text-sm rounded-lg border border-gray-700 outline-none focus:border-blue-500 transition-colors resize-none"
+            style={{ background: '#3C3F41', color: '#BABABA', minHeight: '40px', maxHeight: '150px' }} 
+          />
+          <button onClick={handleSend} disabled={!input.trim() || isLoading} className="px-4 py-2 rounded-lg disabled:opacity-50 transition-colors hover:opacity-90 h-10" style={{ background: '#6A8759', color: '#FFF' }}>
             <Send className="w-4 h-4" />
           </button>
         </div>
