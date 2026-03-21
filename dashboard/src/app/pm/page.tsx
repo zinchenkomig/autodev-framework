@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, ReactNode } from 'react'
-import { Send, Plus, Trash2, MessageSquare, Check } from 'lucide-react'
+import { Send, Plus, Trash2, MessageSquare, Check, X } from 'lucide-react'
 
 interface Message { id: string; role: 'user' | 'pm'; content: string; created_at: string }
 interface TaskProposal { title: string; repo: string; priority: string; description: string }
@@ -19,6 +19,13 @@ const formatDate = (d: string) => {
   return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
 }
 const formatSessionDate = (d: string) => new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+
+const priorityColors: Record<string, string> = {
+  low: '#6B7280',
+  normal: '#3B82F6',
+  high: '#F59E0B',
+  critical: '#EF4444'
+}
 
 function parseMarkdown(text: string): ReactNode[] {
   const elements: ReactNode[] = []
@@ -57,7 +64,7 @@ export default function PMChatPage() {
   const [proposals, setProposals] = useState<TaskProposal[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [isApproving, setIsApproving] = useState(false)
+  const [approvingIdx, setApprovingIdx] = useState<number | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => { fetch(`${API_URL}/api/pm/sessions`).then(r => r.ok ? r.json() : []).then(setSessions) }, [])
@@ -65,7 +72,7 @@ export default function PMChatPage() {
     if (currentSessionId) fetch(`${API_URL}/api/pm/sessions/${currentSessionId}`).then(r => r.ok ? r.json() : { messages: [] }).then(d => { setMessages(d.messages); setProposals([]) })
     else { setMessages([]); setProposals([]) }
   }, [currentSessionId])
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, proposals])
 
   async function handleSend() {
     if (!input.trim() || isLoading) return
@@ -81,16 +88,24 @@ export default function PMChatPage() {
     setIsLoading(false)
   }
 
-  async function handleApprove() {
-    if (!proposals.length || isApproving) return
-    setIsApproving(true)
+  async function handleApproveOne(idx: number) {
+    const p = proposals[idx]
+    if (!p) return
+    setApprovingIdx(idx)
     try {
-      const r = await fetch(`${API_URL}/api/pm/approve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_id: currentSessionId, proposals }) })
+      const r = await fetch(`${API_URL}/api/pm/approve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_id: currentSessionId, proposals: [p] }) })
       const d = await r.json()
-      setMessages(p => [...p, { id: Date.now().toString(), role: 'pm', content: `✅ Создано: ${d.created_tasks.length}\n\n${d.created_tasks.map((t: CreatedTask) => `• [${t.title}](${t.url})`).join('\n')}`, created_at: new Date().toISOString() }])
-      setProposals([])
+      const task = d.created_tasks[0] as CreatedTask
+      setMessages(prev => [...prev, { id: Date.now().toString(), role: 'pm', content: `✅ **${task.title}** добавлена в бэклог\n[Открыть](${task.url})`, created_at: new Date().toISOString() }])
+      setProposals(prev => prev.filter((_, i) => i !== idx))
     } catch (e) { console.error(e) }
-    setIsApproving(false)
+    setApprovingIdx(null)
+  }
+
+  function handleRejectOne(idx: number) {
+    const p = proposals[idx]
+    setMessages(prev => [...prev, { id: Date.now().toString(), role: 'pm', content: `❌ **${p.title}** отклонена`, created_at: new Date().toISOString() }])
+    setProposals(prev => prev.filter((_, i) => i !== idx))
   }
 
   const handleDelete = async (id: string) => {
@@ -132,7 +147,7 @@ export default function PMChatPage() {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Messages */}
         <div className="flex-1 overflow-y-auto">
-          {messages.length === 0 && <div className="text-center py-4 text-xs" style={{ color: '#808080' }}>Опиши фичу</div>}
+          {messages.length === 0 && !proposals.length && <div className="text-center py-4 text-xs" style={{ color: '#808080' }}>Опиши фичу</div>}
           {messages.map((m, i) => (
             <div key={m.id}>
               {(i === 0 || getDate(m) !== getDate(messages[i - 1])) && (
@@ -146,31 +161,49 @@ export default function PMChatPage() {
               </div>
             </div>
           ))}
-          {isLoading && <div className="px-2 py-1 m-px rounded text-sm animate-pulse w-fit" style={{ background: '#3C3F41', color: '#808080' }}>...</div>}
+          
+          {/* Task Cards */}
+          {proposals.map((p, i) => (
+            <div key={i} className="mx-1 my-2 rounded-lg overflow-hidden" style={{ background: '#3C3F41', border: '1px solid #515151' }}>
+              <div className="px-3 py-2 flex items-start justify-between gap-2" style={{ borderBottom: '1px solid #515151' }}>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-medium text-white text-sm">{p.title}</span>
+                    <span className="px-1.5 py-0.5 rounded text-xs" style={{ background: priorityColors[p.priority] || '#3B82F6', color: '#FFF' }}>{p.priority}</span>
+                  </div>
+                  <p className="text-xs" style={{ color: '#6A8759' }}>{p.repo}</p>
+                </div>
+              </div>
+              <div className="px-3 py-2 text-sm" style={{ color: '#BABABA' }}>
+                {parseMarkdown(p.description)}
+              </div>
+              <div className="flex border-t border-gray-700">
+                <button 
+                  onClick={() => handleRejectOne(i)}
+                  disabled={approvingIdx !== null}
+                  className="flex-1 flex items-center justify-center gap-1 py-2 text-sm transition-colors hover:bg-red-900/30 disabled:opacity-50"
+                  style={{ color: '#EF4444', borderRight: '1px solid #515151' }}>
+                  <X className="w-4 h-4" /> Отклонить
+                </button>
+                <button 
+                  onClick={() => handleApproveOne(i)}
+                  disabled={approvingIdx !== null}
+                  className="flex-1 flex items-center justify-center gap-1 py-2 text-sm transition-colors hover:bg-green-900/30 disabled:opacity-50"
+                  style={{ color: '#6A8759' }}>
+                  <Check className="w-4 h-4" /> {approvingIdx === i ? '...' : 'В бэклог'}
+                </button>
+              </div>
+            </div>
+          ))}
+          
+          {isLoading && <div className="px-2 py-1 m-px rounded text-sm animate-pulse w-fit" style={{ background: '#3C3F41', color: '#808080' }}>Думаю...</div>}
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Proposals */}
-        {proposals.length > 0 && (
-          <div className="border-t border-gray-700 p-1" style={{ background: '#313335' }}>
-            {proposals.map((p, i) => (
-              <div key={i} className="p-1 mb-1 rounded text-xs border border-gray-700" style={{ background: '#3C3F41' }}>
-                <span className="font-medium text-white">{p.title}</span>
-                <span className="ml-1 px-1 rounded" style={{ background: '#214283', color: '#AAA', fontSize: '9px' }}>{p.priority}</span>
-                <span className="ml-1" style={{ color: '#6A8759', fontSize: '9px' }}>{p.repo}</span>
-                <p className="mt-0.5" style={{ color: '#808080' }}>{p.description.slice(0, 100)}...</p>
-              </div>
-            ))}
-            <button onClick={handleApprove} disabled={isApproving} className="w-full flex items-center justify-center gap-1 py-1 rounded text-xs disabled:opacity-50" style={{ background: '#6A8759', color: '#FFF' }}>
-              <Check className="w-3 h-3" /> Создать {proposals.length}
-            </button>
-          </div>
-        )}
-
-        {/* Input - always at bottom */}
+        {/* Input */}
         <div className="flex gap-1 p-1 border-t border-gray-700 flex-shrink-0">
           <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSend()}
-            placeholder="Фича..." className="flex-1 px-2 py-1 text-sm rounded border border-gray-700 outline-none" style={{ background: '#3C3F41', color: '#BABABA' }} />
+            placeholder="Опиши фичу..." className="flex-1 px-2 py-1 text-sm rounded border border-gray-700 outline-none" style={{ background: '#3C3F41', color: '#BABABA' }} />
           <button onClick={handleSend} disabled={!input.trim() || isLoading} className="px-2 py-1 rounded disabled:opacity-50" style={{ background: '#6A8759', color: '#FFF' }}>
             <Send className="w-4 h-4" />
           </button>
