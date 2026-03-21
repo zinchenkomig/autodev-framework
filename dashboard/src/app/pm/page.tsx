@@ -21,10 +21,7 @@ const formatDate = (d: string) => {
 const formatSessionDate = (d: string) => new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
 const priorityColors: Record<string, string> = {
-  low: '#6B7280',
-  normal: '#3B82F6',
-  high: '#F59E0B',
-  critical: '#EF4444'
+  low: '#6B7280', normal: '#3B82F6', high: '#F59E0B', critical: '#EF4444'
 }
 
 function parseMarkdown(text: string): ReactNode[] {
@@ -96,7 +93,7 @@ export default function PMChatPage() {
       const r = await fetch(`${API_URL}/api/pm/approve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_id: currentSessionId, proposals: [p] }) })
       const d = await r.json()
       const task = d.created_tasks[0] as CreatedTask
-      setMessages(prev => [...prev, { id: Date.now().toString(), role: 'pm', content: `✅ **${task.title}** добавлена в бэклог\n[Открыть](${task.url})`, created_at: new Date().toISOString() }])
+      setMessages(prev => [...prev, { id: Date.now().toString(), role: 'pm', content: `✅ **${task.title}** добавлена\n[Открыть](${task.url})`, created_at: new Date().toISOString() }])
       setProposals(prev => prev.filter((_, i) => i !== idx))
     } catch (e) { console.error(e) }
     setApprovingIdx(null)
@@ -118,9 +115,9 @@ export default function PMChatPage() {
   const getDate = (m: Message) => new Date(m.created_at).toDateString()
 
   return (
-    <div className="fixed inset-0 flex" style={{ background: '#2B2B2B' }}>
-      {/* Sidebar */}
-      <div className="w-44 flex flex-col border-r border-gray-700" style={{ background: '#313335' }}>
+    <div className="flex h-[calc(100vh-48px)] md:h-screen -m-6 md:-m-8" style={{ background: '#2B2B2B' }}>
+      {/* Sessions sidebar */}
+      <div className="w-40 flex flex-col border-r border-gray-700 flex-shrink-0" style={{ background: '#313335' }}>
         <button onClick={() => { setCurrentSessionId(null); setMessages([]); setProposals([]) }}
           className="m-1 flex items-center justify-center gap-1 py-1 text-xs rounded" style={{ background: '#214283', color: '#FFF' }}>
           <Plus className="w-3 h-3" /> Новый
@@ -143,7 +140,7 @@ export default function PMChatPage() {
         </div>
       </div>
 
-      {/* Chat */}
+      {/* Chat area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Messages */}
         <div className="flex-1 overflow-y-auto">
@@ -165,30 +162,24 @@ export default function PMChatPage() {
           {/* Task Cards */}
           {proposals.map((p, i) => (
             <div key={i} className="mx-1 my-2 rounded-lg overflow-hidden" style={{ background: '#3C3F41', border: '1px solid #515151' }}>
-              <div className="px-3 py-2 flex items-start justify-between gap-2" style={{ borderBottom: '1px solid #515151' }}>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-medium text-white text-sm">{p.title}</span>
-                    <span className="px-1.5 py-0.5 rounded text-xs" style={{ background: priorityColors[p.priority] || '#3B82F6', color: '#FFF' }}>{p.priority}</span>
-                  </div>
-                  <p className="text-xs" style={{ color: '#6A8759' }}>{p.repo}</p>
+              <div className="px-3 py-2" style={{ borderBottom: '1px solid #515151' }}>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="font-medium text-white text-sm">{p.title}</span>
+                  <span className="px-1.5 py-0.5 rounded text-xs" style={{ background: priorityColors[p.priority] || '#3B82F6', color: '#FFF' }}>{p.priority}</span>
                 </div>
+                <p className="text-xs" style={{ color: '#6A8759' }}>{p.repo}</p>
               </div>
               <div className="px-3 py-2 text-sm" style={{ color: '#BABABA' }}>
                 {parseMarkdown(p.description)}
               </div>
               <div className="flex border-t border-gray-700">
-                <button 
-                  onClick={() => handleRejectOne(i)}
-                  disabled={approvingIdx !== null}
-                  className="flex-1 flex items-center justify-center gap-1 py-2 text-sm transition-colors hover:bg-red-900/30 disabled:opacity-50"
+                <button onClick={() => handleRejectOne(i)} disabled={approvingIdx !== null}
+                  className="flex-1 flex items-center justify-center gap-1 py-2 text-sm hover:bg-red-900/30 disabled:opacity-50"
                   style={{ color: '#EF4444', borderRight: '1px solid #515151' }}>
                   <X className="w-4 h-4" /> Отклонить
                 </button>
-                <button 
-                  onClick={() => handleApproveOne(i)}
-                  disabled={approvingIdx !== null}
-                  className="flex-1 flex items-center justify-center gap-1 py-2 text-sm transition-colors hover:bg-green-900/30 disabled:opacity-50"
+                <button onClick={() => handleApproveOne(i)} disabled={approvingIdx !== null}
+                  className="flex-1 flex items-center justify-center gap-1 py-2 text-sm hover:bg-green-900/30 disabled:opacity-50"
                   style={{ color: '#6A8759' }}>
                   <Check className="w-4 h-4" /> {approvingIdx === i ? '...' : 'В бэклог'}
                 </button>
