@@ -114,35 +114,48 @@ async def call_llm(messages: list[dict]) -> str:
         r = await client.post(
             f"{base}/chat/completions",
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-            json={"model": model, "messages": messages, "max_tokens": 2000},
+            json={"model": model, "messages": messages, "max_tokens": 2500},
             timeout=120.0,
         )
         r.raise_for_status()
         return r.json()["choices"][0]["message"]["content"]
 
 
-SYSTEM_PROMPT = """Ты PM. Пользователь описывает фичу — продумай реализацию и создай задачи.
+SYSTEM_PROMPT = """Ты PM. Когда пользователь описывает фичу, ты ОБЯЗАТЕЛЬНО создаёшь задачи.
 
 {context}
 
-## Формат ответа
+## ВАЖНО: Всегда создавай задачи!
 
-Кратко опиши подход (2-3 предложения).
+Твой ответ ДОЛЖЕН содержать:
+1. Краткий комментарий (1-2 предложения)
+2. Одну или несколько задач в формате ниже
 
-Затем задачи в формате:
+## Формат задачи (ОБЯЗАТЕЛЬНО используй этот формат):
 
 ---TASK---
-title: Название
-repo: owner/repo
+title: Короткое название задачи
+repo: zinchenkomig/great_alerter_backend
 priority: normal
-description: Что сделать, логика работы, acceptance criteria
+description: Подробное описание что нужно сделать
 ---END---
 
-Правила:
-- Сам определяй репо (frontend/backend) по контексту
-- Разбивай сложное на 2-3 задачи
-- description должен быть полезен разработчику
-- НЕ пересказывай запрос"""
+## Пример ответа:
+
+Добавлю новый режим в генератор данных.
+
+---TASK---
+title: Режим replace в генераторе деградаций
+repo: zinchenkomig/great_alerter_backend
+priority: normal
+description: Добавить параметр mode в функцию создания деградации. При mode="replace" обновлять существующие записи (UPDATE) вместо создания новых (INSERT). Это позволит инжектировать аномалии в существующие данные.
+---END---
+
+## Правила:
+- ВСЕГДА генерируй хотя бы одну задачу
+- Используй точный формат ---TASK--- и ---END---
+- repo: zinchenkomig/great_alerter_backend для бэкенда, zinchenkomig/great_alerter_frontend для фронта
+- priority: low/normal/high/critical"""
 
 
 def parse_tasks(response: str) -> list[dict]:
@@ -196,7 +209,15 @@ async def pm_chat(request: ChatRequest, session: Annotated[AsyncSession, Depends
         return ChatResponse(response=f"Ошибка: {e}", session_id=str(chat.id))
     
     tasks = parse_tasks(llm_resp)
-    proposals = [TaskProposal(title=t.get("title", ""), repo=t.get("repo", ""), priority=t.get("priority", "normal"), description=t.get("description", "")) for t in tasks]
+    proposals = [
+        TaskProposal(
+            title=t.get("title", ""),
+            repo=t.get("repo", "zinchenkomig/great_alerter_backend"),
+            priority=t.get("priority", "normal"),
+            description=t.get("description", ""),
+        )
+        for t in tasks
+    ]
     
     clean = re.sub(r"---TASK---.*?---END---", "", llm_resp, flags=re.DOTALL).strip()
     
