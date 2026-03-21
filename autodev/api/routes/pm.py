@@ -137,7 +137,7 @@ async def call_llm(messages: list[dict]) -> str:
             json={
                 "model": model,
                 "messages": messages,
-                "max_tokens": 3000,
+                "max_tokens": 4000,
             },
             timeout=90.0,
         )
