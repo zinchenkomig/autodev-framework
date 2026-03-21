@@ -116,3 +116,39 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+
+
+# Auto-sync project contexts on startup
+@app.on_event("startup")
+async def sync_project_contexts():
+    """Sync project contexts from autodev.yaml on startup."""
+    import yaml
+    from pathlib import Path
+    from autodev.api.database import SessionLocal
+    from autodev.api.routes.pm import ensure_context_exists
+    
+    config_path = Path(os.environ.get("AUTODEV_CONFIG", "/app/autodev.yaml"))
+    if not config_path.exists():
+        return
+    
+    try:
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+        
+        repos = config.get("repos", [])
+        async with SessionLocal() as session:
+            for repo_config in repos:
+                repo_url = repo_config.get("url", "")
+                if "github.com/" in repo_url:
+                    repo = repo_url.split("github.com/")[-1]
+                else:
+                    repo = repo_url
+                
+                if "/" in repo:
+                    await ensure_context_exists(session, repo)
+            
+            await session.commit()
+        
+        print(f"✓ Synced {len(repos)} project contexts")
+    except Exception as e:
+        print(f"Warning: Failed to sync project contexts: {e}")
