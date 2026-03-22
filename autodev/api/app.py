@@ -122,6 +122,9 @@ def create_app() -> FastAPI:
     app.include_router(metrics_router.router, prefix="/api/metrics", tags=["metrics"])
     app.include_router(pm_router.router, prefix="/api/pm", tags=["pm"])
     app.include_router(tester_router.router, prefix="/api/tester", tags=["tester"])
+    
+    from autodev.api.routes import settings as settings_router
+    app.include_router(settings_router.router, prefix="/api/settings", tags=["settings"])
 
     # WebSocket
     app.include_router(ws_router, prefix="/ws", tags=["websocket"])

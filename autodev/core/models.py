@@ -451,3 +451,17 @@ class PMChatMessage(Base):
     )
     
     session: Mapped["ChatSession"] = relationship("ChatSession", back_populates="messages")
+
+
+class Setting(Base):
+    """Key-value settings storage."""
+
+    __tablename__ = "settings"
+
+    key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )

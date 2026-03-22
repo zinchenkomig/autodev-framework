@@ -51,13 +51,14 @@ async def github_webhook(
 @router.post("/telegram", summary="Receive Telegram webhook")
 async def telegram_webhook(request: Request) -> dict[str, str]:
     """Receive Telegram bot update."""
-    from autodev.integrations.telegram_pm import get_telegram_bot
+    from autodev.integrations.telegram_pm import get_telegram_bot, get_telegram_settings
     
     body = await request.body()
     logger.info("Telegram webhook: bytes=%d", len(body))
     
     # Verify secret token if set
-    secret = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
+    settings = await get_telegram_settings()
+    secret = settings.get("secret", "")
     if secret:
         header_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
         if header_secret != secret:
@@ -68,8 +69,12 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
     except json.JSONDecodeError:
         raise HTTPException(400, "Invalid JSON")
     
-    # Process update asynchronously
-    bot = get_telegram_bot()
+    # Process update
+    bot = await get_telegram_bot()
+    if not bot.token:
+        logger.warning("Telegram bot token not configured")
+        return {"status": "not_configured"}
+    
     try:
         await bot.handle_update(update)
     except Exception as e:

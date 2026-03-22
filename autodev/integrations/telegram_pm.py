@@ -1,16 +1,9 @@
-"""Telegram PM Bot — chat with PM agent via Telegram.
-
-Handles:
-- Incoming messages → PM agent
-- Notifications for task events
-- Inline buttons for approve/reject
-"""
+"""Telegram PM Bot — chat with PM agent via Telegram."""
 
 from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Any
 
 import httpx
@@ -20,14 +13,37 @@ logger = logging.getLogger(__name__)
 TELEGRAM_API = "https://api.telegram.org"
 
 
+async def get_telegram_settings() -> dict:
+    """Get Telegram settings from database."""
+    from autodev.api.database import SessionLocal
+    from autodev.core.models import Setting
+    from sqlalchemy import select
+    
+    async with SessionLocal() as session:
+        result = await session.execute(select(Setting))
+        settings = {s.key: s.value for s in result.scalars().all()}
+    
+    return {
+        "token": settings.get("telegram_bot_token", ""),
+        "chat_id": settings.get("telegram_owner_chat_id", ""),
+        "secret": settings.get("telegram_webhook_secret", ""),
+    }
+
+
 class TelegramPMBot:
     """Telegram bot for PM agent interaction."""
 
-    def __init__(self) -> None:
-        self.token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-        self.owner_chat_id = os.environ.get("TELEGRAM_OWNER_CHAT_ID", "")
-        self.pm_api_url = os.environ.get("PM_API_URL", "http://localhost:8000/api/pm")
+    def __init__(self, token: str = "", owner_chat_id: str = "") -> None:
+        self.token = token
+        self.owner_chat_id = owner_chat_id
+        self.pm_api_url = "http://localhost:8000/api/pm"
         self._client: httpx.AsyncClient | None = None
+
+    @classmethod
+    async def from_settings(cls) -> "TelegramPMBot":
+        """Create bot from database settings."""
+        settings = await get_telegram_settings()
+        return cls(token=settings["token"], owner_chat_id=settings["chat_id"])
 
     @property
     def client(self) -> httpx.AsyncClient:
@@ -108,12 +124,10 @@ class TelegramPMBot:
 
     async def handle_update(self, update: dict) -> None:
         """Process incoming Telegram update."""
-        # Handle callback query (button press)
         if "callback_query" in update:
             await self._handle_callback(update["callback_query"])
             return
 
-        # Handle text message
         message = update.get("message", {})
         chat_id = str(message.get("chat", {}).get("id", ""))
         text = message.get("text", "")
@@ -121,17 +135,14 @@ class TelegramPMBot:
         if not chat_id or not text:
             return
 
-        # Check if from owner
         if chat_id != self.owner_chat_id:
             await self.send_message(chat_id, "⛔ Доступ только для владельца")
             return
 
-        # Commands
         if text.startswith("/"):
             await self._handle_command(chat_id, text)
             return
 
-        # Regular message → PM agent
         await self._chat_with_pm(chat_id, text)
 
     async def _handle_command(self, chat_id: str, text: str) -> None:
@@ -141,9 +152,9 @@ class TelegramPMBot:
         if cmd == "/start":
             await self.send_message(
                 chat_id,
-                "👋 PM Agent\n\n"
+                "👋 <b>PM Agent</b>\n\n"
                 "Просто напиши описание фичи — я создам задачи.\n\n"
-                "Команды:\n"
+                "<b>Команды:</b>\n"
                 "/tasks — список задач\n"
                 "/status — статус системы"
             )
@@ -169,14 +180,11 @@ class TelegramPMBot:
             await self.send_message(chat_id, f"❌ Ошибка: {e}")
             return
 
-        # Send PM response
         pm_response = data.get("response", "")
         if pm_response:
-            # Escape HTML
             pm_response = pm_response.replace("<", "&lt;").replace(">", "&gt;")
             await self.send_message(chat_id, pm_response)
 
-        # Send task proposals as cards with buttons
         proposals = data.get("proposals", [])
         session_id = data.get("session_id", "")
         
@@ -193,11 +201,11 @@ class TelegramPMBot:
                 f"{description}..."
             )
             
-            # Inline buttons
+            callback_data = f"approve:{session_id}:{i}:{title[:30]}:{repo}:{priority}"
             reply_markup = {
                 "inline_keyboard": [[
-                    {"text": "❌ Отклонить", "callback_data": f"reject:{session_id}:{i}"},
-                    {"text": "✅ В бэклог", "callback_data": f"approve:{session_id}:{i}:{title}:{repo}:{priority}"},
+                    {"text": "❌ Отклонить", "callback_data": f"reject:{i}"},
+                    {"text": "✅ В бэклог", "callback_data": callback_data},
                 ]]
             }
             
@@ -210,6 +218,7 @@ class TelegramPMBot:
         message = callback.get("message", {})
         chat_id = str(message.get("chat", {}).get("id", ""))
         message_id = message.get("message_id", 0)
+        original_text = message.get("text", "")
         
         parts = data.split(":")
         action = parts[0]
@@ -218,54 +227,78 @@ class TelegramPMBot:
             await self.answer_callback_query(callback_id, "❌ Отклонено")
             await self.edit_message_text(
                 chat_id, message_id,
-                message.get("text", "") + "\n\n❌ <i>Отклонено</i>"
+                original_text + "\n\n❌ <i>Отклонено</i>"
             )
         
-        elif action == "approve":
-            # approve:session_id:idx:title:repo:priority
-            if len(parts) >= 6:
-                _, session_id, idx, title, repo, priority = parts[:6]
-                
-                # Create task via API
-                try:
-                    async with httpx.AsyncClient(timeout=30.0) as client:
-                        resp = await client.post(
-                            f"{self.pm_api_url}/approve",
-                            json={
-                                "session_id": session_id,
-                                "proposals": [{
-                                    "title": title,
-                                    "repo": repo,
-                                    "priority": priority,
-                                    "description": "",  # Already in DB from proposal
-                                }]
-                            }
+        elif action == "approve" and len(parts) >= 6:
+            _, session_id, idx, title, repo, priority = parts[:6]
+            
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    resp = await client.post(
+                        f"{self.pm_api_url}/approve",
+                        json={
+                            "session_id": session_id,
+                            "proposals": [{
+                                "title": title,
+                                "repo": repo,
+                                "priority": priority,
+                                "description": "",
+                            }]
+                        }
+                    )
+                    result = resp.json()
+                    created = result.get("created_tasks", [])
+                    
+                    if created:
+                        task = created[0]
+                        await self.answer_callback_query(callback_id, "✅ Создано!")
+                        await self.edit_message_text(
+                            chat_id, message_id,
+                            original_text + f"\n\n✅ <a href=\"{task['url']}\">Создано</a>"
                         )
-                        result = resp.json()
-                        created = result.get("created_tasks", [])
-                        
-                        if created:
-                            task = created[0]
-                            await self.answer_callback_query(callback_id, "✅ Создано!")
-                            await self.edit_message_text(
-                                chat_id, message_id,
-                                message.get("text", "") + f"\n\n✅ <i>Создано</i>\n<a href=\"{task['url']}\">Открыть</a>"
-                            )
-                        else:
-                            await self.answer_callback_query(callback_id, "❌ Ошибка")
-                except Exception as e:
-                    logger.error(f"Failed to approve: {e}")
-                    await self.answer_callback_query(callback_id, f"❌ {e}")
+                    else:
+                        await self.answer_callback_query(callback_id, "❌ Ошибка")
+            except Exception as e:
+                logger.error(f"Failed to approve: {e}")
+                await self.answer_callback_query(callback_id, f"❌ {str(e)[:50]}")
 
     async def _show_tasks(self, chat_id: str) -> None:
         """Show recent tasks."""
-        # TODO: Implement
-        await self.send_message(chat_id, "📋 /tasks — в разработке")
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get("http://localhost:8000/api/tasks?limit=5")
+                tasks = resp.json()
+                
+            if not tasks:
+                await self.send_message(chat_id, "📋 Нет задач")
+                return
+            
+            text = "📋 <b>Последние задачи:</b>\n\n"
+            for t in tasks:
+                status_emoji = {"queued": "⏳", "in_progress": "🔄", "review": "👀", "failed": "❌"}.get(t["status"], "📋")
+                text += f"{status_emoji} {t['title'][:40]}\n"
+            
+            await self.send_message(chat_id, text)
+        except Exception as e:
+            await self.send_message(chat_id, f"❌ Ошибка: {e}")
 
     async def _show_status(self, chat_id: str) -> None:
         """Show system status."""
-        # TODO: Implement
-        await self.send_message(chat_id, "📊 /status — в разработке")
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get("http://localhost:8000/api/agents")
+                agents = resp.json()
+            
+            text = "📊 <b>Статус системы:</b>\n\n"
+            for a in agents:
+                status_emoji = {"idle": "😴", "busy": "🔄", "disabled": "⛔"}.get(a.get("status", ""), "❓")
+                enabled = "✅" if a.get("enabled", True) else "⛔"
+                text += f"{enabled} {a['name']}: {status_emoji}\n"
+            
+            await self.send_message(chat_id, text)
+        except Exception as e:
+            await self.send_message(chat_id, f"❌ Ошибка: {e}")
 
     # ========== Notifications ==========
 
@@ -276,9 +309,8 @@ class TelegramPMBot:
         
         text = (
             f"❌ <b>Задача провалилась</b>\n\n"
-            f"📋 {title}\n"
-            f"🔗 <code>{task_id}</code>\n\n"
-            f"Ошибка: {error[:200]}"
+            f"📋 {title}\n\n"
+            f"Ошибка: <code>{error[:200]}</code>"
         )
         await self.send_message(self.owner_chat_id, text)
 
@@ -287,10 +319,7 @@ class TelegramPMBot:
         if not self.owner_chat_id:
             return
         
-        text = (
-            f"👀 <b>Готово к ревью</b>\n\n"
-            f"📋 {title}\n"
-        )
+        text = f"👀 <b>Готово к ревью</b>\n\n📋 {title}\n"
         if pr_url:
             text += f"🔗 <a href=\"{pr_url}\">Pull Request</a>"
         
@@ -303,8 +332,7 @@ class TelegramPMBot:
         
         text = (
             f"🚀 <b>Релиз ждёт подтверждения</b>\n\n"
-            f"Версия: {version}\n"
-            f"ID: <code>{release_id}</code>"
+            f"Версия: {version}"
         )
         
         reply_markup = {
@@ -322,13 +350,6 @@ class TelegramPMBot:
             await self._client.aclose()
 
 
-# Global instance
-_bot: TelegramPMBot | None = None
-
-
-def get_telegram_bot() -> TelegramPMBot:
-    """Get or create global Telegram bot instance."""
-    global _bot
-    if _bot is None:
-        _bot = TelegramPMBot()
-    return _bot
+async def get_telegram_bot() -> TelegramPMBot:
+    """Get Telegram bot from settings."""
+    return await TelegramPMBot.from_settings()
