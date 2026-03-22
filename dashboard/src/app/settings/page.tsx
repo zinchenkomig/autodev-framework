@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Save, TestTube, Webhook, Eye, EyeOff, CheckCircle, XCircle, Loader2 } from 'lucide-react'
 
 interface TelegramSettings {
@@ -25,6 +25,7 @@ export default function SettingsPage() {
     webhook_secret: '',
     webhook_url: ''
   })
+  const [tokenEntered, setTokenEntered] = useState(false) // Track if user entered new token
   const [showToken, setShowToken] = useState(false)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -40,10 +41,24 @@ export default function SettingsPage() {
     try {
       const res = await fetch(`${API_URL}/api/settings/telegram`)
       if (res.ok) {
-        setTelegram(await res.json())
+        const data = await res.json()
+        // Don't overwrite token if user already entered a new one
+        if (!tokenEntered) {
+          setTelegram(data)
+        } else {
+          setTelegram(prev => ({ ...data, bot_token: prev.bot_token }))
+        }
       }
     } catch (e) {
       console.error('Failed to load settings', e)
+    }
+  }
+
+  function handleTokenChange(value: string) {
+    setTelegram(prev => ({ ...prev, bot_token: value }))
+    // Mark that user has entered a new token (not masked)
+    if (!value.startsWith('*')) {
+      setTokenEntered(true)
     }
   }
 
@@ -58,8 +73,10 @@ export default function SettingsPage() {
       })
       if (res.ok) {
         setSaveMessage('✓ Сохранено')
-        // Reload to get masked token
-        await loadSettings()
+        // After successful save, mark token as not new (will be masked on next load)
+        setTokenEntered(false)
+        // Show masked token
+        setTelegram(prev => ({ ...prev, bot_token: prev.bot_token ? '**********' : '' }))
       } else {
         setSaveMessage('✗ Ошибка')
       }
@@ -103,6 +120,8 @@ export default function SettingsPage() {
     setSettingWebhook(false)
   }
 
+  const isTokenMasked = telegram.bot_token.startsWith('*')
+
   return (
     <div className="max-w-2xl">
       <h1 className="text-xl font-semibold text-white mb-6">Настройки</h1>
@@ -125,7 +144,7 @@ export default function SettingsPage() {
                 <input
                   type={showToken ? 'text' : 'password'}
                   value={telegram.bot_token}
-                  onChange={e => setTelegram({ ...telegram, bot_token: e.target.value })}
+                  onChange={e => handleTokenChange(e.target.value)}
                   placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
                   className="w-full px-3 py-2 rounded text-sm outline-none"
                   style={{ background: '#2B2B2B', border: '1px solid #515151', color: '#BABABA' }}
@@ -139,7 +158,10 @@ export default function SettingsPage() {
                 </button>
               </div>
             </div>
-            <p className="text-xs text-gray-500 mt-1">Получить у @BotFather</p>
+            <p className="text-xs text-gray-500 mt-1">
+              Получить у @BotFather
+              {isTokenMasked && <span className="text-green-400 ml-2">✓ Токен сохранён</span>}
+            </p>
           </div>
 
           {/* Owner Chat ID */}
