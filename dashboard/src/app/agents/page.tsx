@@ -1,9 +1,9 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { getAgentMonitors, getAgentRuns, getAgentLogs, toggleAgent, type AgentMonitor, type AgentRun, type AgentLog, type AgentLogLevel } from '@/lib/api'
+import { getAgentMonitors, getAgentRuns, getAgentLogs, toggleAgent, cancelDeveloperTask, type AgentMonitor, type AgentRun, type AgentLog, type AgentLogLevel } from '@/lib/api'
 import { AgentRunsTable } from '@/components/agents/AgentRunsTable'
-import { Loader2, ChevronDown, ChevronRight, RefreshCw, Power, PowerOff } from 'lucide-react'
+import { Loader2, ChevronDown, ChevronRight, RefreshCw, Power, PowerOff, StopCircle } from 'lucide-react'
 
 // Agent order by importance
 const AGENT_ORDER = ['developer', 'pm', 'project_manager', 'tester', 'release_manager']
@@ -68,9 +68,11 @@ const roleIcons: Record<string, string> = {
   release_manager: '🚀',
 }
 
-function AgentCard({ agent, selected, onClick, onToggle, toggling }: { agent: AgentMonitor; selected: boolean; onClick: () => void; onToggle: () => void; toggling?: boolean }) {
+function AgentCard({ agent, selected, onClick, onToggle, onCancel, toggling, cancelling }: { agent: AgentMonitor; selected: boolean; onClick: () => void; onToggle: () => void; onCancel?: () => void; toggling?: boolean; cancelling?: boolean }) {
   const colors = statusColors[agent.status] || statusColors.idle
   const icon = Object.entries(roleIcons).find(([k]) => agent.role.toLowerCase().includes(k))?.[1] || '🤖'
+  const isDeveloper = agent.role.toLowerCase().includes('developer')
+  const isWorking = agent.status === 'working'
   
   return (
     <div
@@ -87,6 +89,21 @@ function AgentCard({ agent, selected, onClick, onToggle, toggling }: { agent: Ag
       <div className="flex items-center gap-2 mb-2">
         <span className="text-lg">{icon}</span>
         <span className="font-medium text-white text-sm flex-1">{agent.role}</span>
+        {/* Cancel button for working developer */}
+        {isDeveloper && isWorking && onCancel && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onCancel(); }}
+            disabled={cancelling}
+            className="p-1 rounded hover:bg-red-900/50 transition-colors disabled:opacity-50"
+            title="Cancel current task"
+          >
+            {cancelling ? (
+              <Loader2 className="w-4 h-4 text-red-400 animate-spin" />
+            ) : (
+              <StopCircle className="w-4 h-4 text-red-500" />
+            )}
+          </button>
+        )}
         <button
           onClick={(e) => { e.stopPropagation(); onToggle(); }}
           disabled={toggling}
@@ -122,6 +139,7 @@ export default function AgentsPage() {
   const [logsLoading, setLogsLoading] = useState(false)
   const [levelFilter, setLevelFilter] = useState<AgentLogLevel | 'all'>('all')
   const [togglingAgent, setTogglingAgent] = useState<string | null>(null)
+  const [cancellingTask, setCancellingTask] = useState(false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const fetchData = async () => {
@@ -197,6 +215,7 @@ export default function AgentsPage() {
             selected={agent.id === selectedAgent}
             onClick={() => setSelectedAgent(agent.id)}
             toggling={togglingAgent === agent.id}
+            cancelling={cancellingTask}
             onToggle={async () => {
               setTogglingAgent(agent.id)
               try {
@@ -206,6 +225,17 @@ export default function AgentsPage() {
                 console.error('Failed to toggle agent', err)
               } finally {
                 setTogglingAgent(null)
+              }
+            }}
+            onCancel={async () => {
+              setCancellingTask(true)
+              try {
+                await cancelDeveloperTask()
+                await fetchData()
+              } catch (err) {
+                console.error('Failed to cancel task', err)
+              } finally {
+                setCancellingTask(false)
               }
             }}
           />

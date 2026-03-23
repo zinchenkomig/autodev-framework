@@ -107,6 +107,15 @@ class ClaudeCodeRunner:
     ) -> None:
         self.model = model
         self.timeout = timeout
+        self._process: asyncio.subprocess.Process | None = None
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        """Request cancellation of the running process."""
+        self._cancelled = True
+        if self._process and self._process.returncode is None:
+            logger.info("ClaudeCodeRunner: cancelling process (pid=%s)", self._process.pid)
+            self._process.kill()
 
     async def run(self, instructions: str, context: dict[str, Any]) -> AgentResult:  # noqa: ARG002
         """Execute *instructions* via the Claude Code CLI.
@@ -118,6 +127,7 @@ class ClaudeCodeRunner:
         Returns:
             An :class:`AgentResult` with the captured output and timing.
         """
+        self._cancelled = False
         cmd = [
             "claude",
             "--print",
@@ -130,7 +140,7 @@ class ClaudeCodeRunner:
         start = time.monotonic()
 
         try:
-            proc = await asyncio.create_subprocess_exec(
+            self._process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
@@ -138,12 +148,12 @@ class ClaudeCodeRunner:
             )
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    proc.communicate(instructions.encode()),
+                    self._process.communicate(instructions.encode()),
                     timeout=self.timeout,
                 )
             except TimeoutError:
-                proc.kill()
-                await proc.wait()
+                self._process.kill()
+                await self._process.wait()
                 duration = time.monotonic() - start
                 logger.warning("ClaudeCodeRunner: timed out after %.1fs", duration)
                 return AgentResult(
@@ -153,10 +163,20 @@ class ClaudeCodeRunner:
                 )
 
             duration = time.monotonic() - start
+            
+            # Check if cancelled
+            if self._cancelled:
+                logger.info("ClaudeCodeRunner: cancelled after %.1fs", duration)
+                return AgentResult(
+                    status="failure",
+                    output="Task cancelled by user",
+                    duration_seconds=duration,
+                )
+
             output = stdout_bytes.decode(errors="replace").strip()
             stderr_text = stderr_bytes.decode(errors="replace").strip()
 
-            if proc.returncode == 0:
+            if self._process.returncode == 0:
                 logger.info("ClaudeCodeRunner: finished in %.2fs", duration)
                 return AgentResult(
                     status="success",
@@ -166,7 +186,7 @@ class ClaudeCodeRunner:
             else:
                 logger.warning(
                     "ClaudeCodeRunner: exited with code %d, stderr=%r",
-                    proc.returncode,
+                    self._process.returncode,
                     stderr_text,
                 )
                 return AgentResult(
@@ -183,6 +203,8 @@ class ClaudeCodeRunner:
                 output="'claude' binary not found — is Claude Code installed?",
                 duration_seconds=duration,
             )
+        finally:
+            self._process = None
 
 
 # ---------------------------------------------------------------------------

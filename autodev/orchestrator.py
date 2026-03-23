@@ -63,6 +63,8 @@ class Orchestrator:
         self._engine = create_async_engine(self.db_url, echo=False)
         self._session_factory = async_sessionmaker(self._engine, expire_on_commit=False)
         self.github_token = os.environ.get("GITHUB_TOKEN", "")
+        self._current_runner: "ClaudeCodeRunner | None" = None
+        self._current_task_id: str | None = None
 
     # ------------------------------------------------------------------
     # Startup
@@ -147,6 +149,14 @@ class Orchestrator:
             except Exception:
                 logger.exception("Unhandled error in worker loop — continuing")
                 await asyncio.sleep(5)
+
+    def cancel_current_task(self) -> bool:
+        """Cancel the currently running task if any. Returns True if cancelled."""
+        if self._current_runner:
+            logger.info("Cancelling current task %s", self._current_task_id)
+            self._current_runner.cancel()
+            return True
+        return False
 
     async def get_next_task(self) -> Task | None:
         """Return the highest-priority queued task, or None if developer is disabled."""
@@ -238,11 +248,14 @@ class Orchestrator:
             from autodev.core.runner import ClaudeCodeRunner
 
             runner = ClaudeCodeRunner(model="claude-sonnet-4-20250514", timeout=600)
+            self._current_runner = runner
+            self._current_task_id = task_id
             await self._log("developer", task_id, "info", "Running Claude Code...")
             logger.info("Running ClaudeCodeRunner for task %s", task_id)
             result = await runner.run(
                 instructions, context={"workdir": workdir, "task_id": task_id}
             )
+            self._current_runner = None
             logger.info(
                 "ClaudeCodeRunner finished: status=%s duration=%.1fs",
                 result.status,
@@ -491,9 +504,19 @@ class Orchestrator:
 # Module entry point: python -m autodev.orchestrator
 # ---------------------------------------------------------------------------
 
+# Global orchestrator instance for API access
+_orchestrator: Orchestrator | None = None
+
+
+def get_orchestrator() -> Orchestrator | None:
+    """Get the global orchestrator instance."""
+    return _orchestrator
+
+
 if __name__ == "__main__":
-    orchestrator = Orchestrator()
-    asyncio.run(orchestrator.start())
+    global _orchestrator
+    _orchestrator = Orchestrator()
+    asyncio.run(_orchestrator.start())
 
 
 # ============ Telegram Notifications ============

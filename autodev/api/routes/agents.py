@@ -185,3 +185,19 @@ async def toggle_agent(
         total_failures=agent.total_failures,
         enabled=agent.enabled,
     )
+
+
+@router.post("/developer/cancel", summary="Cancel current developer task")
+async def cancel_developer_task() -> dict:
+    """Cancel the currently running developer task."""
+    from autodev.orchestrator import get_orchestrator
+    
+    orchestrator = get_orchestrator()
+    if orchestrator is None:
+        raise HTTPException(status_code=503, detail="Orchestrator not running")
+    
+    cancelled = orchestrator.cancel_current_task()
+    if cancelled:
+        return {"status": "cancelled", "message": "Task cancellation requested"}
+    else:
+        return {"status": "idle", "message": "No task running"}

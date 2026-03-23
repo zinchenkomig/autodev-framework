@@ -313,3 +313,9 @@ export async function toggleAgent(agentId: string): Promise<Agent> {
   if (!res.ok) throw new Error(`Failed to toggle agent: ${res.status}`)
   return res.json()
 }
+
+export async function cancelDeveloperTask(): Promise<{ status: string; message: string }> {
+  const res = await fetch(`${BASE_URL}/api/agents/developer/cancel`, { method: 'POST' })
+  if (!res.ok) throw new Error(`Failed to cancel task: ${res.status}`)
+  return res.json()
+}
