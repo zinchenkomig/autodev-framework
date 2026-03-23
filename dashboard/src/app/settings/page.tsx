@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { Save, TestTube, Webhook, Eye, EyeOff, CheckCircle, XCircle, Loader2 } from 'lucide-react'
 
 interface TelegramSettings {
@@ -25,13 +25,13 @@ export default function SettingsPage() {
     webhook_secret: '',
     webhook_url: ''
   })
-  const [tokenEntered, setTokenEntered] = useState(false) // Track if user entered new token
   const [showToken, setShowToken] = useState(false)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [settingWebhook, setSettingWebhook] = useState(false)
   const [testResult, setTestResult] = useState<TestResult | null>(null)
   const [saveMessage, setSaveMessage] = useState('')
+  const [hasToken, setHasToken] = useState(false)
 
   useEffect(() => {
     loadSettings()
@@ -42,23 +42,16 @@ export default function SettingsPage() {
       const res = await fetch(`${API_URL}/api/settings/telegram`)
       if (res.ok) {
         const data = await res.json()
-        // Don't overwrite token if user already entered a new one
-        if (!tokenEntered) {
-          setTelegram(data)
-        } else {
-          setTelegram(prev => ({ ...data, bot_token: prev.bot_token }))
-        }
+        // Check if token is saved (masked)
+        setHasToken(data.bot_token.startsWith('*'))
+        // Don't show masked token - show empty for new input
+        setTelegram({
+          ...data,
+          bot_token: '' // Always start with empty token field
+        })
       }
     } catch (e) {
       console.error('Failed to load settings', e)
-    }
-  }
-
-  function handleTokenChange(value: string) {
-    setTelegram(prev => ({ ...prev, bot_token: value }))
-    // Mark that user has entered a new token (not masked)
-    if (!value.startsWith('*')) {
-      setTokenEntered(true)
     }
   }
 
@@ -73,10 +66,10 @@ export default function SettingsPage() {
       })
       if (res.ok) {
         setSaveMessage('✓ Сохранено')
-        // After successful save, mark token as not new (will be masked on next load)
-        setTokenEntered(false)
-        // Show masked token
-        setTelegram(prev => ({ ...prev, bot_token: prev.bot_token ? '**********' : '' }))
+        if (telegram.bot_token) {
+          setHasToken(true)
+          setTelegram(prev => ({ ...prev, bot_token: '' }))
+        }
       } else {
         setSaveMessage('✗ Ошибка')
       }
@@ -91,7 +84,12 @@ export default function SettingsPage() {
     setTestResult(null)
     try {
       const res = await fetch(`${API_URL}/api/settings/telegram/test`, {
-        method: 'POST'
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bot_token: telegram.bot_token || null,
+          owner_chat_id: telegram.owner_chat_id || null
+        })
       })
       const result = await res.json()
       setTestResult(result)
@@ -103,13 +101,14 @@ export default function SettingsPage() {
 
   async function handleSetWebhook() {
     setSettingWebhook(true)
+    setTestResult(null)
     try {
       const res = await fetch(`${API_URL}/api/settings/telegram/webhook`, {
         method: 'POST'
       })
       if (res.ok) {
         const data = await res.json()
-        setTestResult({ success: true, message: `Webhook установлен: ${data.webhook_url}` })
+        setTestResult({ success: true, message: `Webhook установлен` })
       } else {
         const error = await res.json()
         setTestResult({ success: false, message: error.detail || 'Ошибка' })
@@ -119,8 +118,6 @@ export default function SettingsPage() {
     }
     setSettingWebhook(false)
   }
-
-  const isTokenMasked = telegram.bot_token.startsWith('*')
 
   return (
     <div className="max-w-2xl">
@@ -138,14 +135,17 @@ export default function SettingsPage() {
         <div className="space-y-4">
           {/* Bot Token */}
           <div>
-            <label className="block text-sm text-gray-400 mb-1">Bot Token</label>
+            <label className="block text-sm text-gray-400 mb-1">
+              Bot Token
+              {hasToken && <span className="text-green-400 ml-2">✓ сохранён</span>}
+            </label>
             <div className="flex gap-2">
               <div className="relative flex-1">
                 <input
                   type={showToken ? 'text' : 'password'}
                   value={telegram.bot_token}
-                  onChange={e => handleTokenChange(e.target.value)}
-                  placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+                  onChange={e => setTelegram({ ...telegram, bot_token: e.target.value })}
+                  placeholder={hasToken ? "Оставьте пустым или введите новый" : "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"}
                   className="w-full px-3 py-2 rounded text-sm outline-none"
                   style={{ background: '#2B2B2B', border: '1px solid #515151', color: '#BABABA' }}
                 />
@@ -158,10 +158,7 @@ export default function SettingsPage() {
                 </button>
               </div>
             </div>
-            <p className="text-xs text-gray-500 mt-1">
-              Получить у @BotFather
-              {isTokenMasked && <span className="text-green-400 ml-2">✓ Токен сохранён</span>}
-            </p>
+            <p className="text-xs text-gray-500 mt-1">Получить у @BotFather</p>
           </div>
 
           {/* Owner Chat ID */}
@@ -204,7 +201,16 @@ export default function SettingsPage() {
           </div>
 
           {/* Buttons */}
-          <div className="flex gap-2 pt-2">
+          <div className="flex flex-wrap gap-2 pt-2">
+            <button
+              onClick={handleTest}
+              disabled={testing || (!telegram.bot_token && !hasToken)}
+              className="flex items-center gap-2 px-4 py-2 rounded text-sm disabled:opacity-50"
+              style={{ background: '#214283', color: '#FFF' }}
+            >
+              {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <TestTube className="w-4 h-4" />}
+              Тест
+            </button>
             <button
               onClick={handleSave}
               disabled={saving}
@@ -215,17 +221,8 @@ export default function SettingsPage() {
               Сохранить
             </button>
             <button
-              onClick={handleTest}
-              disabled={testing}
-              className="flex items-center gap-2 px-4 py-2 rounded text-sm disabled:opacity-50"
-              style={{ background: '#214283', color: '#FFF' }}
-            >
-              {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <TestTube className="w-4 h-4" />}
-              Тест
-            </button>
-            <button
               onClick={handleSetWebhook}
-              disabled={settingWebhook}
+              disabled={settingWebhook || !hasToken}
               className="flex items-center gap-2 px-4 py-2 rounded text-sm disabled:opacity-50"
               style={{ background: '#4A4A4A', color: '#FFF' }}
             >
