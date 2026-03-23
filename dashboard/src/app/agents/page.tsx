@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { getAgentMonitors, getAgentRuns, getAgentLogs, type AgentMonitor, type AgentRun, type AgentLog, type AgentLogLevel } from '@/lib/api'
+import { getAgentMonitors, getAgentRuns, getAgentLogs, toggleAgent, type AgentMonitor, type AgentRun, type AgentLog, type AgentLogLevel } from '@/lib/api'
 import { AgentRunsTable } from '@/components/agents/AgentRunsTable'
 import { Loader2, ChevronDown, ChevronRight, RefreshCw, Power, PowerOff } from 'lucide-react'
 
@@ -68,7 +68,7 @@ const roleIcons: Record<string, string> = {
   release_manager: '🚀',
 }
 
-function AgentCard({ agent, selected, onClick }: { agent: AgentMonitor; selected: boolean; onClick: () => void }) {
+function AgentCard({ agent, selected, onClick, onToggle }: { agent: AgentMonitor; selected: boolean; onClick: () => void; onToggle: () => void }) {
   const colors = statusColors[agent.status] || statusColors.idle
   const icon = Object.entries(roleIcons).find(([k]) => agent.role.toLowerCase().includes(k))?.[1] || '🤖'
   
@@ -81,12 +81,23 @@ function AgentCard({ agent, selected, onClick }: { agent: AgentMonitor; selected
         border: `2px solid ${selected ? '#3592C4' : '#515151'}`,
         borderRadius: '6px',
         padding: '12px',
+        opacity: agent.enabled ? 1 : 0.5,
       }}
     >
       <div className="flex items-center gap-2 mb-2">
         <span className="text-lg">{icon}</span>
-        <span className="font-medium text-white text-sm">{agent.role}</span>
-        {!agent.enabled && <PowerOff className="w-3 h-3 text-gray-500" />}
+        <span className="font-medium text-white text-sm flex-1">{agent.role}</span>
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggle(); }}
+          className="p-1 rounded hover:bg-[#515151] transition-colors"
+          title={agent.enabled ? 'Disable agent' : 'Enable agent'}
+        >
+          {agent.enabled ? (
+            <Power className="w-4 h-4 text-green-500" />
+          ) : (
+            <PowerOff className="w-4 h-4 text-gray-500" />
+          )}
+        </button>
       </div>
       <div className="flex items-center gap-2">
         <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: colors.dot }} className={agent.status === 'working' ? 'animate-pulse' : ''} />
@@ -181,6 +192,14 @@ export default function AgentsPage() {
             agent={agent}
             selected={agent.id === selectedAgent}
             onClick={() => setSelectedAgent(agent.id)}
+            onToggle={async () => {
+              try {
+                await toggleAgent(agent.id)
+                fetchData()
+              } catch (err) {
+                console.error('Failed to toggle agent', err)
+              }
+            }}
           />
         ))}
       </div>
