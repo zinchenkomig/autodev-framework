@@ -123,6 +123,8 @@ class ClaudeCodeRunner:
             "--print",
             "--model",
             self.model,
+            "--permission-mode",
+            "bypassPermissions",
         ]
         logger.info("ClaudeCodeRunner: spawning %s", shlex.join(cmd))
         start = time.monotonic()
