@@ -250,39 +250,49 @@ class Orchestrator:
             pr_url: str | None = None
 
             if result.status == "success" and repo_name:
-                # 6. Commit & push
-                commit_msg = f"feat: {task.title[:72]} [autodev-{task_id[:8]}]"
-                await self._log("developer", task_id, "info", "Committing and pushing changes...")
-                await self._run_shell(
-                    f"git -C {workdir} add -A && "
-                    f'git -C {workdir} diff --cached --quiet || '
-                    f'git -C {workdir} commit -m "{commit_msg}" && '
-                    f"git -C {workdir} push -u origin {branch}",
-                    timeout=60,
-                )
+                # 6. Check if there are any changes to commit
+                await self._run_shell(f"git -C {workdir} add -A", timeout=30)
+                
+                # Check if there are staged changes
+                has_changes = False
+                try:
+                    await self._run_shell(f"git -C {workdir} diff --cached --quiet", timeout=30)
+                except Exception:
+                    has_changes = True  # diff --quiet returns non-zero if there are changes
+                
+                if has_changes:
+                    # 7. Commit & push
+                    commit_msg = f"feat: {task.title[:72]} [autodev-{task_id[:8]}]"
+                    await self._log("developer", task_id, "info", "Committing and pushing changes...")
+                    await self._run_shell(
+                        f'git -C {workdir} commit -m "{commit_msg}" && '
+                        f"git -C {workdir} push -u origin {branch}",
+                        timeout=60,
+                    )
 
-                # 7. Create PR via GitHub
-                await self._log("developer", task_id, "info", f"Creating PR for branch {branch}...")
-                pr_number = await self._create_pr(
-                    repo=repo_name,
-                    branch=branch,
-                    title=task.title,
-                    body=f"Automated PR for task {task_id}\n\n{task.description or ''}",
-                )
-                if pr_number:
-                    pr_url = (
-                        f"https://github.com/{repo_name}/pull/{pr_number}"
+                    # 8. Create PR via GitHub
+                    await self._log("developer", task_id, "info", f"Creating PR for branch {branch}...")
+                    pr_number = await self._create_pr(
+                        repo=repo_name,
+                        branch=branch,
+                        title=task.title,
+                        body=f"Automated PR for task {task_id}\n\n{task.description or ''}",
                     )
-                    await self._log(
-                        "developer",
-                        task_id,
-                        "info",
-                        f"PR #{pr_number} created successfully: {pr_url}",
-                    )
+                    if pr_number:
+                        pr_url = f"https://github.com/{repo_name}/pull/{pr_number}"
+                        await self._log(
+                            "developer", task_id, "info",
+                            f"PR #{pr_number} created: {pr_url}",
+                        )
+                    else:
+                        await self._log(
+                            "developer", task_id, "warning",
+                            "PR creation failed (check GitHub token)",
+                        )
                 else:
                     await self._log(
                         "developer", task_id, "warning",
-                        "PR creation skipped (no token or failed silently)",
+                        "No changes detected - Claude Code did not modify any files",
                     )
 
             # 8. Update task status
