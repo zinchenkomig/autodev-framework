@@ -68,7 +68,7 @@ const roleIcons: Record<string, string> = {
   release_manager: '🚀',
 }
 
-function AgentCard({ agent, selected, onClick, onToggle }: { agent: AgentMonitor; selected: boolean; onClick: () => void; onToggle: () => void }) {
+function AgentCard({ agent, selected, onClick, onToggle, toggling }: { agent: AgentMonitor; selected: boolean; onClick: () => void; onToggle: () => void; toggling?: boolean }) {
   const colors = statusColors[agent.status] || statusColors.idle
   const icon = Object.entries(roleIcons).find(([k]) => agent.role.toLowerCase().includes(k))?.[1] || '🤖'
   
@@ -89,10 +89,13 @@ function AgentCard({ agent, selected, onClick, onToggle }: { agent: AgentMonitor
         <span className="font-medium text-white text-sm flex-1">{agent.role}</span>
         <button
           onClick={(e) => { e.stopPropagation(); onToggle(); }}
-          className="p-1 rounded hover:bg-[#515151] transition-colors"
+          disabled={toggling}
+          className="p-1 rounded hover:bg-[#515151] transition-colors disabled:opacity-50"
           title={agent.enabled ? 'Disable agent' : 'Enable agent'}
         >
-          {agent.enabled ? (
+          {toggling ? (
+            <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />
+          ) : agent.enabled ? (
             <Power className="w-4 h-4 text-green-500" />
           ) : (
             <PowerOff className="w-4 h-4 text-gray-500" />
@@ -118,6 +121,7 @@ export default function AgentsPage() {
   const [logs, setLogs] = useState<AgentLog[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
   const [levelFilter, setLevelFilter] = useState<AgentLogLevel | 'all'>('all')
+  const [togglingAgent, setTogglingAgent] = useState<string | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const fetchData = async () => {
@@ -192,12 +196,16 @@ export default function AgentsPage() {
             agent={agent}
             selected={agent.id === selectedAgent}
             onClick={() => setSelectedAgent(agent.id)}
+            toggling={togglingAgent === agent.id}
             onToggle={async () => {
+              setTogglingAgent(agent.id)
               try {
                 await toggleAgent(agent.id)
-                fetchData()
+                await fetchData()
               } catch (err) {
                 console.error('Failed to toggle agent', err)
+              } finally {
+                setTogglingAgent(null)
               }
             }}
           />
