@@ -64,6 +64,7 @@ class TaskResponse(BaseModel):
     pr_number: int | None
     pr_url: str | None
     branch: str | None
+    depends_on: list[str] | None
     created_by: str | None
     created_at: datetime
     updated_at: datetime
@@ -85,6 +86,7 @@ def _task_to_response(task: Task) -> TaskResponse:
         pr_number=task.pr_number,
         pr_url=task.pr_url,
         branch=task.branch,
+        depends_on=[str(d) for d in task.depends_on] if task.depends_on else None,
         created_by=task.created_by,
         created_at=task.created_at,
         updated_at=task.updated_at,

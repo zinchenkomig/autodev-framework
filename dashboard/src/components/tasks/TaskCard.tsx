@@ -183,6 +183,15 @@ export function TaskCard({ task, onClick, onDelete, onRequeue }: TaskCardProps) 
             >
               {cfg.label}
             </span>
+            {task.depends_on && task.depends_on.length > 0 && task.status === 'queued' && (
+              <span
+                className="text-xs font-medium px-1.5 py-0.5 rounded"
+                style={{ color: '#CC7832', background: 'rgba(204,120,50,0.2)' }}
+                title="Waiting for dependencies"
+              >
+                ⏳ blocked
+              </span>
+            )}
             <span className="text-xs font-mono" style={{ color: '#808080' }}>{task.repo}</span>
             {task.branch && (
               <a

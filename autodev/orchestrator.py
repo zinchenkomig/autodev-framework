@@ -14,7 +14,7 @@ from pathlib import Path
 
 import uvicorn
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from autodev.core.config import ProjectConfig, load_config
 from autodev.core.models import Agent, AgentLog, AgentStatus, Base, Event, Task, TaskStatus
@@ -159,24 +159,46 @@ class Orchestrator:
         return False
 
     async def get_next_task(self) -> Task | None:
-        """Return the highest-priority queued task, or None if developer is disabled."""
+        """Return the highest-priority queued task with satisfied dependencies."""
         async with self._session_factory() as session:
             # Check if developer agent is enabled
             dev_agent = await session.get(Agent, "developer")
             if dev_agent and not dev_agent.enabled:
                 return None  # Don't pick up tasks when disabled
             
+            # Get all queued tasks ordered by priority
             result = await session.execute(
                 select(Task)
                 .where(Task.status == TaskStatus.QUEUED)
                 .order_by(Task.priority, Task.created_at)
-                .limit(1)
             )
-            task = result.scalar_one_or_none()
-            if task is not None:
-                # Detach from session before returning
-                await session.refresh(task)
-            return task
+            queued_tasks = result.scalars().all()
+            
+            # Find first task with satisfied dependencies
+            for task in queued_tasks:
+                if await self._dependencies_satisfied(session, task):
+                    await session.refresh(task)
+                    return task
+            
+            return None
+    
+    async def _dependencies_satisfied(self, session: "AsyncSession", task: Task) -> bool:
+        """Check if all task dependencies are completed (review or later)."""
+        if not task.depends_on:
+            return True
+        
+        # Statuses that mean dependency is "done enough" to proceed
+        completed_statuses = {TaskStatus.REVIEW, TaskStatus.READY_TO_RELEASE, TaskStatus.RELEASED}
+        
+        for dep_id in task.depends_on:
+            dep_task = await session.get(Task, dep_id)
+            if dep_task is None:
+                logger.warning("Dependency %s not found for task %s", dep_id, task.id)
+                continue  # Missing dependency - allow to proceed
+            if dep_task.status not in completed_statuses:
+                return False
+        
+        return True
 
     # ------------------------------------------------------------------
     # Task processing

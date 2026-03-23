@@ -232,12 +232,34 @@ async def approve_tasks(request: ApproveRequest, session: Annotated[AsyncSession
     created = []
     pmap = {"low": Priority.LOW, "normal": Priority.NORMAL, "high": Priority.HIGH, "critical": Priority.CRITICAL}
     
-    for p in request.proposals:
-        task = Task(id=uuid4(), title=p.title, description=p.description, status=TaskStatus.QUEUED,
-                    priority=pmap.get(p.priority, Priority.NORMAL), repo=p.repo, created_at=datetime.now(UTC), created_by="pm")
+    prev_task_id = None
+    for i, p in enumerate(request.proposals):
+        # Each subsequent task depends on the previous one (sequential execution)
+        depends_on = [prev_task_id] if prev_task_id else []
+        
+        task = Task(
+            id=uuid4(), 
+            title=p.title, 
+            description=p.description, 
+            status=TaskStatus.QUEUED,
+            priority=pmap.get(p.priority, Priority.NORMAL), 
+            repo=p.repo, 
+            depends_on=depends_on,
+            created_at=datetime.now(UTC), 
+            created_by="pm"
+        )
         session.add(task)
         await session.flush()
-        created.append({"id": str(task.id), "title": task.title, "repo": task.repo, "url": f"{DASHBOARD_URL}/tasks?id={task.id}"})
+        
+        prev_task_id = task.id
+        dep_info = f" (depends on #{i})" if depends_on else ""
+        created.append({
+            "id": str(task.id), 
+            "title": task.title, 
+            "repo": task.repo, 
+            "url": f"{DASHBOARD_URL}/tasks?id={task.id}",
+            "depends_on": [str(d) for d in depends_on]
+        })
     
     if request.session_id:
         try:

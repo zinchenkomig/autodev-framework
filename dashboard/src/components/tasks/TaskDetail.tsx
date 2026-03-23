@@ -150,12 +150,22 @@ export function TaskDetail({ task, onClose, onStatusChange }: TaskDetailProps) {
                 </div>
               ))}
 
+              {/* Dependencies */}
+              {task.depends_on && task.depends_on.length > 0 && (
+                <div className="flex items-center justify-between pt-1" style={{ borderTop: '1px solid #515151' }}>
+                  <span className="text-xs" style={{ color: '#515151' }}>Depends on</span>
+                  <span className="text-xs font-mono" style={{ color: '#CC7832' }}>
+                    {task.depends_on.length} task(s)
+                  </span>
+                </div>
+              )}
+
               {/* Branch link */}
               {task.branch && (
                 <div className="flex items-center justify-between pt-1" style={{ borderTop: '1px solid #515151' }}>
                   <span className="text-xs" style={{ color: '#515151' }}>Branch</span>
                   <a
-                    href={`https://github.com/zinchenkomig/${task.repo}/tree/${task.branch}`}
+                    href={`https://github.com/${task.repo}/tree/${task.branch}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-1.5 text-xs font-mono transition-opacity hover:opacity-80"

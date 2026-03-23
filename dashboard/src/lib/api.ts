@@ -18,6 +18,7 @@ export interface Task {
   pr_number: number | null
   pr_url: string | null
   branch: string | null
+  depends_on: string[] | null
   created_by: string
   created_at: string
   updated_at: string
