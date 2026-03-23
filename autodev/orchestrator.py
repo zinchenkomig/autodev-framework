@@ -149,8 +149,13 @@ class Orchestrator:
                 await asyncio.sleep(5)
 
     async def get_next_task(self) -> Task | None:
-        """Return the highest-priority queued task, or None."""
+        """Return the highest-priority queued task, or None if developer is disabled."""
         async with self._session_factory() as session:
+            # Check if developer agent is enabled
+            dev_agent = await session.get(Agent, "developer")
+            if dev_agent and not dev_agent.enabled:
+                return None  # Don't pick up tasks when disabled
+            
             result = await session.execute(
                 select(Task)
                 .where(Task.status == TaskStatus.QUEUED)
