@@ -163,13 +163,16 @@ async def toggle_agent(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> AgentResponse:
     """Toggle an agent's enabled state."""
-    agent = await session.get(Agent, agent_id)
+    # Use eager loading for current_task to avoid lazy loading issues
+    result = await session.execute(
+        select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.current_task))
+    )
+    agent = result.scalar_one_or_none()
     if agent is None:
         raise HTTPException(status_code=404, detail="Agent not found")
 
     agent.enabled = not agent.enabled
     await session.flush()
-    await session.refresh(agent)
 
     return AgentResponse(
         id=agent.id,
