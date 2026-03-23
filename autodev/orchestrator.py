@@ -196,6 +196,11 @@ class Orchestrator:
         try:
             # 2. Clone repo (develop branch if it exists, else default)
             if repo_name:
+                # Clean up any existing directory from previous failed runs
+                if Path(workdir).exists():
+                    await self._log("developer", task_id, "info", f"Cleaning up existing directory {workdir}...")
+                    await self._run_shell(f"rm -rf {workdir}", timeout=30)
+                
                 clone_url = f"https://x-access-token:{self.github_token}@github.com/{repo_name}.git" if self.github_token else f"https://github.com/{repo_name}.git"
                 await self._log("developer", task_id, "info", f"Cloning repo {repo_name}...")
                 await self._run_shell(
