@@ -204,187 +204,292 @@ class Orchestrator:
     # Task processing
     # ------------------------------------------------------------------
 
+
     async def process_task(self, task: Task) -> None:
-        """Process a single task end-to-end."""
+        """Process a single task with Developer-Critic iteration loop."""
         task_id = str(task.id)
         repo_name = task.repo or ""
-        # Map short names to full repo names from config
+        
+        # Map short names to full repo names
         if self.config and self.config.repos:
             for repo_cfg in self.config.repos:
                 if repo_name in (repo_cfg.name, repo_cfg.name.split("/")[-1]):
                     repo_name = repo_cfg.name
                     break
-        # Also handle partial matches
-        _REPO_ALIASES = {
-            "backend": "great_alerter_backend",
-            "frontend": "great_alerter_frontend",
-        }
+        _REPO_ALIASES = {"backend": "great_alerter_backend", "frontend": "great_alerter_frontend"}
         if repo_name in _REPO_ALIASES:
             repo_name = _REPO_ALIASES[repo_name]
+        
         workdir = f"/tmp/autodev-{task_id}"
-
+        branch = f"autodev-{task_id}"
         logger.info("Processing task %s: %s (repo=%s)", task_id, task.title, repo_name)
+        
+        final_status = TaskStatus.FAILED
+        pr_number: int | None = None
+        pr_url: str | None = None
 
-        # 1. Mark in_progress + assign developer agent
+        # 1. Mark in_progress
         await self._update_task_status(task_id, TaskStatus.IN_PROGRESS)
         await self._update_agent_status("developer", AgentStatus.WORKING, task_id)
         await self._log("developer", task_id, "info", f"Started processing task: {task.title}")
 
         try:
-            # 2. Clone repo (develop branch if it exists, else default)
+            # 2. Clone repo
             if repo_name:
-                # Clean up any existing directory from previous failed runs
                 if Path(workdir).exists():
-                    await self._log("developer", task_id, "info", f"Cleaning up existing directory {workdir}...")
                     await self._run_shell(f"rm -rf {workdir}", timeout=30)
                 
                 clone_url = f"https://x-access-token:{self.github_token}@github.com/{repo_name}.git" if self.github_token else f"https://github.com/{repo_name}.git"
                 await self._log("developer", task_id, "info", f"Cloning repo {repo_name}...")
                 await self._run_shell(
-                    f"git clone -b develop {clone_url} {workdir} "
-                    f"|| git clone {clone_url} {workdir}",
+                    f"git clone -b develop {clone_url} {workdir} || git clone {clone_url} {workdir}",
                     timeout=120,
-                )
-                await self._log(
-                    "developer", task_id, "info", f"Repo {repo_name} cloned successfully"
                 )
             else:
                 Path(workdir).mkdir(parents=True, exist_ok=True)
 
             # 3. Create feature branch
-            branch = f"autodev-{task_id}"
             if repo_name:
-                await self._run_shell(
-                    f"git -C {workdir} checkout -b {branch}", timeout=30
-                )
+                await self._run_shell(f"git -C {workdir} checkout -b {branch}", timeout=30)
                 await self._log("developer", task_id, "info", f"Created branch {branch}")
 
-            # 4. Build instructions (task description + CLAUDE.md context)
-            instructions = task.description or task.title
+            # 4. Load context
             claude_md = Path(workdir) / "CLAUDE.md"
-            if claude_md.exists():
-                context = claude_md.read_text(encoding="utf-8", errors="replace")
-                instructions = f"{instructions}\n\n--- CLAUDE.md ---\n{context}"
-
-            # 5. Run Claude Code
+            context = claude_md.read_text(encoding="utf-8", errors="replace") if claude_md.exists() else ""
+            
             from autodev.core.runner import ClaudeCodeRunner
-
             runner = ClaudeCodeRunner(model="claude-sonnet-4-20250514", timeout=600)
             self._current_runner = runner
             self._current_task_id = task_id
-            await self._log("developer", task_id, "info", "Running Claude Code...")
-            logger.info("Running ClaudeCodeRunner for task %s", task_id)
-            result = await runner.run(
-                instructions, context={"workdir": workdir, "task_id": task_id}
-            )
-            self._current_runner = None
-            logger.info(
-                "ClaudeCodeRunner finished: status=%s duration=%.1fs",
-                result.status,
-                result.duration_seconds,
-            )
+            
+            # ========== PHASE 1: PLANNING ==========
+            await self._log("developer", task_id, "info", "Phase 1: Creating implementation plan...")
+            
+            plan_prompt = f"""You are a senior developer. Analyze this task and create a detailed implementation plan.
+
+TASK: {task.title}
+DESCRIPTION: {task.description or 'No description'}
+
+{f'--- Project Context ---{chr(10)}{context}' if context else ''}
+
+Create a plan that includes:
+1. Files that need to be created or modified
+2. Key functions/classes to implement
+3. Potential edge cases or risks
+4. Testing approach
+
+DO NOT write any code yet. Just the plan in markdown format."""
+
+            plan_result = await runner.run(plan_prompt, context={"workdir": workdir})
+            plan = plan_result.output
+            await self._log("developer", task_id, "info", "Plan created", details=plan[:2000])
+            
+            # ========== PHASE 2: CRITIC REVIEWS PLAN ==========
+            await self._log("developer", task_id, "info", "Phase 2: Critic reviewing plan...")
+            
+            critic_plan_prompt = f"""You are a senior code reviewer and architect. Review this implementation plan.
+
+TASK: {task.title}
+
+PROPOSED PLAN:
+{plan}
+
+Review for:
+1. Missing considerations
+2. Potential bugs or edge cases not addressed  
+3. Better approaches if any
+4. Security concerns
+
+If the plan is good, respond with: APPROVED
+
+If there are issues, respond with:
+FEEDBACK:
+- [your feedback points]"""
+
+            critic_result = await runner.run(critic_plan_prompt, context={"workdir": workdir})
+            plan_feedback = critic_result.output
+            plan_approved = "APPROVED" in plan_feedback.upper() and "FEEDBACK:" not in plan_feedback.upper()
+            
             await self._log(
-                "developer",
-                task_id,
-                "info" if result.status == "success" else "error",
-                f"Claude Code finished in {result.duration_seconds:.1f}s (status={result.status})",
-                details=getattr(result, "output", None),
+                "developer", task_id, 
+                "info" if plan_approved else "warning",
+                f"Plan review: {'Approved' if plan_approved else 'Feedback received'}",
+                details=plan_feedback[:1500]
             )
+            
+            # ========== PHASE 3: IMPLEMENTATION ==========
+            await self._log("developer", task_id, "info", "Phase 3: Implementing solution...")
+            
+            impl_prompt = f"""You are a senior developer. Implement the solution based on this plan.
 
-            pr_number: int | None = None
-            pr_url: str | None = None
+TASK: {task.title}
+DESCRIPTION: {task.description or 'No description'}
 
-            if result.status == "success" and repo_name:
-                # 6. Check if there are any changes to commit
+PLAN:
+{plan}
+
+{f'REVIEWER FEEDBACK:{chr(10)}{plan_feedback}' if not plan_approved else ''}
+
+{f'--- Project Context ---{chr(10)}{context}' if context else ''}
+
+Now implement the solution. Create/modify files as needed.
+Follow the plan and address any reviewer feedback."""
+
+            impl_result = await runner.run(impl_prompt, context={"workdir": workdir})
+            
+            await self._log(
+                "developer", task_id,
+                "info" if impl_result.status == "success" else "error",
+                f"Implementation completed in {impl_result.duration_seconds:.1f}s"
+            )
+            
+            if impl_result.status != "success":
+                raise RuntimeError(f"Implementation failed: {impl_result.output}")
+            
+            # ========== PHASE 4: CODE REVIEW LOOP ==========
+            MAX_REVIEW_ITERATIONS = 3
+            code_approved = False
+            
+            for iteration in range(MAX_REVIEW_ITERATIONS):
+                await self._log("developer", task_id, "info", f"Phase 4: Code review (iteration {iteration + 1}/{MAX_REVIEW_ITERATIONS})...")
+                
+                # Get current diff
+                try:
+                    diff_output = await self._run_shell(
+                        f"git -C {workdir} add -A && git -C {workdir} diff --cached",
+                        timeout=30, capture=True
+                    )
+                except Exception:
+                    diff_output = ""
+                
+                if not diff_output.strip():
+                    await self._log("developer", task_id, "warning", "No changes to review")
+                    break
+                
+                # Critic reviews code
+                review_prompt = f"""You are a senior code reviewer. Review this code change.
+
+TASK: {task.title}
+
+CODE DIFF:
+```diff
+{diff_output[:15000]}
+```
+
+Review for:
+1. Bugs or logic errors
+2. Code style and best practices
+3. Missing error handling
+4. Security issues
+
+If the code is ready to merge, respond with: APPROVED
+
+If there are critical issues, respond with:
+MUST_FIX:
+- [critical issues]
+
+Be pragmatic - approve if it works correctly."""
+
+                review_result = await runner.run(review_prompt, context={"workdir": workdir})
+                review_feedback = review_result.output
+                
+                code_approved = "APPROVED" in review_feedback.upper() and "MUST_FIX:" not in review_feedback.upper()
+                
+                await self._log(
+                    "developer", task_id,
+                    "info" if code_approved else "warning",
+                    f"Code review: {'Approved' if code_approved else 'Changes requested'}",
+                    details=review_feedback[:1500]
+                )
+                
+                if code_approved:
+                    break
+                
+                # Developer fixes issues
+                if iteration < MAX_REVIEW_ITERATIONS - 1:
+                    await self._log("developer", task_id, "info", "Addressing review feedback...")
+                    
+                    fix_prompt = f"""Fix the issues found in code review.
+
+TASK: {task.title}
+
+REVIEW FEEDBACK:
+{review_feedback}
+
+Address the MUST_FIX issues. Make the necessary changes."""
+
+                    fix_result = await runner.run(fix_prompt, context={"workdir": workdir})
+                    await self._log("developer", task_id, "info", f"Fixes applied in {fix_result.duration_seconds:.1f}s")
+            
+            self._current_runner = None
+            
+            # ========== PHASE 5: COMMIT & PR ==========
+            if repo_name:
                 await self._run_shell(f"git -C {workdir} add -A", timeout=30)
                 
-                # Check if there are staged changes
                 has_changes = False
                 try:
                     await self._run_shell(f"git -C {workdir} diff --cached --quiet", timeout=30)
                 except Exception:
-                    has_changes = True  # diff --quiet returns non-zero if there are changes
+                    has_changes = True
                 
                 if has_changes:
-                    # 7. Commit & push
                     commit_msg = f"feat: {task.title[:72]} [autodev-{task_id[:8]}]"
                     await self._log("developer", task_id, "info", "Committing and pushing changes...")
                     await self._run_shell(
-                        f'git -C {workdir} commit -m "{commit_msg}" && '
-                        f"git -C {workdir} push -u origin {branch}",
+                        f'git -C {workdir} commit -m "{commit_msg}" && git -C {workdir} push -u origin {branch}',
                         timeout=60,
                     )
 
-                    # 8. Create PR via GitHub
                     await self._log("developer", task_id, "info", f"Creating PR for branch {branch}...")
                     pr_number = await self._create_pr(
-                        repo=repo_name,
-                        branch=branch,
-                        title=task.title,
-                        body=f"Automated PR for task {task_id}\n\n{task.description or ''}",
+                        repo=repo_name, branch=branch, title=task.title,
+                        body=f"Automated PR for task {task_id}\n\n{task.description or ''}\n\n✅ Reviewed by AI Critic",
                     )
                     if pr_number:
                         pr_url = f"https://github.com/{repo_name}/pull/{pr_number}"
-                        await self._log(
-                            "developer", task_id, "info",
-                            f"PR #{pr_number} created: {pr_url}",
-                        )
-                    else:
-                        await self._log(
-                            "developer", task_id, "warning",
-                            "PR creation failed (check GitHub token)",
-                        )
+                        await self._log("developer", task_id, "info", f"PR #{pr_number} created: {pr_url}")
                 else:
-                    await self._log(
-                        "developer", task_id, "warning",
-                        "No changes detected - Claude Code did not modify any files",
-                    )
+                    await self._log("developer", task_id, "warning", "No changes to commit")
 
-            # 8. Update task status
-            final_status = TaskStatus.REVIEW if result.status == "success" else TaskStatus.FAILED
-            await self._update_task_status(
-                task_id, final_status, pr_number=pr_number, pr_url=pr_url
-            )
-            await self._log(
-                "developer", task_id, "info", f"Task completed with status: {final_status}"
-            )
-
-            # 9. Emit events
-            await self._emit_event("task.completed", {"task_id": task_id, "status": final_status})
+            # Final status
+            if code_approved or (not code_approved and iteration >= MAX_REVIEW_ITERATIONS - 1 and has_changes):
+                final_status = TaskStatus.REVIEW
+                if not code_approved:
+                    await self._log("developer", task_id, "warning", "Max iterations reached - sending to human review")
+            else:
+                final_status = TaskStatus.FAILED
+            
+            await self._update_task_status(task_id, final_status, pr_number=pr_number, pr_url=pr_url)
+            await self._log("developer", task_id, "info", f"Task completed with status: {final_status}")
+            
+            # Emit events
+            await self._emit_event("task.completed", {"task_id": task_id, "status": str(final_status)})
             if pr_number:
-                await self._emit_event(
-                    "pr.created",
-                    {"task_id": task_id, "pr_number": pr_number, "repo": repo_name},
-                )
-
-            # 10. Send Telegram notification
-            await notify_task_status(
-                task_id, task.title,
-                "review" if final_status == TaskStatus.REVIEW else "failed",
-                pr_url=pr_url or ""
-            )
-
-            logger.info("Task %s finished: %s (pr=%s)", task_id, final_status, pr_number)
+                await self._emit_event("pr.created", {"task_id": task_id, "pr_number": pr_number, "repo": repo_name})
 
         except Exception as exc:
             logger.exception("Task %s failed with exception", task_id)
-            await self._log("developer", task_id, "error", f"Task failed: {exc}", details=str(exc))
+            await self._log("developer", task_id, "error", f"Task failed: {exc}")
             await self._update_task_status(task_id, TaskStatus.FAILED)
             await self._emit_event("task.failed", {"task_id": task_id, "error": str(exc)})
-            
-            # Send Telegram notification
-            await notify_task_status(task_id, task.title, "failed", error=str(exc))
+            final_status = TaskStatus.FAILED
 
         finally:
-            # 10. Reset agent status
             await self._update_agent_status("developer", AgentStatus.IDLE, None)
-
-            # 11. Cleanup workdir
+            self._current_runner = None
+            self._current_task_id = None
+            
             if Path(workdir).exists():
                 shutil.rmtree(workdir, ignore_errors=True)
-                logger.debug("Cleaned up %s", workdir)
 
-    # ------------------------------------------------------------------
+        # Notify
+        await notify_task_status(
+            task_id, task.title,
+            "review" if final_status == TaskStatus.REVIEW else "failed",
+            pr_url=pr_url or ""
+        )
+
     # Helpers
     # ------------------------------------------------------------------
 
@@ -467,8 +572,8 @@ class Orchestrator:
             await session.commit()
             logger.info("Event emitted: %s %s", event_type, payload)
 
-    async def _run_shell(self, cmd: str, timeout: int = 60) -> str:
-        """Run a shell command, raising on failure."""
+    async def _run_shell(self, cmd: str, timeout: int = 60, capture: bool = False) -> str:
+        """Run a shell command, raising on failure. If capture=True, return stdout."""
         logger.debug("Shell: %s", cmd)
         proc = await asyncio.create_subprocess_exec(
             "/bin/bash",
@@ -485,7 +590,7 @@ class Orchestrator:
             raise RuntimeError(f"Command timed out after {timeout}s: {cmd}")
         stdout = stdout_b.decode(errors="replace").strip()
         stderr = stderr_b.decode(errors="replace").strip()
-        if proc.returncode != 0:
+        if proc.returncode != 0 and not capture:
             raise RuntimeError(
                 f"Command failed (rc={proc.returncode}): {cmd}\nstdout={stdout}\nstderr={stderr}"
             )
