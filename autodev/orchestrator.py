@@ -72,6 +72,9 @@ class Orchestrator:
 
     async def start(self) -> None:
         """Boot the system: DB → agents → API + worker (parallel)."""
+        # Register self globally for API access
+        set_orchestrator(self)
+        
         logging.basicConfig(
             level=logging.INFO,
             format="%(asctime)s %(levelname)s %(name)s: %(message)s",
