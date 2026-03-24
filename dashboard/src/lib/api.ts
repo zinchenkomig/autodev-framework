@@ -320,3 +320,17 @@ export async function cancelDeveloperTask(): Promise<{ status: string; message: 
   if (!res.ok) throw new Error(`Failed to cancel task: ${res.status}`)
   return res.json()
 }
+
+// Task Logs
+export interface TaskLog {
+  id: string
+  agent_id: string
+  level: 'info' | 'warning' | 'error'
+  message: string
+  details: string | null
+  created_at: string
+}
+
+export async function getTaskLogs(taskId: string, limit: number = 100): Promise<TaskLog[]> {
+  return (await apiFetch<TaskLog[]>(`/api/tasks/${taskId}/logs?limit=${limit}`)) ?? []
+}

@@ -198,3 +198,53 @@ async def delete_task(
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     await session.delete(task)
+
+
+# ---------------------------------------------------------------------------
+# Task Logs
+# ---------------------------------------------------------------------------
+
+class TaskLogResponse(BaseModel):
+    id: str
+    agent_id: str
+    level: str
+    message: str
+    details: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+@router.get("/{task_id}/logs", summary="Get logs for a specific task")
+async def get_task_logs(
+    task_id: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    limit: int = Query(100, ge=1, le=500),
+) -> list[TaskLogResponse]:
+    """Get agent logs for a specific task."""
+    from autodev.core.models import AgentLog
+    
+    try:
+        tid = uuid.UUID(task_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid task ID format")
+    
+    result = await session.execute(
+        select(AgentLog)
+        .where(AgentLog.task_id == tid)
+        .order_by(AgentLog.created_at.desc())
+        .limit(limit)
+    )
+    logs = result.scalars().all()
+    
+    return [
+        TaskLogResponse(
+            id=str(log.id),
+            agent_id=log.agent_id,
+            level=log.level,
+            message=log.message,
+            details=log.details,
+            created_at=log.created_at,
+        )
+        for log in logs
+    ]

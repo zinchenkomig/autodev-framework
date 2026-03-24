@@ -1,9 +1,9 @@
 'use client'
 
-import { useState } from 'react'
-import { type Task, type TaskStatus, updateTask } from '@/lib/api'
+import { useState, useEffect } from 'react'
+import { type Task, type TaskStatus, type TaskLog, updateTask, getTaskLogs } from '@/lib/api'
 import { formatDistanceToNow } from '@/lib/utils'
-import { X, GitPullRequest, GitBranch } from 'lucide-react'
+import { X, GitPullRequest, GitBranch, ChevronDown, ChevronRight, RefreshCw, FileText } from 'lucide-react'
 import { PriorityBadge } from '@/components/Badge'
 
 interface TaskDetailProps {
@@ -30,12 +30,77 @@ const STATUS_DOT: Record<TaskStatus, string> = {
   failed:      '#CC4E4E',
 }
 
+const levelConfig: Record<string, { color: string; label: string }> = {
+  info:    { color: '#9E9E9E', label: 'INFO' },
+  warning: { color: '#CC7832', label: 'WARN' },
+  error:   { color: '#CC4E4E', label: 'ERR' },
+}
+
+function LogEntry({ log }: { log: TaskLog }) {
+  const [expanded, setExpanded] = useState(false)
+  const cfg = levelConfig[log.level] || levelConfig.info
+  const hasDetails = log.details && log.details.length > 0
+  
+  return (
+    <div style={{ borderBottom: '1px solid #3C3F41' }}>
+      <div
+        className={`flex items-start gap-2 px-2 py-1.5 ${hasDetails ? 'cursor-pointer hover:bg-[#3C3F41]' : ''}`}
+        onClick={() => hasDetails && setExpanded(!expanded)}
+        style={{ fontSize: '11px' }}
+      >
+        <span style={{ color: '#515151', width: '12px', marginTop: '2px' }}>
+          {hasDetails ? (expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />) : null}
+        </span>
+        <span className="px-1 rounded font-bold" style={{ color: cfg.color, fontSize: '10px' }}>{cfg.label}</span>
+        <span className="flex-1" style={{ color: '#BABABA', wordBreak: 'break-word' }}>{log.message}</span>
+      </div>
+      {expanded && log.details && (
+        <div 
+          className="px-3 pb-2 pt-1 whitespace-pre-wrap overflow-x-auto"
+          style={{ 
+            background: '#1E1F22', 
+            fontSize: '10px', 
+            color: '#9E9E9E', 
+            maxHeight: '300px',
+            overflowY: 'auto',
+            fontFamily: 'monospace'
+          }}
+        >
+          {log.details}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function TaskDetail({ task, onClose, onStatusChange }: TaskDetailProps) {
   const [currentStatus, setCurrentStatus] = useState<TaskStatus | null>(null)
   const [saving, setSaving] = useState(false)
+  const [logs, setLogs] = useState<TaskLog[]>([])
+  const [logsLoading, setLogsLoading] = useState(false)
+  const [showLogs, setShowLogs] = useState(true)
 
-  // Reset local state whenever the task changes
   const effectiveStatus: TaskStatus = currentStatus ?? (task?.status ?? 'queued')
+
+  useEffect(() => {
+    if (task) {
+      setCurrentStatus(null)
+      loadLogs()
+    }
+  }, [task?.id])
+
+  async function loadLogs() {
+    if (!task) return
+    setLogsLoading(true)
+    try {
+      const data = await getTaskLogs(task.id, 50)
+      setLogs(data)
+    } catch (e) {
+      console.error('Failed to load logs', e)
+    } finally {
+      setLogsLoading(false)
+    }
+  }
 
   if (!task) return null
 
@@ -58,7 +123,7 @@ export function TaskDetail({ task, onClose, onStatusChange }: TaskDetailProps) {
       <div className="fixed inset-0 bg-black/60 z-40" onClick={onClose} />
 
       <div
-        className="fixed right-0 top-0 h-full w-full md:max-w-sm z-50 flex flex-col"
+        className="fixed right-0 top-0 h-full w-full md:max-w-lg z-50 flex flex-col"
         style={{ background: '#2B2B2B', borderLeft: '1px solid #515151' }}
       >
         {/* Header */}
@@ -69,6 +134,12 @@ export function TaskDetail({ task, onClose, onStatusChange }: TaskDetailProps) {
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3 mb-2">
               <PriorityBadge priority={task.priority} />
+              <span 
+                className="text-xs px-2 py-0.5 rounded"
+                style={{ background: `${STATUS_DOT[effectiveStatus]}22`, color: STATUS_DOT[effectiveStatus] }}
+              >
+                {effectiveStatus}
+              </span>
             </div>
             <p className="text-sm leading-snug" style={{ color: '#FFFFFF' }}>{task.title}</p>
           </div>
@@ -84,11 +155,11 @@ export function TaskDetail({ task, onClose, onStatusChange }: TaskDetailProps) {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
 
-          {/* ── Status picker ── */}
+          {/* Status picker */}
           <div>
-            <p className="text-xs uppercase tracking-wider mb-3" style={{ color: '#808080' }}>Status</p>
+            <p className="text-xs uppercase tracking-wider mb-2" style={{ color: '#808080' }}>Status</p>
             <div className="flex flex-wrap gap-2">
               {STATUS_PILLS.map(({ id, label }) => {
                 const isActive = effectiveStatus === id
@@ -98,7 +169,7 @@ export function TaskDetail({ task, onClose, onStatusChange }: TaskDetailProps) {
                     key={id}
                     disabled={saving}
                     onClick={() => handleStatusClick(id)}
-                    className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all disabled:opacity-60"
+                    className="flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium transition-all disabled:opacity-60"
                     style={{
                       border: `1px solid ${isActive ? dot : '#515151'}`,
                       background: isActive ? `${dot}22` : 'transparent',
@@ -106,16 +177,7 @@ export function TaskDetail({ task, onClose, onStatusChange }: TaskDetailProps) {
                       cursor: saving ? 'not-allowed' : isActive ? 'default' : 'pointer',
                     }}
                   >
-                    <span
-                      style={{
-                        display: 'inline-block',
-                        width: '6px',
-                        height: '6px',
-                        borderRadius: '50%',
-                        background: isActive ? dot : '#515151',
-                        flexShrink: 0,
-                      }}
-                    />
+                    <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: isActive ? dot : '#515151' }} />
                     {label}
                   </button>
                 )
@@ -123,26 +185,22 @@ export function TaskDetail({ task, onClose, onStatusChange }: TaskDetailProps) {
             </div>
           </div>
 
+          {/* Description */}
           {task.description && (
             <div>
-              <p className="text-xs uppercase tracking-wider mb-2" style={{ color: '#808080' }}>Description</p>
-              <p className="text-xs leading-relaxed" style={{ color: '#808080' }}>{task.description}</p>
+              <p className="text-xs uppercase tracking-wider mb-1" style={{ color: '#808080' }}>Description</p>
+              <p className="text-xs leading-relaxed" style={{ color: '#BABABA' }}>{task.description}</p>
             </div>
           )}
 
+          {/* Details */}
           <div>
-            <p className="text-xs uppercase tracking-wider mb-3" style={{ color: '#808080' }}>Details</p>
-            <div
-              className="rounded p-3 space-y-2"
-              style={{ background: '#3C3F41', border: '1px solid #515151' }}
-            >
+            <p className="text-xs uppercase tracking-wider mb-2" style={{ color: '#808080' }}>Details</p>
+            <div className="rounded p-2 space-y-1" style={{ background: '#3C3F41', border: '1px solid #515151' }}>
               {[
-                ['Assigned', task.assigned_to ?? '—'],
                 ['Repository', task.repo],
-                ['Source', task.source],
                 ['Created by', task.created_by],
                 ['Created', formatDistanceToNow(task.created_at)],
-                ['Updated', formatDistanceToNow(task.updated_at)],
               ].map(([label, value]) => (
                 <div key={label} className="flex items-center justify-between">
                   <span className="text-xs" style={{ color: '#515151' }}>{label}</span>
@@ -150,75 +208,71 @@ export function TaskDetail({ task, onClose, onStatusChange }: TaskDetailProps) {
                 </div>
               ))}
 
-              {/* Dependencies */}
               {task.depends_on && task.depends_on.length > 0 && (
                 <div className="flex items-center justify-between pt-1" style={{ borderTop: '1px solid #515151' }}>
                   <span className="text-xs" style={{ color: '#515151' }}>Depends on</span>
-                  <span className="text-xs font-mono" style={{ color: '#CC7832' }}>
-                    {task.depends_on.length} task(s)
-                  </span>
+                  <span className="text-xs font-mono" style={{ color: '#CC7832' }}>{task.depends_on.length} task(s)</span>
                 </div>
               )}
 
-              {/* Branch link */}
               {task.branch && (
                 <div className="flex items-center justify-between pt-1" style={{ borderTop: '1px solid #515151' }}>
                   <span className="text-xs" style={{ color: '#515151' }}>Branch</span>
-                  <a
-                    href={`https://github.com/${task.repo}/tree/${task.branch}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 text-xs font-mono transition-opacity hover:opacity-80"
-                    style={{ color: '#9876AA' }}
-                  >
-                    <GitBranch className="w-4 h-4" />
-                    {task.branch}
+                  <a href={`https://github.com/${task.repo}/tree/${task.branch}`} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-xs font-mono hover:opacity-80" style={{ color: '#9876AA' }}>
+                    <GitBranch className="w-3 h-3" /> {task.branch.slice(0, 20)}...
                   </a>
                 </div>
               )}
 
-              {/* PR link */}
               {task.pr_url && (
                 <div className="flex items-center justify-between pt-1" style={{ borderTop: '1px solid #515151' }}>
                   <span className="text-xs" style={{ color: '#515151' }}>Pull Request</span>
-                  <a
-                    href={task.pr_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 text-xs transition-opacity hover:opacity-80"
-                    style={{ color: '#6A8759' }}
-                  >
-                    <GitPullRequest className="w-4 h-4" />
-                    View Pull Request
+                  <a href={task.pr_url} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-xs hover:opacity-80" style={{ color: '#6A8759' }}>
+                    <GitPullRequest className="w-3 h-3" /> View PR
                   </a>
                 </div>
               )}
             </div>
           </div>
 
+          {/* Agent Logs */}
           <div>
-            <p className="text-xs uppercase tracking-wider mb-3" style={{ color: '#808080' }}>History</p>
-            <div className="space-y-2.5">
-              <div className="flex items-start gap-2">
-                <span className="text-xs mt-0.5" style={{ color: '#515151' }}>●</span>
-                <div>
-                  <p className="text-xs" style={{ color: '#808080' }}>
-                    Status → <span style={{ color: '#BABABA' }}>{effectiveStatus}</span>
-                    <span className="ml-1" style={{ color: '#515151' }}>by {task.assigned_to ?? 'system'}</span>
-                  </p>
-                  <p className="text-xs" style={{ color: '#515151' }}>{formatDistanceToNow(task.updated_at)}</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-2">
-                <span className="text-xs mt-0.5" style={{ color: '#515151' }}>●</span>
-                <div>
-                  <p className="text-xs" style={{ color: '#808080' }}>
-                    Created by <span style={{ color: '#BABABA' }}>{task.created_by}</span>
-                  </p>
-                  <p className="text-xs" style={{ color: '#515151' }}>{formatDistanceToNow(task.created_at)}</p>
-                </div>
-              </div>
+            <div className="flex items-center justify-between mb-2">
+              <button 
+                onClick={() => setShowLogs(!showLogs)}
+                className="flex items-center gap-2 text-xs uppercase tracking-wider"
+                style={{ color: '#808080' }}
+              >
+                <FileText className="w-3 h-3" />
+                Agent Logs ({logs.length})
+                {showLogs ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+              </button>
+              <button 
+                onClick={loadLogs} 
+                disabled={logsLoading}
+                className="p-1 rounded hover:bg-[#3C3F41]"
+                style={{ color: '#808080' }}
+              >
+                <RefreshCw className={`w-3 h-3 ${logsLoading ? 'animate-spin' : ''}`} />
+              </button>
             </div>
+            
+            {showLogs && (
+              <div 
+                className="rounded overflow-hidden"
+                style={{ background: '#1E1F22', border: '1px solid #515151', maxHeight: '400px', overflowY: 'auto' }}
+              >
+                {logs.length === 0 ? (
+                  <p className="text-xs text-center py-4" style={{ color: '#515151' }}>
+                    {logsLoading ? 'Loading...' : 'No logs yet'}
+                  </p>
+                ) : (
+                  logs.map(log => <LogEntry key={log.id} log={log} />)
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
