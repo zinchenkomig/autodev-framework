@@ -271,7 +271,7 @@ class Orchestrator:
             context = claude_md.read_text(encoding="utf-8", errors="replace") if claude_md.exists() else ""
             
             from autodev.core.runner import ClaudeCodeRunner
-            runner = ClaudeCodeRunner(model="claude-sonnet-4-20250514", timeout=600)
+            runner = ClaudeCodeRunner(model="claude-sonnet-4-20250514", timeout=1800)  # 30 minutes
             self._current_runner = runner
             self._current_task_id = task_id
             
