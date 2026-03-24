@@ -645,18 +645,24 @@ Address the MUST_FIX issues. Make the necessary changes."""
 # ---------------------------------------------------------------------------
 
 # Global orchestrator instance for API access
-_orchestrator: Orchestrator | None = None
+_orchestrator = None  # type: Orchestrator | None
 
 
-def get_orchestrator() -> Orchestrator | None:
+def get_orchestrator():
     """Get the global orchestrator instance."""
     return _orchestrator
 
 
-if __name__ == "__main__":
+def set_orchestrator(orch):
+    """Set the global orchestrator instance."""
     global _orchestrator
-    _orchestrator = Orchestrator()
-    asyncio.run(_orchestrator.start())
+    _orchestrator = orch
+
+
+if __name__ == "__main__":
+    orch = Orchestrator()
+    set_orchestrator(orch)
+    asyncio.run(orch.start())
 
 
 # ============ Telegram Notifications ============
