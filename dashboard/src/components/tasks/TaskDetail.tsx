@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { type Task, type TaskStatus, type TaskLog, updateTask, getTaskLogs } from '@/lib/api'
+import { type Task, type TaskStatus, type TaskLog, updateTask, getTaskLogs, restartTask } from '@/lib/api'
 import { formatDistanceToNow } from '@/lib/utils'
-import { X, GitPullRequest, GitBranch, ChevronDown, ChevronRight, RefreshCw, FileText } from 'lucide-react'
+import { X, GitPullRequest, GitBranch, ChevronDown, ChevronRight, RefreshCw, FileText, RotateCcw, Loader2 } from 'lucide-react'
 import { PriorityBadge } from '@/components/Badge'
 
 interface TaskDetailProps {
@@ -79,6 +79,8 @@ export function TaskDetail({ task, onClose, onStatusChange }: TaskDetailProps) {
   const [logs, setLogs] = useState<TaskLog[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
   const [showLogs, setShowLogs] = useState(true)
+  const [restarting, setRestarting] = useState(false)
+  const [restartResult, setRestartResult] = useState<string[] | null>(null)
 
   const effectiveStatus: TaskStatus = currentStatus ?? (task?.status ?? 'queued')
 
@@ -184,6 +186,46 @@ export function TaskDetail({ task, onClose, onStatusChange }: TaskDetailProps) {
               })}
             </div>
           </div>
+
+          {/* Actions */}
+          {(effectiveStatus === 'failed' || effectiveStatus === 'review' || effectiveStatus === 'in_progress') && (
+            <div>
+              <p className="text-xs uppercase tracking-wider mb-2" style={{ color: '#808080' }}>Actions</p>
+              <button
+                onClick={async () => {
+                  if (!task) return
+                  setRestarting(true)
+                  setRestartResult(null)
+                  try {
+                    const result = await restartTask(task.id)
+                    setRestartResult(result.actions)
+                    setCurrentStatus('queued')
+                    onStatusChange?.(task.id, 'queued')
+                  } catch (e) {
+                    setRestartResult(['Error: ' + String(e)])
+                  } finally {
+                    setRestarting(false)
+                  }
+                }}
+                disabled={restarting}
+                className="flex items-center gap-2 px-3 py-2 rounded text-xs font-medium transition-colors disabled:opacity-50"
+                style={{ background: '#CC783222', color: '#CC7832', border: '1px solid #CC7832' }}
+              >
+                {restarting ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
+                Full Restart
+              </button>
+              <p className="text-xs mt-1" style={{ color: '#515151' }}>
+                Deletes branch, closes PR, resets to queue
+              </p>
+              {restartResult && (
+                <div className="mt-2 p-2 rounded text-xs" style={{ background: '#1E1F22', border: '1px solid #515151' }}>
+                  {restartResult.map((action, i) => (
+                    <p key={i} style={{ color: action.startsWith('Error') ? '#CC4E4E' : '#6A8759' }}>{action}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Description */}
           {task.description && (

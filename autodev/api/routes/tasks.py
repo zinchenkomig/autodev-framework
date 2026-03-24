@@ -248,3 +248,85 @@ async def get_task_logs(
         )
         for log in logs
     ]
+
+
+@router.post("/{task_id}/restart", summary="Full restart task - delete branch, close PR, requeue")
+async def restart_task(
+    task_id: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict:
+    """Fully restart a task: delete GitHub branch, close PR, reset to queued."""
+    import os
+    import httpx
+    
+    try:
+        tid = uuid.UUID(task_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid task ID format")
+    
+    task = await session.get(Task, tid)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    github_token = os.environ.get("GITHUB_TOKEN", "")
+    repo = task.repo
+    branch = task.branch
+    pr_number = task.pr_number
+    
+    results = {"task_id": task_id, "actions": []}
+    
+    # 1. Close PR if exists
+    if pr_number and repo and github_token:
+        try:
+            async with httpx.AsyncClient() as client:
+                # Close the PR
+                resp = await client.patch(
+                    f"https://api.github.com/repos/{repo}/pulls/{pr_number}",
+                    headers={"Authorization": f"token {github_token}"},
+                    json={"state": "closed"},
+                    timeout=10.0,
+                )
+                if resp.status_code == 200:
+                    results["actions"].append(f"Closed PR #{pr_number}")
+                else:
+                    results["actions"].append(f"Failed to close PR: {resp.status_code}")
+        except Exception as e:
+            results["actions"].append(f"Error closing PR: {e}")
+    
+    # 2. Delete branch if exists
+    if branch and repo and github_token:
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.delete(
+                    f"https://api.github.com/repos/{repo}/git/refs/heads/{branch}",
+                    headers={"Authorization": f"token {github_token}"},
+                    timeout=10.0,
+                )
+                if resp.status_code == 204:
+                    results["actions"].append(f"Deleted branch {branch}")
+                elif resp.status_code == 422:
+                    results["actions"].append(f"Branch {branch} not found")
+                else:
+                    results["actions"].append(f"Failed to delete branch: {resp.status_code}")
+        except Exception as e:
+            results["actions"].append(f"Error deleting branch: {e}")
+    
+    # 3. Reset task
+    task.status = "queued"
+    task.assigned_to = None
+    task.branch = None
+    task.pr_number = None
+    task.pr_url = None
+    
+    # 4. Reset developer agent if it was working on this task
+    from autodev.core.models import Agent
+    dev_agent = await session.get(Agent, "developer")
+    if dev_agent and str(dev_agent.current_task_id) == task_id:
+        dev_agent.status = "idle"
+        dev_agent.current_task_id = None
+        results["actions"].append("Reset developer agent")
+    
+    results["actions"].append("Task reset to queued")
+    results["status"] = "restarted"
+    
+    return results

@@ -334,3 +334,16 @@ export interface TaskLog {
 export async function getTaskLogs(taskId: string, limit: number = 100): Promise<TaskLog[]> {
   return (await apiFetch<TaskLog[]>(`/api/tasks/${taskId}/logs?limit=${limit}`)) ?? []
 }
+
+// Restart task (delete branch, close PR, requeue)
+export interface RestartResult {
+  task_id: string
+  status: string
+  actions: string[]
+}
+
+export async function restartTask(taskId: string): Promise<RestartResult> {
+  const res = await fetch(`${BASE_URL}/api/tasks/${taskId}/restart`, { method: 'POST' })
+  if (!res.ok) throw new Error(`Failed to restart task: ${res.status}`)
+  return res.json()
+}
