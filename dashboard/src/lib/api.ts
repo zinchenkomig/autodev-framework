@@ -347,3 +347,46 @@ export async function restartTask(taskId: string): Promise<RestartResult> {
   if (!res.ok) throw new Error(`Failed to restart task: ${res.status}`)
   return res.json()
 }
+
+// Alerts
+export interface Alert {
+  id: string
+  type: string
+  severity: 'low' | 'medium' | 'high' | 'critical'
+  title: string
+  message: string | null
+  source: string | null
+  resolved: boolean
+  resolved_at: string | null
+  resolved_by: string | null
+  notified: boolean
+  created_at: string
+}
+
+export interface AlertStats {
+  total: number
+  unresolved: number
+  critical: number
+  high: number
+  by_type: Record<string, number>
+}
+
+export async function getAlerts(unresolvedOnly: boolean = false): Promise<Alert[]> {
+  const params = unresolvedOnly ? '?unresolved_only=true' : ''
+  return (await apiFetch<Alert[]>(`/api/alerts${params}`)) ?? []
+}
+
+export async function getAlertStats(): Promise<AlertStats> {
+  return (await apiFetch<AlertStats>('/api/alerts/stats')) ?? { total: 0, unresolved: 0, critical: 0, high: 0, by_type: {} }
+}
+
+export async function resolveAlert(alertId: string, resolvedBy: string = 'user'): Promise<Alert> {
+  const res = await fetch(`${BASE_URL}/api/alerts/${alertId}/resolve?resolved_by=${resolvedBy}`, { method: 'POST' })
+  if (!res.ok) throw new Error(`Failed to resolve alert: ${res.status}`)
+  return res.json()
+}
+
+export async function deleteAlert(alertId: string): Promise<void> {
+  const res = await fetch(`${BASE_URL}/api/alerts/${alertId}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(`Failed to delete alert: ${res.status}`)
+}

@@ -465,3 +465,48 @@ class Setting(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+class AlertSeverity(enum.StrEnum):
+    """Alert severity levels."""
+    
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class AlertType(enum.StrEnum):
+    """Types of alerts."""
+    
+    TASK_FAILED = "task_failed"
+    API_ERROR = "api_error"
+    TASK_STUCK = "task_stuck"
+    AGENT_STUCK = "agent_stuck"
+    ORCHESTRATOR_ERROR = "orchestrator_error"
+    CUSTOM = "custom"
+
+
+class Alert(Base):
+    """System alert for monitoring and incident tracking."""
+
+    __tablename__ = "alerts"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        _UUID(), primary_key=True, default=uuid.uuid4
+    )
+    type: Mapped[str] = mapped_column(String(50), nullable=False)
+    severity: Mapped[str] = mapped_column(String(20), nullable=False, default=AlertSeverity.MEDIUM)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=True)
+    source: Mapped[str | None] = mapped_column(String(100), nullable=True)  # task_id, endpoint, etc.
+    resolved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    notified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<Alert id={self.id} type={self.type} severity={self.severity} resolved={self.resolved}>"

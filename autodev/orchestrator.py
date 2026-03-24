@@ -691,7 +691,7 @@ if __name__ == "__main__":
 # ============ Telegram Notifications ============
 
 async def notify_task_status(task_id: str, title: str, status: str, error: str = "", pr_url: str = "") -> None:
-    """Send Telegram notification about task status change."""
+    """Send Telegram notification and create alert for task status changes."""
     # 1. Notify user via Telegram bot
     try:
         from autodev.integrations.telegram_pm import get_telegram_bot
@@ -704,27 +704,73 @@ async def notify_task_status(task_id: str, title: str, status: str, error: str =
     except Exception as e:
         logger.warning(f"Failed to send Telegram notification: {e}")
     
-    # 2. Notify Brian (AI assistant) about failures so he can fix
+    # 2. Create alert for failed tasks (will notify OpenClaw/Brian)
     if status == "failed":
         try:
-            import httpx
-            brian_msg = (
-                f"🚨 AutoDev task failed!\n\n"
-                f"Task: {title}\n"
-                f"ID: {task_id}\n"
-                f"Error: {error[:500]}\n\n"
-                f"Please investigate and fix the issue."
+            await create_alert(
+                alert_type="task_failed",
+                severity="high",
+                title=f"Task failed: {title}",
+                message=error[:2000] if error else "No error details",
+                source=task_id,
             )
+        except Exception as e:
+            logger.warning(f"Failed to create alert: {e}")
+
+
+async def create_alert(alert_type: str, severity: str, title: str, message: str = "", source: str = "") -> None:
+    """Create an alert and notify OpenClaw."""
+    import httpx
+    import os
+    from uuid import uuid4
+    from datetime import datetime, UTC
+    
+    try:
+        from autodev.api.database import SessionLocal
+        from autodev.core.models import Alert
+        
+        async with SessionLocal() as session:
+            alert = Alert(
+                id=uuid4(),
+                type=alert_type,
+                severity=severity,
+                title=title,
+                message=message,
+                source=source,
+                resolved=False,
+                notified=False,
+                created_at=datetime.now(UTC),
+            )
+            session.add(alert)
+            await session.commit()
+            await session.refresh(alert)
+            
+            # Notify OpenClaw
+            openclaw_url = os.environ.get("OPENCLAW_URL", "http://localhost:3033")
+            chat_id = os.environ.get("OPENCLAW_CHAT_ID", "861853668")
+            
+            severity_emoji = {"critical": "🚨", "high": "🔴", "medium": "🟡", "low": "🟢"}
+            emoji = severity_emoji.get(severity, "⚠️")
+            
+            notify_msg = (
+                f"{emoji} **AutoDev Alert** [{severity.upper()}]\n\n"
+                f"**Type:** {alert_type}\n"
+                f"**Title:** {title}\n"
+            )
+            if message:
+                notify_msg += f"\n**Details:**\n```\n{message[:1000]}\n```\n"
+            if source:
+                notify_msg += f"\n**Source:** {source}"
+            
             async with httpx.AsyncClient() as client:
-                await client.post(
-                    "http://localhost:3033/api/send",
-                    json={
-                        "channel": "telegram",
-                        "account": "default", 
-                        "chatId": "861853668",
-                        "message": brian_msg
-                    },
+                resp = await client.post(
+                    f"{openclaw_url}/api/send",
+                    json={"channel": "telegram", "account": "default", "chatId": chat_id, "message": notify_msg},
                     timeout=10.0
                 )
-        except Exception as e:
-            logger.warning(f"Failed to notify Brian: {e}")
+                if resp.status_code == 200:
+                    alert.notified = True
+                    await session.commit()
+                    
+    except Exception as e:
+        logger.warning(f"Failed to create alert: {e}")

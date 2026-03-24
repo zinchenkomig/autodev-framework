@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from fastapi import FastAPI
+from autodev.api.middleware import ErrorAlertMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 
 from autodev.api.database import SessionLocal, engine
@@ -113,6 +114,9 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Error alert middleware
+    app.add_middleware(ErrorAlertMiddleware)
+
     # Routers
     app.include_router(tasks.router, prefix="/api/tasks", tags=["tasks"])
     app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
@@ -124,7 +128,9 @@ def create_app() -> FastAPI:
     app.include_router(tester_router.router, prefix="/api/tester", tags=["tester"])
     
     from autodev.api.routes import settings as settings_router
+    from autodev.api.routes import alerts as alerts_router
     app.include_router(settings_router.router, prefix="/api/settings", tags=["settings"])
+    app.include_router(alerts_router.router, prefix="/api/alerts", tags=["alerts"])
 
     # WebSocket
     app.include_router(ws_router, prefix="/ws", tags=["websocket"])

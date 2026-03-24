@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, ClipboardList, Bot, Package,
-  ScrollText, Settings, Share2, MessageSquare, X, BarChart2
+  ScrollText, Settings, Share2, MessageSquare, X, BarChart2, AlertTriangle
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -13,6 +13,7 @@ const navItems = [
   { href: '/pm', icon: MessageSquare, label: 'PM Chat' },
   { href: '/tasks', icon: ClipboardList, label: 'Tasks' },
   { href: '/agents', icon: Bot, label: 'Agents' },
+  { href: '/alerts', icon: AlertTriangle, label: 'Alerts' },
   { href: '/agents/graph', icon: Share2, label: 'Agent Graph', sub: true },
   { href: '/releases', icon: Package, label: 'Releases' },
   { href: '/events', icon: ScrollText, label: 'Events' },
