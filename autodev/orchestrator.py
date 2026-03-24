@@ -144,6 +144,37 @@ class Orchestrator:
                     existing.role = agent_cfg.role
                     logger.debug("Agent already registered: %s", agent_id)
             await session.commit()
+        
+        # Clean up stuck tasks and agents from previous runs
+        await self._cleanup_stuck_state()
+    
+    async def _cleanup_stuck_state(self) -> None:
+        """Reset tasks stuck in in_progress and agents stuck in working state."""
+        async with self._session_factory() as session:
+            # Reset all agents to idle
+            result = await session.execute(
+                select(Agent).where(Agent.status == AgentStatus.WORKING)
+            )
+            working_agents = result.scalars().all()
+            for agent in working_agents:
+                agent.status = AgentStatus.IDLE
+                agent.current_task_id = None
+                logger.info("Reset stuck agent: %s", agent.id)
+            
+            # Reset all in_progress tasks to queued
+            result = await session.execute(
+                select(Task).where(Task.status == TaskStatus.IN_PROGRESS)
+            )
+            stuck_tasks = result.scalars().all()
+            for task in stuck_tasks:
+                task.status = TaskStatus.QUEUED
+                task.assigned_to = None
+                logger.info("Reset stuck task: %s", task.id)
+            
+            await session.commit()
+            
+            if working_agents or stuck_tasks:
+                logger.info("Cleanup: reset %d agents, %d tasks", len(working_agents), len(stuck_tasks))
 
     # ------------------------------------------------------------------
     # Worker loop
