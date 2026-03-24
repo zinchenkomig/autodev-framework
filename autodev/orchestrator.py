@@ -692,9 +692,10 @@ if __name__ == "__main__":
 
 async def notify_task_status(task_id: str, title: str, status: str, error: str = "", pr_url: str = "") -> None:
     """Send Telegram notification about task status change."""
+    # 1. Notify user via Telegram bot
     try:
         from autodev.integrations.telegram_pm import get_telegram_bot
-        bot = get_telegram_bot()
+        bot = await get_telegram_bot()
         
         if status == "failed":
             await bot.notify_task_failed(task_id, title, error)
@@ -702,3 +703,28 @@ async def notify_task_status(task_id: str, title: str, status: str, error: str =
             await bot.notify_task_ready_for_review(task_id, title, pr_url)
     except Exception as e:
         logger.warning(f"Failed to send Telegram notification: {e}")
+    
+    # 2. Notify Brian (AI assistant) about failures so he can fix
+    if status == "failed":
+        try:
+            import httpx
+            brian_msg = (
+                f"🚨 AutoDev task failed!\n\n"
+                f"Task: {title}\n"
+                f"ID: {task_id}\n"
+                f"Error: {error[:500]}\n\n"
+                f"Please investigate and fix the issue."
+            )
+            async with httpx.AsyncClient() as client:
+                await client.post(
+                    "http://localhost:3033/api/send",
+                    json={
+                        "channel": "telegram",
+                        "account": "default", 
+                        "chatId": "861853668",
+                        "message": brian_msg
+                    },
+                    timeout=10.0
+                )
+        except Exception as e:
+            logger.warning(f"Failed to notify Brian: {e}")
