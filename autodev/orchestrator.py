@@ -231,7 +231,7 @@ class Orchestrator:
         # 1. Mark in_progress
         await self._update_task_status(task_id, TaskStatus.IN_PROGRESS)
         await self._update_agent_status("developer", AgentStatus.WORKING, task_id)
-        await self._log("developer", task_id, "info", f"Started processing task: {task.title}")
+        await self._log("developer", task_id, "info", f"🚀 Started processing task: {task.title}", details=f"Repository: {repo_name or 'N/A'}\nDescription: {task.description or 'No description'}")
 
         try:
             # 2. Clone repo
@@ -282,7 +282,11 @@ DO NOT write any code yet. Just the plan in markdown format."""
 
             plan_result = await runner.run(plan_prompt, context={"workdir": workdir})
             plan = plan_result.output
-            await self._log("developer", task_id, "info", "Plan created", details=plan[:2000])
+            await self._log(
+                "developer", task_id, "info", 
+                f"📋 Plan created ({len(plan)} chars, {plan_result.duration_seconds:.1f}s)",
+                details=f"=== IMPLEMENTATION PLAN ===\n\n{plan}"
+            )
             
             # ========== PHASE 2: CRITIC REVIEWS PLAN ==========
             await self._log("developer", task_id, "info", "Phase 2: Critic reviewing plan...")
@@ -313,8 +317,8 @@ FEEDBACK:
             await self._log(
                 "developer", task_id, 
                 "info" if plan_approved else "warning",
-                f"Plan review: {'Approved' if plan_approved else 'Feedback received'}",
-                details=plan_feedback[:1500]
+                f"🔍 Plan review: {'✅ Approved' if plan_approved else '⚠️ Feedback received'} ({critic_result.duration_seconds:.1f}s)",
+                details=f"=== CRITIC PLAN REVIEW ===\n\n{plan_feedback}"
             )
             
             # ========== PHASE 3: IMPLEMENTATION ==========
@@ -340,7 +344,8 @@ Follow the plan and address any reviewer feedback."""
             await self._log(
                 "developer", task_id,
                 "info" if impl_result.status == "success" else "error",
-                f"Implementation completed in {impl_result.duration_seconds:.1f}s"
+                f"🛠️ Implementation {'completed' if impl_result.status == 'success' else 'failed'} ({impl_result.duration_seconds:.1f}s)",
+                details=f"=== DEVELOPER OUTPUT ===\n\n{impl_result.output[:10000] if impl_result.output else 'No output'}"
             )
             
             if impl_result.status != "success":
@@ -398,8 +403,8 @@ Be pragmatic - approve if it works correctly."""
                 await self._log(
                     "developer", task_id,
                     "info" if code_approved else "warning",
-                    f"Code review: {'Approved' if code_approved else 'Changes requested'}",
-                    details=review_feedback[:1500]
+                    f"🔍 Code review #{iteration + 1}: {'✅ Approved' if code_approved else '⚠️ Changes requested'} ({review_result.duration_seconds:.1f}s)",
+                    details=f"=== CODE REVIEW #{iteration + 1} ===\n\nDiff size: {len(diff_output)} chars\n\n{review_feedback}"
                 )
                 
                 if code_approved:
@@ -419,7 +424,11 @@ REVIEW FEEDBACK:
 Address the MUST_FIX issues. Make the necessary changes."""
 
                     fix_result = await runner.run(fix_prompt, context={"workdir": workdir})
-                    await self._log("developer", task_id, "info", f"Fixes applied in {fix_result.duration_seconds:.1f}s")
+                    await self._log(
+                        "developer", task_id, "info", 
+                        f"🔧 Fixes applied ({fix_result.duration_seconds:.1f}s)",
+                        details=f"=== FIX ITERATION #{iteration + 1} ===\n\n{fix_result.output[:5000] if fix_result.output else 'No output'}"
+                    )
             
             self._current_runner = None
             
@@ -461,7 +470,11 @@ Address the MUST_FIX issues. Make the necessary changes."""
                 final_status = TaskStatus.FAILED
             
             await self._update_task_status(task_id, final_status, pr_number=pr_number, pr_url=pr_url)
-            await self._log("developer", task_id, "info", f"Task completed with status: {final_status}")
+            await self._log(
+                "developer", task_id, "info", 
+                f"{'✅' if final_status == TaskStatus.REVIEW else '❌'} Task completed: {final_status}",
+                details=f"PR: {pr_url or 'N/A'}\nCode approved by critic: {code_approved}"
+            )
             
             # Emit events
             await self._emit_event("task.completed", {"task_id": task_id, "status": str(final_status)})
