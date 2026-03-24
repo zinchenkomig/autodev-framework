@@ -107,12 +107,19 @@ class Orchestrator:
         server = uvicorn.Server(uv_config)
 
         logger.info("Starting API server on %s:%d", self.host, self.port)
-        logger.info("Starting worker loop")
-
-        await asyncio.gather(
-            server.serve(),
-            self.worker_loop(),
-        )
+        
+        # Check if worker should run (disabled in k8s where claude is not available)
+        run_worker = os.environ.get("AUTODEV_RUN_WORKER", "true").lower() == "true"
+        
+        if run_worker:
+            logger.info("Starting worker loop")
+            await asyncio.gather(
+                server.serve(),
+                self.worker_loop(),
+            )
+        else:
+            logger.info("Worker loop disabled (AUTODEV_RUN_WORKER=false)")
+            await server.serve()
 
     # ------------------------------------------------------------------
     # Agent registration
@@ -493,6 +500,23 @@ Address the MUST_FIX issues. Make the necessary changes."""
             await self._update_task_status(task_id, TaskStatus.FAILED)
             await self._emit_event("task.failed", {"task_id": task_id, "error": str(exc)})
             final_status = TaskStatus.FAILED
+            
+            # Notify about failure
+            try:
+                await notify_task_status(task_id, task.title, "failed", error=str(exc))
+            except Exception as notify_err:
+                logger.warning(f"Failed to send failure notification: {notify_err}")
+
+        else:
+            # Notify about success (only if no exception)
+            try:
+                await notify_task_status(
+                    task_id, task.title,
+                    "review" if final_status == TaskStatus.REVIEW else "failed",
+                    pr_url=pr_url or ""
+                )
+            except Exception as notify_err:
+                logger.warning(f"Failed to send notification: {notify_err}")
 
         finally:
             await self._update_agent_status("developer", AgentStatus.IDLE, None)
@@ -501,13 +525,6 @@ Address the MUST_FIX issues. Make the necessary changes."""
             
             if Path(workdir).exists():
                 shutil.rmtree(workdir, ignore_errors=True)
-
-        # Notify
-        await notify_task_status(
-            task_id, task.title,
-            "review" if final_status == TaskStatus.REVIEW else "failed",
-            pr_url=pr_url or ""
-        )
 
     # Helpers
     # ------------------------------------------------------------------
