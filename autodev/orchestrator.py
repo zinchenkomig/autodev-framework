@@ -459,7 +459,7 @@ Address the MUST_FIX issues. Make the necessary changes."""
                     commit_msg = f"feat: {task.title[:72]} [autodev-{task_id[:8]}]"
                     await self._log("developer", task_id, "info", "Committing and pushing changes...")
                     await self._run_shell(
-                        f'git -C {workdir} commit -m "{commit_msg}" && git -C {workdir} push -u origin {branch}',
+                        f'git -C {workdir} commit -m "{commit_msg}" && git -C {workdir} push -u origin {branch} --force',
                         timeout=60,
                     )
 
