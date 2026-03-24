@@ -94,6 +94,9 @@ class Orchestrator:
         os.environ.setdefault("AUTODEV_CONFIG", self.config_path)
 
         from autodev.api.app import app as fastapi_app  # import after env is set
+        
+        # Store orchestrator on app state for API access
+        fastapi_app.state.orchestrator = self
 
         uv_config = uvicorn.Config(
             fastapi_app,

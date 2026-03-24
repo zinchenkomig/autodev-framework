@@ -6,7 +6,7 @@ import uuid as _uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -188,11 +188,14 @@ async def toggle_agent(
 
 
 @router.post("/developer/cancel", summary="Cancel current developer task")
-async def cancel_developer_task() -> dict:
+async def cancel_developer_task(request: Request) -> dict:
     """Cancel the currently running developer task."""
-    from autodev.orchestrator import get_orchestrator
+    orchestrator = getattr(request.app.state, "orchestrator", None)
+    if orchestrator is None:
+        # Fallback to global
+        from autodev.orchestrator import get_orchestrator
+        orchestrator = get_orchestrator()
     
-    orchestrator = get_orchestrator()
     if orchestrator is None:
         raise HTTPException(status_code=503, detail="Orchestrator not running")
     
