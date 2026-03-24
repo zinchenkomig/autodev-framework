@@ -117,17 +117,18 @@ class ClaudeCodeRunner:
             logger.info("ClaudeCodeRunner: cancelling process (pid=%s)", self._process.pid)
             self._process.kill()
 
-    async def run(self, instructions: str, context: dict[str, Any]) -> AgentResult:  # noqa: ARG002
+    async def run(self, instructions: str, context: dict[str, Any]) -> AgentResult:
         """Execute *instructions* via the Claude Code CLI.
 
         Args:
             instructions: Task instructions to pass to Claude.
-            context: Unused by this runner; reserved for future use.
+            context: Dict with 'workdir' for the working directory.
 
         Returns:
             An :class:`AgentResult` with the captured output and timing.
         """
         self._cancelled = False
+        workdir = context.get("workdir")
         cmd = [
             "claude",
             "--print",
@@ -136,7 +137,7 @@ class ClaudeCodeRunner:
             "--permission-mode",
             "bypassPermissions",
         ]
-        logger.info("ClaudeCodeRunner: spawning %s", shlex.join(cmd))
+        logger.info("ClaudeCodeRunner: spawning %s in %s", shlex.join(cmd), workdir or "cwd")
         start = time.monotonic()
 
         try:
@@ -145,6 +146,7 @@ class ClaudeCodeRunner:
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                cwd=workdir,
             )
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(
