@@ -494,10 +494,29 @@ Address the MUST_FIX issues. Make the necessary changes."""
                         timeout=60,
                     )
 
+                    # Get file stats for PR description
+                    try:
+                        diff_stat = await self._run_shell(
+                            f"git -C {workdir} diff --stat HEAD~1", timeout=15, capture=True
+                        )
+                    except Exception:
+                        diff_stat = ""
+                    
+                    # Build rich PR description
+                    pr_body = f"## 📋 Task\n\n{task.description or task.title}\n\n"
+                    pr_body += f"## 🛠️ Implementation Plan\n\n{plan[:3000]}\n\n"
+                    if plan_feedback and not plan_approved:
+                        pr_body += f"## 🔍 Reviewer Feedback on Plan\n\n{plan_feedback[:1500]}\n\n"
+                    if review_feedback:
+                        pr_body += f"## ✅ Code Review\n\n{review_feedback[:1500]}\n\n"
+                    if diff_stat:
+                        pr_body += f"## 📊 Changes\n\n```\n{diff_stat[:1000]}\n```\n\n"
+                    pr_body += f"---\n*AutoDev task `{task_id[:8]}`*"
+                    
                     await self._log("developer", task_id, "info", f"Creating PR for branch {branch}...")
                     pr_number = await self._create_pr(
                         repo=repo_name, branch=branch, title=task.title,
-                        body=f"Automated PR for task {task_id}\n\n{task.description or ''}\n\n✅ Reviewed by AI Critic",
+                        body=pr_body,
                     )
                     if pr_number:
                         pr_url = f"https://github.com/{repo_name}/pull/{pr_number}"
