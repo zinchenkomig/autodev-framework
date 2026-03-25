@@ -678,7 +678,9 @@ Address the MUST_FIX issues. Make the necessary changes."""
 
         from autodev.integrations.github import GitHubClient
 
-        client = GitHubClient(token=token, default_repo=f"zinchenkomig/{repo}")
+                # repo may already include owner (e.g. "zinchenkomig/great_alerter_backend")
+        full_repo = repo if "/" in repo else f"zinchenkomig/{repo}"
+        client = GitHubClient(token=token, default_repo=full_repo)
         try:
             pr = await client.create_pr(
                 title=title,
