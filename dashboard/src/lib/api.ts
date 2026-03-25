@@ -390,3 +390,14 @@ export async function deleteAlert(alertId: string): Promise<void> {
   const res = await fetch(`${BASE_URL}/api/alerts/${alertId}`, { method: 'DELETE' })
   if (!res.ok) throw new Error(`Failed to delete alert: ${res.status}`)
 }
+
+// Request changes on a task (creates follow-up task)
+export async function requestChanges(taskId: string, comment: string): Promise<{ status: string; followup_task_id: string; followup_title: string }> {
+  const res = await fetch(`${BASE_URL}/api/tasks/${taskId}/request-changes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ comment })
+  })
+  if (!res.ok) throw new Error(`Failed: ${res.status}`)
+  return res.json()
+}

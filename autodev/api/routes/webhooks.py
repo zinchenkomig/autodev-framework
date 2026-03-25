@@ -81,3 +81,74 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
         logger.error(f"Telegram handler error: {e}")
     
     return {"status": "ok"}
+
+
+@router.post("/github/ci", summary="GitHub CI webhook")
+async def github_ci_webhook(
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict:
+    """Handle GitHub check_suite / check_run webhooks.
+    
+    When CI passes on an autodev branch, auto-promote task to ready_to_release.
+    """
+    import json
+    from autodev.core.models import Task, TaskStatus
+    
+    body = await request.json()
+    event = request.headers.get("x-github-event", "")
+    
+    # Handle check_suite completed
+    if event == "check_suite":
+        suite = body.get("check_suite", {})
+        conclusion = suite.get("conclusion")
+        branch = suite.get("head_branch", "")
+        
+        if conclusion == "success" and branch.startswith("autodev-"):
+            task_id = branch.replace("autodev-", "")
+            
+            # Find task and promote to ready_to_release
+            from sqlalchemy import select
+            result = await session.execute(
+                select(Task).where(
+                    Task.status == TaskStatus.REVIEW
+                ).where(
+                    Task.branch == branch
+                )
+            )
+            task = result.scalar_one_or_none()
+            
+            if task:
+                task.status = TaskStatus.READY_TO_RELEASE
+                return {"status": "promoted", "task_id": str(task.id), "task": task.title}
+            
+            return {"status": "no_matching_task", "branch": branch}
+        
+        return {"status": "ignored", "conclusion": conclusion, "branch": branch}
+    
+    # Handle check_run completed (alternative)
+    if event == "check_run":
+        check = body.get("check_run", {})
+        conclusion = check.get("conclusion")
+        branch = check.get("check_suite", {}).get("head_branch", "")
+        name = check.get("name", "")
+        
+        # Only promote on the main CI check passing
+        if conclusion == "success" and branch.startswith("autodev-") and "CI" in name:
+            from sqlalchemy import select
+            result = await session.execute(
+                select(Task).where(
+                    Task.status == TaskStatus.REVIEW
+                ).where(
+                    Task.branch == branch
+                )
+            )
+            task = result.scalar_one_or_none()
+            
+            if task:
+                task.status = TaskStatus.READY_TO_RELEASE
+                return {"status": "promoted", "task_id": str(task.id)}
+        
+        return {"status": "ignored"}
+    
+    return {"status": "unhandled_event", "event": event}

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { type Task, type TaskStatus, type TaskLog, updateTask, getTaskLogs, restartTask } from '@/lib/api'
+import { type Task, type TaskStatus, type TaskLog, updateTask, getTaskLogs, restartTask, requestChanges } from '@/lib/api'
 import { formatDistanceToNow } from '@/lib/utils'
 import { X, GitPullRequest, GitBranch, ChevronDown, ChevronRight, RefreshCw, FileText, RotateCcw, Loader2 } from 'lucide-react'
 import { PriorityBadge } from '@/components/Badge'
@@ -81,6 +81,9 @@ export function TaskDetail({ task, onClose, onStatusChange }: TaskDetailProps) {
   const [showLogs, setShowLogs] = useState(true)
   const [restarting, setRestarting] = useState(false)
   const [restartResult, setRestartResult] = useState<string[] | null>(null)
+  const [changesComment, setChangesComment] = useState('')
+  const [requestingChanges, setRequestingChanges] = useState(false)
+  const [changesResult, setChangesResult] = useState<string | null>(null)
 
   const effectiveStatus: TaskStatus = currentStatus ?? (task?.status ?? 'queued')
 
@@ -186,6 +189,48 @@ export function TaskDetail({ task, onClose, onStatusChange }: TaskDetailProps) {
               })}
             </div>
           </div>
+
+          {/* Request Changes (for ready_to_release) */}
+          {effectiveStatus === 'ready_to_release' && (
+            <div>
+              <p className="text-xs uppercase tracking-wider mb-2" style={{ color: '#808080' }}>Feedback</p>
+              <textarea
+                value={changesComment}
+                onChange={e => setChangesComment(e.target.value)}
+                placeholder="Опиши что нужно доработать..."
+                className="w-full px-3 py-2 rounded text-xs resize-none outline-none"
+                rows={3}
+                style={{ background: '#1E1F22', border: '1px solid #515151', color: '#BABABA' }}
+              />
+              <button
+                onClick={async () => {
+                  if (!task || !changesComment.trim()) return
+                  setRequestingChanges(true)
+                  setChangesResult(null)
+                  try {
+                    const result = await requestChanges(task.id, changesComment)
+                    setChangesResult(`✅ Создана задача: ${result.followup_title}`)
+                    setChangesComment('')
+                  } catch (e) {
+                    setChangesResult('❌ Ошибка: ' + String(e))
+                  } finally {
+                    setRequestingChanges(false)
+                  }
+                }}
+                disabled={requestingChanges || !changesComment.trim()}
+                className="mt-2 flex items-center gap-2 px-3 py-2 rounded text-xs font-medium transition-colors disabled:opacity-50"
+                style={{ background: '#CC783222', color: '#CC7832', border: '1px solid #CC7832' }}
+              >
+                {requestingChanges ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                Создать задачу на правки
+              </button>
+              {changesResult && (
+                <p className="text-xs mt-2" style={{ color: changesResult.startsWith('✅') ? '#6A8759' : '#CC4E4E' }}>
+                  {changesResult}
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Actions */}
           {(effectiveStatus === 'failed' || effectiveStatus === 'review' || effectiveStatus === 'in_progress') && (
