@@ -113,12 +113,14 @@ class Orchestrator:
         
         if run_worker:
             from autodev.pm_worker import pm_worker_loop
+            from autodev.release_worker import release_worker_loop
             
-            logger.info("Starting worker loop + PM worker")
+            logger.info("Starting worker loop + PM worker + Release Manager")
             await asyncio.gather(
                 server.serve(),
                 self.worker_loop(),
                 pm_worker_loop(self._session_factory),
+                release_worker_loop(self._session_factory),
             )
         else:
             logger.info("Worker loop disabled (AUTODEV_RUN_WORKER=false)")
