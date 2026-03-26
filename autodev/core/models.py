@@ -202,6 +202,7 @@ class Task(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     source: Mapped[str] = mapped_column(String(50), nullable=False, default=TaskSource.MANUAL)
     priority: Mapped[str] = mapped_column(String(20), nullable=False, default=Priority.NORMAL)
+    story_points: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=TaskStatus.QUEUED)
     assigned_to: Mapped[str | None] = mapped_column(String(100), nullable=True)
     repo: Mapped[str | None] = mapped_column(String(255), nullable=True)

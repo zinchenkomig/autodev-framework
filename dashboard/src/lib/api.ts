@@ -11,6 +11,7 @@ export interface Task {
   description: string
   source: string
   priority: Priority
+  story_points: number
   status: TaskStatus
   assigned_to: string | null
   repo: string

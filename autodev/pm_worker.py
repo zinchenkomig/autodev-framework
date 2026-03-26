@@ -180,8 +180,16 @@ async def run_pm_cycle(session_factory: async_sessionmaker) -> list[dict]:
 title: Короткое название
 repo: zinchenkomig/great_alerter_backend
 priority: normal
+story_points: 2
 description: Подробное описание
----END---"""
+---END---
+
+## Story Points (оценка сложности):
+- 1 — тривиальное изменение (фикс опечатки, правка конфига)
+- 2 — простая задача (добавить поле, маленький рефакторинг)
+- 3 — средняя задача (новый эндпоинт, компонент)
+- 5 — сложная задача (новая фича, интеграция)
+- 8 — очень сложная (архитектурное изменение, миграция)"""
 
         user_msg = "Проанализируй проект и предложи задачи для улучшения. Сфокусируйся на том что принесёт наибольшую пользу."
         
@@ -217,12 +225,20 @@ description: Подробное описание
             
             depends_on = [prev_task_id] if prev_task_id else []
             
+            # Parse story_points (default 2)
+            try:
+                sp = int(p.get("story_points", "2"))
+                sp = max(1, min(sp, 13))  # clamp to 1-13
+            except (ValueError, TypeError):
+                sp = 2
+            
             task = Task(
                 id=uuid4(),
                 title=title,
                 description=p.get("description", ""),
                 status=TaskStatus.QUEUED,
                 priority=pmap.get(p.get("priority", "normal"), Priority.NORMAL),
+                story_points=sp,
                 repo=p.get("repo", ""),
                 depends_on=depends_on,
                 created_by="pm-auto",

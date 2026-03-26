@@ -183,6 +183,15 @@ export function TaskCard({ task, onClick, onDelete, onRequeue }: TaskCardProps) 
             >
               {cfg.label}
             </span>
+            {task.story_points > 0 && (
+              <span
+                className="text-xs font-mono px-1 py-0.5 rounded"
+                style={{ color: '#E5C07B', background: 'rgba(229,192,123,0.15)' }}
+                title="Story Points"
+              >
+                {task.story_points}SP
+              </span>
+            )}
             {task.depends_on && task.depends_on.length > 0 && task.status === 'queued' && (
               <span
                 className="text-xs font-medium px-1.5 py-0.5 rounded"
