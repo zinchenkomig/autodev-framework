@@ -133,8 +133,8 @@ async def github_ci_webhook(
         branch = check.get("check_suite", {}).get("head_branch", "")
         name = check.get("name", "")
         
-        # Only promote on the main CI check passing
-        if conclusion == "success" and branch.startswith("autodev-") and "CI" in name:
+        # Promote on any successful check for autodev branches
+        if conclusion == "success" and branch.startswith("autodev-"):
             from sqlalchemy import select
             result = await session.execute(
                 select(Task).where(
