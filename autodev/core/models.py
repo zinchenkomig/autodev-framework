@@ -134,8 +134,10 @@ class TaskStatus(enum.StrEnum):
     QUEUED = "queued"
     ASSIGNED = "assigned"
     IN_PROGRESS = "in_progress"
-    REVIEW = "review"
+    AUTOREVIEW = "autoreview"
+    REVIEW = "review"  # kept for backward compat
     READY_TO_RELEASE = "ready_to_release"
+    STAGING = "staging"
     RELEASED = "released"
     FAILED = "failed"
 
@@ -207,6 +209,9 @@ class Task(Base):
     pr_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     pr_url: Mapped[str | None] = mapped_column(String, nullable=True)
     branch: Mapped[str | None] = mapped_column(String, nullable=True)
+    release_id: Mapped[uuid.UUID | None] = mapped_column(
+        _UUID(), nullable=True
+    )
     depends_on: Mapped[list[uuid.UUID] | None] = mapped_column(
         _JSONEncodedList(), nullable=True, default=list
     )

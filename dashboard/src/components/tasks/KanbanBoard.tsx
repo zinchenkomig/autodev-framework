@@ -22,13 +22,14 @@ import { Plus, Search, Filter, ChevronLeft, ChevronRight } from 'lucide-react'
 const COLUMNS: { id: TaskStatus; title: string; color: string }[] = [
   { id: 'queued',      title: 'Queued',      color: '#808080' },
   { id: 'in_progress', title: 'In Progress', color: '#CC7832' },
-  { id: 'review',      title: 'Review',      color: '#3592C4' },
+  { id: 'autoreview',  title: 'Auto Review',  color: '#3592C4' },
   { id: 'ready_to_release', title: 'Ready to Release', color: '#9876AA' },
+  { id: 'staging',     title: 'Staging',     color: '#E5C07B' },
   { id: 'released',    title: 'Released',    color: '#6A8759' },
   { id: 'failed',     title: 'Failed',     color: '#CC4E4E' },
 ]
 
-const KANBAN_STATUSES = new Set<TaskStatus>(['queued', 'in_progress', 'review', 'ready_to_release', 'released', 'failed'])
+const KANBAN_STATUSES = new Set<TaskStatus>(['queued', 'in_progress', 'autoreview', 'ready_to_release', 'staging', 'released', 'failed'])
 
 interface KanbanBoardProps {
   initialTasks: Task[]
@@ -67,7 +68,7 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
 
   const tasksByStatus = useMemo(() => {
     const map: Record<TaskStatus, Task[]> = {
-      queued: [], assigned: [], in_progress: [], review: [], ready_to_release: [], released: [], failed: [],
+      queued: [], assigned: [], in_progress: [], autoreview: [], review: [], ready_to_release: [], staging: [], released: [], failed: [],
     }
     for (const task of filteredTasks) {
       map[task.status].push(task)

@@ -22,7 +22,7 @@ const priorityConfig: Record<string, { color: string; bg: string; label: string;
   low:      { color: '#BABABA', bg: '#414345', label: 'low',      border: '#515151' },
 }
 
-const REQUEUE_STATUSES = new Set(['assigned', 'in_progress', 'review', 'ready_to_release', 'released'])
+const REQUEUE_STATUSES = new Set(['assigned', 'in_progress', 'autoreview', 'review', 'ready_to_release', 'released'])
 
 export function TaskCard({ task, onClick, onDelete, onRequeue }: TaskCardProps) {
   const {

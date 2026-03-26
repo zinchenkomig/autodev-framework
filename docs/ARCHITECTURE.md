@@ -1,268 +1,169 @@
-# Архитектура AutoDev Framework
+# AutoDev Architecture
 
-## Обзор
-
-AutoDev состоит из 5 основных компонентов:
-
-### 1. Orchestrator (ядро)
-
-Центральный процесс-демон. Управляет всем.
-
-```python
-class Orchestrator:
-    queue: TaskQueue          # очередь задач
-    agents: AgentRegistry     # зарегистрированные агенты
-    events: EventBus          # шина событий
-    state: StateManager       # состояние системы
-    runner: AgentRunner       # запуск LLM-сессий
-```
-
-**Жизненный цикл:**
-1. Запускается как демон
-2. Слушает события (webhooks, таймеры, внутренние)
-3. По событию роутит задачу к агенту
-4. Спаунит LLM-сессию для агента
-5. Собирает результат, обновляет состояние
-6. Генерирует новые события → цикл
-
-### 2. Task Queue (очередь задач)
-
-```python
-class Task:
-    id: str
-    title: str
-    description: str
-    source: TaskSource        # github_issue, agent_created, manual
-    priority: Priority        # critical, high, normal, low
-    status: TaskStatus        # queued, assigned, in_progress, review, done, failed
-    assigned_to: str | None   # agent role
-    repo: str                 # target repository
-    issue_number: int | None  # GitHub issue
-    pr_number: int | None     # created PR
-    depends_on: list[str]     # task IDs this depends on
-    metadata: dict            # extra context
-    created_by: str           # who created
-    created_at: datetime
-    updated_at: datetime
-```
-
-Приоритеты:
-- **critical** — баги от тестировщика, блокеры
-- **high** — задачи от пользователя
-- **normal** — задачи от PM
-- **low** — улучшения, рефакторинг
-
-### 3. Event Bus (шина событий)
-
-Events:
-```
-task.created        → PM создал задачу
-task.assigned       → задача назначена агенту
-pr.created          → developer создал PR
-pr.merged           → PR замержен
-pr.ci.passed        → CI прошёл
-pr.ci.failed        → CI упал
-deploy.staging      → задеплоили на staging
-deploy.production   → задеплоили на прод
-review.passed       → ревью пройдено
-review.failed       → ревью не пройдено
-bug.found           → тестировщик нашёл баг
-release.ready       → релиз готов к проверке
-release.approved    → человек одобрил релиз
-agent.idle          → агент освободился
-agent.failed        → агент не справился
-```
-
-Роутинг:
-```yaml
-routes:
-  task.created:
-    - action: assign_to_developer
-  pr.created:
-    - action: run_ci
-    - action: trigger_agent
-      agent: tester
-  deploy.staging:
-    - action: trigger_agent
-      agent: tester
-    - action: trigger_agent
-      agent: ba
-  bug.found:
-    - action: create_task
-      priority: critical
-    - action: trigger_agent
-      agent: developer
-```
-
-### 4. Agent Runner
-
-Запускает LLM-сессии для агентов. Абстрактный — поддерживает разные бэкенды:
-
-```python
-class AgentRunner(Protocol):
-    async def run(self, agent: AgentConfig, task: Task, context: dict) -> AgentResult:
-        """Запустить агента с задачей"""
-
-class ClaudeCodeRunner(AgentRunner):
-    """Запуск через Claude Code CLI"""
-
-class OpenClawRunner(AgentRunner):
-    """Запуск через OpenClaw cron/sessions"""
-
-class OpenAIRunner(AgentRunner):
-    """Запуск через OpenAI API напрямую"""
-```
-
-### 5. Project Config
-
-```yaml
-project:
-  name: "My App"
-  repos:
-    - name: backend
-      url: github.com/user/backend
-      language: python
-      context_file: CLAUDE.md  # инструкции для LLM
-      tests: "pytest tests/"
-      lint: "ruff check ."
-    - name: frontend
-      url: github.com/user/frontend
-      language: typescript
-      context_file: CLAUDE.md
-      tests: "npm run build"
-      lint: "npm run lint"
-
-environments:
-  staging:
-    url: https://staging.app.com
-    deploy_command: "./deploy.sh staging"
-  production:
-    url: https://app.com
-    deploy_command: "./deploy.sh production"
-    requires_approval: true
-
-agents:
-  developer:
-    runner: claude-code
-    model: claude-sonnet-4
-    max_iterations: 20
-    triggers:
-      - event: task.assigned
-    instructions: |
-      Ты разработчик. Бери задачу, пиши код, создавай PR.
-      
-  tester:
-    runner: claude-sonnet
-    tools: [playwright]
-    triggers:
-      - event: pr.created
-      - event: deploy.staging
-    instructions: |
-      Ты тестировщик. Тестируй через браузер как пользователь.
-
-release:
-  branch_strategy: gitflow  # develop → release → main
-  min_prs: 8
-  auto_deploy_staging: true
-  require_human_approval: true
-
-notifications:
-  telegram:
-    chat_id: "123456789"
-    events: [release.ready, bug.found, deploy.production]
-```
-
-## Схема базы данных
-
-```sql
--- Задачи
-CREATE TABLE tasks (
-    id UUID PRIMARY KEY,
-    title TEXT NOT NULL,
-    description TEXT,
-    source TEXT NOT NULL,
-    priority TEXT NOT NULL DEFAULT 'normal',
-    status TEXT NOT NULL DEFAULT 'queued',
-    assigned_to TEXT,
-    repo TEXT,
-    issue_number INT,
-    pr_number INT,
-    depends_on UUID[],
-    metadata JSONB DEFAULT '{}',
-    created_by TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Агенты
-CREATE TABLE agents (
-    id TEXT PRIMARY KEY,
-    role TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'idle',
-    current_task_id UUID REFERENCES tasks(id),
-    last_run_at TIMESTAMPTZ,
-    total_runs INT DEFAULT 0,
-    total_failures INT DEFAULT 0
-);
-
--- История событий
-CREATE TABLE events (
-    id UUID PRIMARY KEY,
-    type TEXT NOT NULL,
-    payload JSONB NOT NULL,
-    source TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Запуски агентов
-CREATE TABLE agent_runs (
-    id UUID PRIMARY KEY,
-    agent_id TEXT REFERENCES agents(id),
-    task_id UUID REFERENCES tasks(id),
-    status TEXT NOT NULL,
-    started_at TIMESTAMPTZ,
-    finished_at TIMESTAMPTZ,
-    result JSONB,
-    tokens_used INT,
-    cost_usd DECIMAL(10,4)
-);
-
--- Релизы
-CREATE TABLE releases (
-    id UUID PRIMARY KEY,
-    version TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'draft',
-    tasks UUID[] NOT NULL,
-    release_notes TEXT,
-    staging_deployed_at TIMESTAMPTZ,
-    production_deployed_at TIMESTAMPTZ,
-    approved_by TEXT,
-    approved_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
-
-## API
+## Task Lifecycle
 
 ```
-GET  /api/tasks                    # список задач
-POST /api/tasks                    # создать задачу
-GET  /api/tasks/:id                # детали задачи
-PATCH /api/tasks/:id               # обновить задачу
-
-GET  /api/agents                   # статусы агентов
-POST /api/agents/:id/trigger       # запустить агента
-
-GET  /api/events                   # история событий
-
-GET  /api/releases                 # список релизов
-POST /api/releases                 # создать релиз
-POST /api/releases/:id/approve     # одобрить релиз
-POST /api/releases/:id/deploy      # деплой на прод
-
-POST /api/webhooks/github          # GitHub webhooks
-
-GET  /api/dashboard/stats          # метрики для дашборда
-
-WebSocket /ws/events               # real-time события для UI
+   ┌─────────┐  ┌───────────┐  ┌────────────┐  ┌─────────────────┐  ┌─────────┐  ┌──────────┐
+   │ QUEUED  │─→│IN_PROGRESS│─→│ AUTOREVIEW │─→│READY_TO_RELEASE │─→│ STAGING │─→│ RELEASED │
+   └─────────┘  └───────────┘  └────────────┘  └─────────────────┘  └─────────┘  └──────────┘
+        ↑              │              │                                    │
+        │              ▼              ▼                                    │ правки
+        │         ┌────────┐                                              ↓
+        └─────────│ FAILED │                                    новая задача → QUEUED
+                  └────────┘
 ```
+
+### Статусы
+
+| Статус | Описание | Кто переводит |
+|--------|----------|---------------|
+| `queued` | Задача в очереди | PM Agent / User |
+| `in_progress` | Developer работает | Orchestrator |
+| `autoreview` | CI + Critic проверяют (автоматика, не требует человека) | Orchestrator |
+| `ready_to_release` | Все проверки пройдены, ждёт пока Release Agent сформирует релиз | CI Webhook |
+| `staging` | Задеплоено на staging в составе релиза, ждёт фидбек/approve от User | Release Agent |
+| `released` | Approve получен, задеплоено на production | Release Agent |
+| `failed` | Ошибка выполнения | Orchestrator |
+
+### Переходы
+
+- **queued → in_progress**: Orchestrator берёт задачу, Developer Agent начинает работу
+- **in_progress → autoreview**: Developer Agent завершил (Critic одобрил), PR создан
+- **autoreview → ready_to_release**: GitHub CI прошёл успешно (webhook)
+- **autoreview → failed**: CI или Critic отклонили
+- **ready_to_release → staging**: Release Agent формирует релиз, мержит PR, деплоит на staging
+- **staging → released**: User approve → deploy production
+- **staging → (новая задача)**: User даёт фидбек → создаётся follow-up задача → queued
+- **failed → queued**: Full Restart (удаляет ветку, PR, сбрасывает)
+
+### Релизы
+
+Release Agent формирует релизы из пула `ready_to_release` задач:
+
+1. Берёт N задач в `ready_to_release`
+2. Создаёт Release (фиксирует список задач)
+3. Мержит их PR в develop
+4. Создаёт release branch
+5. Деплоит на staging
+6. Задачи переходят в `staging`
+7. User смотрит staging, даёт фидбек или approve
+
+**Важно:**
+- Список задач в релизе фиксируется при создании
+- Новые `ready_to_release` задачи НЕ попадают в текущий релиз
+- Доработки по фидбеку создаются как новые задачи → проходят полный цикл
+- Developer продолжает работать над другими задачами параллельно
+
+## Agent Graph
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        USER (Mikhail)                        │
+│   Telegram / Dashboard                                       │
+└──────────┬─────────────────────────────────┬─────────────────┘
+           │ описание фичи                   │ фидбек/approve
+           ▼                                 ▼
+┌──────────────────┐              ┌────────────────────┐
+│   PM Agent       │              │  Dashboard UI      │
+│   (GLM-5 Turbo)  │              │  ready_to_release  │
+│   Анализ + план  │              │  → правки/approve  │
+│   → task proposals│              └────────┬───────────┘
+└────────┬─────────┘                        │
+         │ создаёт задачи                   │ follow-up задачи
+         │ (с depends_on)                   │
+         ▼                                  ▼
+┌──────────────────────────────────────────────────────────────┐
+│                     TASK QUEUE (PostgreSQL)                   │
+│  Задачи с приоритетами и зависимостями                       │
+└──────────┬───────────────────────────────────────────────────┘
+           │ poll every 30s
+           ▼
+┌──────────────────────────────────────────────────────────────┐
+│                     ORCHESTRATOR (systemd)                    │
+│  Единственный процесс с Claude Code CLI                     │
+│                                                              │
+│  Phase 1: 📋 Developer → Plan                               │
+│  Phase 2: 🔍 Critic → Plan Review                           │
+│  Phase 3: 🛠️ Developer → Implementation                      │
+│  Phase 4: 🔍 Critic → Code Review (до 3 итераций)           │
+│  Phase 5: 📦 git commit + push + PR                         │
+│                                                              │
+│  Claude Code: --print --permission-mode bypassPermissions    │
+│  Timeout: 30 min                                             │
+│  Working dir: /tmp/autodev-{task_id}                         │
+└──────────┬───────────────────────────────────────────────────┘
+           │ push + PR
+           ▼
+┌──────────────────────────────────────────────────────────────┐
+│                     GITHUB                                    │
+│                                                              │
+│  Branch: autodev-{task_id}                                   │
+│  PR: develop ← autodev-{task_id}                            │
+│  CI: GitHub Actions (pytest / npm build)                     │
+│  Review: Claude Code Review (workflow)                       │
+└──────────┬───────────────────────────────────────────────────┘
+           │ check_suite webhook
+           ▼
+┌──────────────────────────────────────────────────────────────┐
+│                     CI WEBHOOK                                │
+│  autoreview → ready_to_release (при CI success)              │
+└──────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────┐
+│                     RELEASE AGENT (TODO)                      │
+│                                                              │
+│  1. Собирает задачи в ready_to_release                       │
+│  2. Мержит PR в develop                                      │
+│  3. Создаёт release branch                                   │
+│  4. Деплоит на staging                                       │
+│  5. Уведомляет user                                          │
+│  6. User approve → deploy production                         │
+│  7. Статус → released                                        │
+└──────────────────────────────────────────────────────────────┘
+```
+
+## Alerting System
+
+```
+Triggers:
+  ├── Task failed          → high severity
+  ├── API 500 error        → high severity (middleware auto)
+  ├── Task stuck >1h       → medium severity (TODO: heartbeat)
+  └── Agent stuck          → medium severity (TODO: heartbeat)
+
+Pipeline:
+  Event → Alert (DB) → Notify OpenClaw (Brian) → Telegram (User)
+                     → Dashboard /alerts page
+```
+
+## Infrastructure
+
+| Component | Where | Purpose |
+|-----------|-------|---------|
+| Orchestrator (worker) | systemd on dev server | Runs Claude Code, processes tasks |
+| API | k8s pod (autodev-api) | REST API, no worker |
+| Dashboard | k8s pod (autodev-dashboard) | Next.js UI |
+| PostgreSQL | k8s pod (autodev-postgres) | Data store |
+| Claude Code | installed on dev server | AI coding |
+
+**Dev server**: 188.245.45.123  
+**Staging/Prod**: 178.104.35.218  
+**Dashboard**: https://autodev.zinchenkomig.com  
+
+## Repositories
+
+| Repo | Purpose |
+|------|---------|
+| `zinchenkomig/autodev-framework` | AutoDev platform itself |
+| `zinchenkomig/great_alerter_backend` | Target project: backend |
+| `zinchenkomig/great_alerter_frontend` | Target project: frontend |
+
+## Key Design Decisions
+
+1. **Orchestrator on host, not k8s** — Claude Code needs local filesystem
+2. **HTTPS clone с токеном** — Docker/k8s не имеет SSH ключей
+3. **develop для PR, main для production** — стандартный git flow
+4. **PM на GLM-5 Turbo** — оптимизирован для агентов, 200K контекст
+5. **Developer-Critic loop** — два независимых "мнения" для качества кода
+6. **Sequential tasks** — depends_on для backend → frontend порядка
+7. **autoreview ≠ human review** — автоматика не требует действий от user

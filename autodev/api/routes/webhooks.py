@@ -111,7 +111,7 @@ async def github_ci_webhook(
             from sqlalchemy import select
             result = await session.execute(
                 select(Task).where(
-                    Task.status == TaskStatus.REVIEW
+                    Task.status == TaskStatus.AUTOREVIEW
                 ).where(
                     Task.branch == branch
                 )
@@ -138,7 +138,7 @@ async def github_ci_webhook(
             from sqlalchemy import select
             result = await session.execute(
                 select(Task).where(
-                    Task.status == TaskStatus.REVIEW
+                    Task.status == TaskStatus.AUTOREVIEW
                 ).where(
                     Task.branch == branch
                 )

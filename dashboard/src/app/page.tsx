@@ -62,7 +62,7 @@ export default function DashboardPage() {
 
   // Categorize tasks
   const workingAgents = agents.filter(a => a.status === 'working')
-  const waitingForMe = tasks.filter(t => t.status === 'review')
+  const waitingForMe = tasks.filter(t => t.status === 'staging')
   const blockedTasks = tasks.filter(t => t.status === 'queued' && t.depends_on && t.depends_on.length > 0)
   const inProgress = tasks.filter(t => t.status === 'in_progress')
   const recentEvents = events.slice(0, 8)

@@ -15,8 +15,9 @@ interface TaskDetailProps {
 const STATUS_PILLS: { id: TaskStatus; label: string }[] = [
   { id: 'queued',      label: 'Queued'      },
   { id: 'in_progress', label: 'In Progress' },
-  { id: 'review',      label: 'Review'      },
+  { id: 'autoreview',  label: 'Auto Review'  },
   { id: 'ready_to_release', label: 'Ready to Release' },
+  { id: 'staging',     label: 'Staging'     },
   { id: 'released',    label: 'Released'    },
 ]
 
@@ -24,7 +25,9 @@ const STATUS_DOT: Record<TaskStatus, string> = {
   queued:      '#808080',
   assigned:    '#9876AA',
   in_progress: '#CC7832',
+  autoreview:  '#3592C4',
   review:      '#3592C4',
+  staging:     '#E5C07B',
   ready_to_release: '#9876AA',
   released:    '#6A8759',
   failed:      '#CC4E4E',
@@ -233,7 +236,7 @@ export function TaskDetail({ task, onClose, onStatusChange }: TaskDetailProps) {
           )}
 
           {/* Actions */}
-          {(effectiveStatus === 'failed' || effectiveStatus === 'review' || effectiveStatus === 'in_progress') && (
+          {(effectiveStatus === 'failed' || effectiveStatus === 'autoreview' || effectiveStatus === 'review' || effectiveStatus === 'in_progress') && (
             <div>
               <p className="text-xs uppercase tracking-wider mb-2" style={{ color: '#808080' }}>Actions</p>
               <button

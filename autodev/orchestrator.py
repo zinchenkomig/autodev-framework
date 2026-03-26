@@ -232,7 +232,7 @@ class Orchestrator:
             return True
         
         # Statuses that mean dependency is "done enough" to proceed
-        completed_statuses = {TaskStatus.REVIEW, TaskStatus.READY_TO_RELEASE, TaskStatus.RELEASED}
+        completed_statuses = {TaskStatus.AUTOREVIEW, TaskStatus.READY_TO_RELEASE, TaskStatus.RELEASED}
         
         for dep_id in task.depends_on:
             dep_task = await session.get(Task, dep_id)
@@ -526,7 +526,7 @@ Address the MUST_FIX issues. Make the necessary changes."""
 
             # Final status
             if code_approved or (not code_approved and iteration >= MAX_REVIEW_ITERATIONS - 1 and has_changes):
-                final_status = TaskStatus.REVIEW
+                final_status = TaskStatus.AUTOREVIEW
                 if not code_approved:
                     await self._log("developer", task_id, "warning", "Max iterations reached - sending to human review")
             else:
@@ -535,7 +535,7 @@ Address the MUST_FIX issues. Make the necessary changes."""
             await self._update_task_status(task_id, final_status, pr_number=pr_number, pr_url=pr_url)
             await self._log(
                 "developer", task_id, "info", 
-                f"{'✅' if final_status == TaskStatus.REVIEW else '❌'} Task completed: {final_status}",
+                f"{'✅' if final_status == TaskStatus.AUTOREVIEW else '❌'} Task completed: {final_status}",
                 details=f"PR: {pr_url or 'N/A'}\nCode approved by critic: {code_approved}"
             )
             
@@ -562,7 +562,7 @@ Address the MUST_FIX issues. Make the necessary changes."""
             try:
                 await notify_task_status(
                     task_id, task.title,
-                    "review" if final_status == TaskStatus.REVIEW else "failed",
+                    "review" if final_status == TaskStatus.AUTOREVIEW else "failed",
                     pr_url=pr_url or ""
                 )
             except Exception as notify_err:
