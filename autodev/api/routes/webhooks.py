@@ -6,7 +6,12 @@ import json
 import logging
 import os
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from autodev.api.database import get_session
 
 from autodev.core.events import EventBus
 from autodev.integrations.github import verify_webhook_signature
@@ -92,63 +97,57 @@ async def github_ci_webhook(
     
     When CI passes on an autodev branch, auto-promote task to ready_to_release.
     """
-    import json
+    from sqlalchemy import select, or_
     from autodev.core.models import Task, TaskStatus
+    import uuid as _uuid
     
     body = await request.json()
     event = request.headers.get("x-github-event", "")
     
-    # Handle check_suite completed
+    # Extract branch from either check_suite or check_run
+    branch = ""
+    conclusion = ""
+    
     if event == "check_suite":
         suite = body.get("check_suite", {})
-        conclusion = suite.get("conclusion")
+        conclusion = suite.get("conclusion", "")
         branch = suite.get("head_branch", "")
-        
-        if conclusion == "success" and branch.startswith("autodev-"):
-            task_id = branch.replace("autodev-", "")
-            
-            # Find task and promote to ready_to_release
-            from sqlalchemy import select
-            result = await session.execute(
-                select(Task).where(
-                    Task.status == TaskStatus.AUTOREVIEW
-                ).where(
-                    Task.branch == branch
-                )
-            )
-            task = result.scalar_one_or_none()
-            
-            if task:
-                task.status = TaskStatus.READY_TO_RELEASE
-                return {"status": "promoted", "task_id": str(task.id), "task": task.title}
-            
-            return {"status": "no_matching_task", "branch": branch}
-        
+    elif event == "check_run":
+        check = body.get("check_run", {})
+        conclusion = check.get("conclusion", "")
+        branch = check.get("check_suite", {}).get("head_branch", "")
+    else:
+        return {"status": "unhandled_event", "event": event}
+    
+    if conclusion != "success" or not branch.startswith("autodev-"):
         return {"status": "ignored", "conclusion": conclusion, "branch": branch}
     
-    # Handle check_run completed (alternative)
-    if event == "check_run":
-        check = body.get("check_run", {})
-        conclusion = check.get("conclusion")
-        branch = check.get("check_suite", {}).get("head_branch", "")
-        name = check.get("name", "")
-        
-        # Promote on any successful check for autodev branches
-        if conclusion == "success" and branch.startswith("autodev-"):
-            from sqlalchemy import select
-            result = await session.execute(
-                select(Task).where(
-                    Task.status == TaskStatus.AUTOREVIEW
-                ).where(
-                    Task.branch == branch
-                )
-            )
-            task = result.scalar_one_or_none()
-            
-            if task:
-                task.status = TaskStatus.READY_TO_RELEASE
-                return {"status": "promoted", "task_id": str(task.id)}
-        
-        return {"status": "ignored"}
+    # Extract task ID from branch name: autodev-{uuid}
+    task_id_str = branch.replace("autodev-", "")
     
-    return {"status": "unhandled_event", "event": event}
+    # Find task by branch OR by ID
+    try:
+        tid = _uuid.UUID(task_id_str)
+    except ValueError:
+        tid = None
+    
+    result = await session.execute(
+        select(Task).where(
+            Task.status == TaskStatus.AUTOREVIEW
+        ).where(
+            or_(
+                Task.branch == branch,
+                Task.id == tid if tid else Task.branch == branch,
+            )
+        )
+    )
+    task = result.scalar_one_or_none()
+    
+    if task:
+        task.status = TaskStatus.READY_TO_RELEASE
+        if not task.branch:
+            task.branch = branch
+        logger.info(f"CI webhook: promoted task {task.id} to ready_to_release")
+        return {"status": "promoted", "task_id": str(task.id), "task": task.title}
+    
+    return {"status": "no_matching_task", "branch": branch, "task_id": task_id_str}

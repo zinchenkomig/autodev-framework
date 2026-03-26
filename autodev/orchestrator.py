@@ -535,7 +535,7 @@ Address the MUST_FIX issues. Make the necessary changes."""
             else:
                 final_status = TaskStatus.FAILED
             
-            await self._update_task_status(task_id, final_status, pr_number=pr_number, pr_url=pr_url)
+            await self._update_task_status(task_id, final_status, pr_number=pr_number, pr_url=pr_url, branch=branch)
             await self._log(
                 "developer", task_id, "info", 
                 f"{'✅' if final_status == TaskStatus.AUTOREVIEW else '❌'} Task completed: {final_status}",
@@ -588,6 +588,7 @@ Address the MUST_FIX issues. Make the necessary changes."""
         status: TaskStatus,
         pr_number: int | None = None,
         pr_url: str | None = None,
+        branch: str | None = None,
     ) -> None:
         import uuid as _uuid
 
@@ -603,6 +604,8 @@ Address the MUST_FIX issues. Make the necessary changes."""
                     task.pr_number = pr_number
                 if pr_url is not None:
                     task.pr_url = pr_url
+                if branch is not None:
+                    task.branch = branch
                 await session.commit()
 
     async def _update_agent_status(
