@@ -28,9 +28,8 @@ from autodev.core.models import (
 logger = logging.getLogger(__name__)
 
 RELEASE_CHECK_INTERVAL = int(os.environ.get("RELEASE_CHECK_INTERVAL", "1800"))  # 30 min
-MIN_RELEASE_SP = int(os.environ.get("MIN_RELEASE_SP", "5"))
-MAX_RELEASE_SP = int(os.environ.get("MAX_RELEASE_SP", "15"))
-MAX_TASK_WAIT_HOURS = float(os.environ.get("MAX_TASK_WAIT_HOURS", "4"))
+MIN_RELEASE_SP = int(os.environ.get("MIN_RELEASE_SP", "10"))
+MAX_RELEASE_SP = int(os.environ.get("MAX_RELEASE_SP", "20"))
 
 # Priority ordering for sorting
 PRIORITY_ORDER = {
@@ -103,20 +102,13 @@ async def check_and_create_release(session_factory: async_sessionmaker) -> dict 
         if not ready_tasks:
             return None
         
-        # 2. Calculate total SP and check conditions
+        # 2. Calculate total SP
         total_sp = sum(t.story_points or 1 for t in ready_tasks)
-        oldest_age = datetime.now(UTC) - (ready_tasks[0].created_at or datetime.now(UTC))
         
-        # Check if we should form a release
-        should_release = (
-            total_sp >= MIN_RELEASE_SP
-            or oldest_age > timedelta(hours=MAX_TASK_WAIT_HOURS)
-        )
-        
-        if not should_release:
+        # Only release when we have enough SP (or manual trigger via API)
+        if total_sp < MIN_RELEASE_SP:
             logger.info(
-                f"Release Manager: {len(ready_tasks)} tasks ({total_sp} SP), "
-                f"oldest {oldest_age}. Waiting for {MIN_RELEASE_SP} SP."
+                f"Release Manager: {len(ready_tasks)} tasks ({total_sp}/{MIN_RELEASE_SP} SP). Waiting."
             )
             return None
         

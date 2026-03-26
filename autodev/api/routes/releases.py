@@ -465,3 +465,41 @@ async def unapprove_release(
     await session.flush()
     await session.refresh(release)
     return _release_to_response(release)
+
+
+@router.post("/trigger", summary="Manually trigger release formation")
+async def trigger_release(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict:
+    """Manually trigger Release Manager to form a release from ready_to_release tasks."""
+    from autodev.release_worker import check_and_create_release, notify_release
+    from autodev.api.database import SessionLocal
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from sqlalchemy.ext.asyncio import create_async_engine
+    import os
+    
+    db_url = os.environ.get("DATABASE_URL", "postgresql+asyncpg://autodev:autodev@localhost:5432/autodev")
+    engine = create_async_engine(db_url, echo=False)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    
+    try:
+        result = await check_and_create_release(factory)
+        if result:
+            await notify_release(result)
+            return {"status": "released", **result}
+        
+        # Check how many SP are waiting
+        ready = await session.execute(
+            select(Task).where(Task.status == "ready_to_release")
+        )
+        tasks = ready.scalars().all()
+        total_sp = sum(t.story_points or 1 for t in tasks)
+        
+        return {
+            "status": "not_enough_sp",
+            "tasks": len(tasks),
+            "total_sp": total_sp,
+            "min_required": 10,
+        }
+    finally:
+        await engine.dispose()
