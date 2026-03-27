@@ -119,7 +119,7 @@ async def run_pm_cycle(session_factory: async_sessionmaker) -> list[dict]:
             logger.info("PM Worker: no repos configured")
             return []
         
-        # 2. Get current tasks
+        # 2. Get current tasks and check backlog limit
         result = await session.execute(
             select(Task).where(
                 Task.status.in_([
@@ -131,6 +131,14 @@ async def run_pm_cycle(session_factory: async_sessionmaker) -> list[dict]:
         )
         active_tasks = result.scalars().all()
         active_titles = [t.title for t in active_tasks]
+        
+        # Check backlog SP limit
+        backlog_sp = sum(t.story_points or 1 for t in active_tasks)
+        max_backlog_sp = int(os.environ.get("MAX_BACKLOG_SP", "15"))
+        
+        if backlog_sp >= max_backlog_sp:
+            logger.info(f"PM Worker: backlog full ({backlog_sp}/{max_backlog_sp} SP). Skipping.")
+            return []
         
         # 3. Build context
         repo_docs = []
