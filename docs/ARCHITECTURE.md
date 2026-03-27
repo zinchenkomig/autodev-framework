@@ -186,3 +186,27 @@ Hotfix создаётся через:
 - `POST /api/releases/{id}/feedback`
 
 Hotfix обходит Release Manager и попадает напрямую в текущий staging релиз.
+
+## Release Pipeline (детерминированный, без AI)
+
+```
+ready_to_release (SP >= 10)
+    │
+    ├─ Сортировка: priority → created_at
+    ├─ Набор до 20 SP (soft limit)
+    │
+    ├─ Мерж PR в develop
+    │   ├─ Успех → задача в релиз
+    │   └─ Конфликт → задача возвращается в ready_to_release
+    │                  + создаётся hotfix "Resolve merge conflict"
+    │
+    ├─ Обновление stage ветки (develop → stage, force push)
+    ├─ Build Docker образов из stage
+    ├─ Push :staging тег в GHCR
+    ├─ Rollout pods на 178.104.35.218 (staging namespace)
+    ├─ Alembic migrations
+    │
+    └─ Уведомление в Telegram
+```
+
+Никакого LLM. Чистая автоматика с правилами.
