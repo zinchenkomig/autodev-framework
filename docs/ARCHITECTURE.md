@@ -167,3 +167,22 @@ Pipeline:
 5. **Developer-Critic loop** — два независимых "мнения" для качества кода
 6. **Sequential tasks** — depends_on для backend → frontend порядка
 7. **autoreview ≠ human review** — автоматика не требует действий от user
+
+## Task Types
+
+### Feature (default)
+```
+queued → in_progress → autoreview → ready_to_release → [ждёт Release Manager] → staging → released
+```
+
+### Hotfix (feedback fix)
+```
+queued → in_progress → autoreview → staging (в текущий релиз, PR мержится сразу)
+```
+
+Hotfix создаётся через:
+- `/feedback текст` в Telegram
+- "Request Changes" на странице релиза в Dashboard
+- `POST /api/releases/{id}/feedback`
+
+Hotfix обходит Release Manager и попадает напрямую в текущий staging релиз.
