@@ -156,12 +156,22 @@ class TelegramPMBot:
                 "Просто напиши описание фичи — я создам задачи.\n\n"
                 "<b>Команды:</b>\n"
                 "/tasks — список задач\n"
-                "/status — статус системы"
+                "/status — статус системы\n"
+                "/staging — задачи на staging\n"
+                "/feedback <i>текст</i> — фидбек по staging"
             )
         elif cmd == "/tasks":
             await self._show_tasks(chat_id)
         elif cmd == "/status":
             await self._show_status(chat_id)
+        elif cmd == "/staging":
+            await self._show_staging(chat_id)
+        elif cmd.startswith("/feedback"):
+            comment = text[len("/feedback"):].strip()
+            if comment:
+                await self._submit_feedback(chat_id, comment)
+            else:
+                await self.send_message(chat_id, "Напиши: /feedback <i>описание правок</i>")
         else:
             await self.send_message(chat_id, f"❓ Неизвестная команда: {cmd}")
 
@@ -301,6 +311,74 @@ class TelegramPMBot:
             await self.send_message(chat_id, f"❌ Ошибка: {e}")
 
     # ========== Notifications ==========
+
+
+    async def _show_staging(self, chat_id: str) -> None:
+        """Show tasks currently on staging."""
+        from autodev.api.database import SessionLocal
+        from autodev.core.models import Task, TaskStatus, Release, ReleaseStatus
+        from sqlalchemy import select
+
+        async with SessionLocal() as session:
+            result = await session.execute(
+                select(Release).where(Release.status == ReleaseStatus.STAGING).order_by(Release.created_at.desc()).limit(1)
+            )
+            release = result.scalar_one_or_none()
+
+            if not release:
+                await self.send_message(chat_id, "📦 Нет активных релизов на staging")
+                return
+
+            result = await session.execute(
+                select(Task).where(Task.status == TaskStatus.STAGING).order_by(Task.created_at)
+            )
+            tasks = result.scalars().all()
+
+        text = f"📦 <b>Staging: {release.version}</b>\n"
+        text += f"{len(tasks)} задач\n\n"
+        for i, t in enumerate(tasks, 1):
+            sp = f"[{t.story_points}SP] " if t.story_points else ""
+            text += f"{i}. {sp}<b>{t.title}</b>\n"
+            if t.pr_url:
+                text += f"   <a href=\"{t.pr_url}\">PR</a>\n"
+
+        text += "\n💬 /feedback <i>текст</i> — отправить правки"
+        await self.send_message(chat_id, text)
+
+    async def _submit_feedback(self, chat_id: str, comment: str) -> None:
+        """Submit feedback and create follow-up task."""
+        from autodev.api.database import SessionLocal
+        from autodev.core.models import Task, TaskStatus, Release, ReleaseStatus
+        from sqlalchemy import select
+        from uuid import uuid4
+        from datetime import UTC, datetime
+
+        async with SessionLocal() as session:
+            result = await session.execute(
+                select(Release).where(Release.status == ReleaseStatus.STAGING).order_by(Release.created_at.desc()).limit(1)
+            )
+            release = result.scalar_one_or_none()
+            version = release.version if release else "unknown"
+
+            task = Task(
+                id=uuid4(),
+                title=f"Правки по staging ({version})",
+                description=f"Фидбек по staging {version}:\n\n{comment}",
+                status=TaskStatus.QUEUED,
+                priority="high",
+                story_points=3,
+                repo="",
+                created_by="telegram-feedback",
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+            )
+            session.add(task)
+            await session.commit()
+
+        await self.send_message(
+            chat_id,
+            f"✅ Задача создана: <b>{task.title}</b>\n\n{comment[:200]}"
+        )
 
     async def notify_task_failed(self, task_id: str, title: str, error: str) -> None:
         """Notify owner about failed task."""

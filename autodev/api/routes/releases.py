@@ -503,3 +503,79 @@ async def trigger_release(
         }
     finally:
         await engine.dispose()
+
+
+class ReleaseFeedbackBody(BaseModel):
+    comment: str
+    task_ids: list[str] = []  # specific tasks, or empty for general feedback
+
+
+@router.post("/{release_id}/feedback", summary="Submit feedback on staging release")
+async def release_feedback(
+    release_id: str,
+    body: ReleaseFeedbackBody,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict:
+    """Submit feedback on a staging release. Creates follow-up tasks."""
+    try:
+        uid = uuid.UUID(release_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid release ID")
+    
+    release = await session.get(Release, uid)
+    if not release:
+        raise HTTPException(status_code=404, detail="Release not found")
+    
+    created = []
+    
+    if body.task_ids:
+        # Feedback for specific tasks
+        for tid_str in body.task_ids:
+            try:
+                tid = uuid.UUID(tid_str)
+            except ValueError:
+                continue
+            task = await session.get(Task, tid)
+            if not task:
+                continue
+            
+            followup = Task(
+                id=uuid.uuid4(),
+                title=f"Правки: {task.title[:80]}",
+                description=(
+                    f"Правки к задаче \"{task.title}\" (релиз {release.version}):\n\n"
+                    f"{body.comment}\n\n---\n"
+                    f"Original task: {tid_str}\nRelease: {release.version}\n"
+                    f"PR: {task.pr_url or 'N/A'}"
+                ),
+                status="queued",
+                priority=task.priority,
+                repo=task.repo,
+                story_points=max(1, (task.story_points or 1) // 2),  # fixes are usually simpler
+                created_by="user-feedback",
+            )
+            session.add(followup)
+            await session.flush()
+            created.append({"id": str(followup.id), "title": followup.title})
+    else:
+        # General feedback — create one task
+        followup = Task(
+            id=uuid.uuid4(),
+            title=f"Правки по релизу {release.version}",
+            description=f"Фидбек по релизу {release.version}:\n\n{body.comment}",
+            status="queued",
+            priority="high",
+            repo="",  # will be determined by PM
+            story_points=3,
+            created_by="user-feedback",
+        )
+        session.add(followup)
+        await session.flush()
+        created.append({"id": str(followup.id), "title": followup.title})
+    
+    return {
+        "status": "feedback_received",
+        "tasks_created": len(created),
+        "tasks": created,
+        "release": release.version,
+    }
