@@ -507,15 +507,30 @@ Address the MUST_FIX issues. Make the necessary changes."""
                     except Exception:
                         diff_stat = ""
                     
-                    # Build rich PR description
-                    pr_body = f"## 📋 Task\n\n{task.description or task.title}\n\n"
-                    pr_body += f"## 🛠️ Implementation Plan\n\n{plan[:3000]}\n\n"
-                    if plan_feedback and not plan_approved:
-                        pr_body += f"## 🔍 Reviewer Feedback on Plan\n\n{plan_feedback[:1500]}\n\n"
-                    if review_feedback:
-                        pr_body += f"## ✅ Code Review\n\n{review_feedback[:1500]}\n\n"
+                    # Generate concise PR summary via LLM
+                    summary_prompt = f"""Write a concise PR description (2-3 sentences) for this change.
+
+Task: {task.title}
+Description: {task.description or 'N/A'}
+
+Key changes (from diff stats):
+{diff_stat[:500] if diff_stat else 'N/A'}
+
+Implementation notes:
+{impl_result.output[:1000] if impl_result and impl_result.output else 'N/A'}
+
+Write ONLY the summary. No headers, no markdown formatting. Just 2-3 sentences in Russian about what was done and any notable implementation details."""
+
+                    try:
+                        summary_result = await runner.run(summary_prompt, context={"workdir": workdir})
+                        pr_summary = summary_result.output.strip()[:500]
+                    except Exception:
+                        pr_summary = task.description or task.title
+                    
+                    # Build compact PR description
+                    pr_body = f"{pr_summary}\n\n"
                     if diff_stat:
-                        pr_body += f"## 📊 Changes\n\n```\n{diff_stat[:1000]}\n```\n\n"
+                        pr_body += f"```\n{diff_stat[:800]}\n```\n\n"
                     pr_body += f"---\n*AutoDev task `{task_id[:8]}`*"
                     
                     await self._log("developer", task_id, "info", f"Creating PR for branch {branch}...")
