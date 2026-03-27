@@ -92,6 +92,7 @@ async def get_repo_docs(repo: str) -> str:
 
 
 async def build_context(session: AsyncSession) -> str:
+    # 1. Project docs
     result = await session.execute(select(ProjectContext.repo))
     repos = [r[0] for r in result.all()]
     parts = []
@@ -99,7 +100,59 @@ async def build_context(session: AsyncSession) -> str:
         docs = await get_repo_docs(repo)
         if docs:
             parts.append(f"# {repo}\n{docs}")
-    return "\n\n---\n\n".join(parts)
+    
+    # 2. Current tasks by status
+    from autodev.core.models import Release, ReleaseStatus
+    
+    result = await session.execute(
+        select(Task).where(
+            Task.status.in_(['queued', 'in_progress', 'autoreview', 'ready_to_release', 'staging', 'failed'])
+        ).order_by(Task.status, Task.created_at)
+    )
+    tasks = result.scalars().all()
+    
+    if tasks:
+        task_section = "\n\n# Текущие задачи\n"
+        by_status: dict[str, list] = {}
+        for t in tasks:
+            by_status.setdefault(t.status, []).append(t)
+        
+        status_labels = {
+            'queued': '📋 В очереди',
+            'in_progress': '🔨 В работе',
+            'autoreview': '🔍 Автоматическая проверка',
+            'ready_to_release': '✅ Готово к релизу',
+            'staging': '🚀 На staging',
+            'failed': '❌ Ошибка',
+        }
+        
+        for status, task_list in by_status.items():
+            label = status_labels.get(status, status)
+            total_sp = sum(t.story_points or 1 for t in task_list)
+            task_section += f"\n## {label} ({len(task_list)} задач, {total_sp} SP)\n"
+            for t in task_list:
+                sp = f"[{t.story_points}SP]" if t.story_points else ""
+                pr = f" PR: {t.pr_url}" if t.pr_url else ""
+                task_section += f"- {sp} {t.title} ({t.repo}){pr}\n"
+                if t.description:
+                    task_section += f"  Описание: {t.description[:150]}\n"
+        
+        parts.append(task_section)
+    
+    # 3. Active release on staging
+    result = await session.execute(
+        select(Release).where(Release.status == ReleaseStatus.STAGING).order_by(Release.created_at.desc()).limit(1)
+    )
+    release = result.scalar_one_or_none()
+    
+    if release:
+        release_section = f"\n\n# Текущий релиз на staging: {release.version}\n"
+        release_section += f"Задач: {len(release.tasks or [])}\n"
+        if release.release_notes:
+            release_section += f"\nRelease notes:\n{release.release_notes[:1000]}\n"
+        parts.append(release_section)
+    
+    return "\n\n---\n\n".join(parts) if parts else "Нет данных о проекте"
 
 
 async def call_llm(messages: list[dict]) -> str:
@@ -121,15 +174,21 @@ async def call_llm(messages: list[dict]) -> str:
         return r.json()["choices"][0]["message"]["content"]
 
 
-SYSTEM_PROMPT = """Ты PM. Когда пользователь описывает фичу, ты ОБЯЗАТЕЛЬНО создаёшь задачи.
+SYSTEM_PROMPT = """Ты PM-агент проекта. Ты видишь все задачи, релизы и состояние проекта.
 
 {context}
 
-## ВАЖНО: Всегда создавай задачи!
+## Твоя роль:
+- Отвечай на вопросы о проекте, задачах, релизах
+- Когда пользователь описывает фичу или проблему — создавай задачи
+- Когда пользователь спрашивает о статусе — отвечай по существу, НЕ создавай задачи
+- Когда пользователь даёт фидбек по staging — создавай hotfix задачи
 
-Твой ответ ДОЛЖЕН содержать:
-1. Краткий комментарий (1-2 предложения)
-2. Одну или несколько задач в формате ниже
+## Когда создавать задачи:
+- Пользователь описывает новую фичу → создай задачи
+- Пользователь сообщает о баге → создай задачу
+- Пользователь даёт фидбек по staging → создай hotfix задачи
+- Пользователь спрашивает "что в staging?" → просто ответь, НЕ создавай задачи
 
 ## Формат задачи (ОБЯЗАТЕЛЬНО используй этот формат):
 
