@@ -158,7 +158,8 @@ class TelegramPMBot:
                 "/tasks — список задач\n"
                 "/status — статус системы\n"
                 "/staging — задачи на staging\n"
-                "/feedback <i>текст</i> — фидбек по staging"
+                "/feedback <i>текст</i> — обсудить правки с PM\n"
+                "/hotfix <i>текст</i> — срочный фикс (сразу задача)"
             )
         elif cmd == "/tasks":
             await self._show_tasks(chat_id)
@@ -169,9 +170,15 @@ class TelegramPMBot:
         elif cmd.startswith("/feedback"):
             comment = text[len("/feedback"):].strip()
             if comment:
-                await self._submit_feedback(chat_id, comment)
+                await self._feedback_to_pm(chat_id, comment)
             else:
                 await self.send_message(chat_id, "Напиши: /feedback <i>описание правок</i>")
+        elif cmd.startswith("/hotfix"):
+            comment = text[len("/hotfix"):].strip()
+            if comment:
+                await self._create_hotfix(chat_id, comment)
+            else:
+                await self.send_message(chat_id, "Напиши: /hotfix <i>описание проблемы</i>")
         else:
             await self.send_message(chat_id, f"❓ Неизвестная команда: {cmd}")
 
@@ -345,8 +352,45 @@ class TelegramPMBot:
         text += "\n💬 /feedback <i>текст</i> — отправить правки"
         await self.send_message(chat_id, text)
 
-    async def _submit_feedback(self, chat_id: str, comment: str) -> None:
-        """Submit feedback and create follow-up task."""
+    async def _feedback_to_pm(self, chat_id: str, comment: str) -> None:
+        """Send feedback to PM agent for analysis and task proposals."""
+        from autodev.api.database import SessionLocal
+        from autodev.core.models import Task, TaskStatus, Release, ReleaseStatus
+        from sqlalchemy import select
+
+        # Get staging context
+        async with SessionLocal() as session:
+            result = await session.execute(
+                select(Release).where(Release.status == ReleaseStatus.STAGING).order_by(Release.created_at.desc()).limit(1)
+            )
+            release = result.scalar_one_or_none()
+            
+            staging_tasks = []
+            if release:
+                result = await session.execute(
+                    select(Task).where(Task.status == TaskStatus.STAGING)
+                )
+                staging_tasks = result.scalars().all()
+        
+        # Build staging context for PM
+        staging_context = ""
+        if release:
+            staging_context = f"\n\nТекущий staging релиз: {release.version}\nЗадачи на staging:\n"
+            for t in staging_tasks:
+                staging_context += f"- {t.title} (PR: {t.pr_url or 'N/A'})\n"
+        
+        # Send to PM with staging context
+        enriched_message = (
+            f"[FEEDBACK ПО STAGING]{staging_context}\n\n"
+            f"Фидбек пользователя:\n{comment}\n\n"
+            f"Проанализируй фидбек и предложи hotfix-задачи для исправления. "
+            f"Задачи должны быть типа hotfix."
+        )
+        
+        await self._chat_with_pm(chat_id, enriched_message)
+
+    async def _create_hotfix(self, chat_id: str, comment: str) -> None:
+        """Create hotfix task directly without PM analysis."""
         from autodev.api.database import SessionLocal
         from autodev.core.models import Task, TaskStatus, Release, ReleaseStatus
         from sqlalchemy import select
