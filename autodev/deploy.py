@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 REMOTE = "root@178.104.35.218"
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+STAGING_BRANCH = "stage"
 
 
 async def run_shell(cmd: str, timeout: int = 300) -> str:
@@ -40,6 +41,30 @@ async def run_shell(cmd: str, timeout: int = 300) -> str:
     return stdout
 
 
+async def update_stage_branch(repo: str) -> str:
+    """Update the stage branch to match develop. Returns commit hash."""
+    clone_url = f"https://x-access-token:{GITHUB_TOKEN}@github.com/{repo}.git"
+    tmpdir = tempfile.mkdtemp(prefix=f"stage-{repo.split('/')[-1]}-")
+    
+    try:
+        await run_shell(f"git clone {clone_url} {tmpdir}", timeout=120)
+        
+        # Create or reset stage branch to develop
+        await run_shell(
+            f"cd {tmpdir} && "
+            f"git fetch origin develop && "
+            f"git checkout -B {STAGING_BRANCH} origin/develop && "
+            f"git push origin {STAGING_BRANCH} --force",
+            timeout=60,
+        )
+        
+        commit = await run_shell(f"git -C {tmpdir} rev-parse --short HEAD")
+        logger.info(f"Updated {repo} {STAGING_BRANCH} branch to {commit}")
+        return commit
+    finally:
+        await run_shell(f"rm -rf {tmpdir}", timeout=10)
+
+
 async def deploy_staging(repos: list[str] | None = None) -> dict:
     """Deploy develop branch to staging.
     
@@ -59,9 +84,18 @@ async def deploy_staging(repos: list[str] | None = None) -> dict:
         is_backend = "backend" in repo_name
         is_frontend = "frontend" in repo_name
         env = "staging"
-        branch = "develop"
+        branch = STAGING_BRANCH
         
         clone_url = f"https://x-access-token:{GITHUB_TOKEN}@github.com/{repo}.git"
+        
+        # Update stage branch from develop
+        try:
+            commit = await update_stage_branch(repo)
+            logger.info(f"Updated {repo_name} stage branch to {commit}")
+        except Exception as e:
+            logger.error(f"Failed to update stage branch for {repo_name}: {e}")
+            results[repo_name] = {"success": False, "error": f"Stage branch update failed: {e}"}
+            continue
         
         logger.info(f"Deploying {repo_name} to {env} from {branch}")
         
