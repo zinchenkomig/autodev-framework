@@ -184,11 +184,34 @@ async def check_and_create_release(session_factory: async_sessionmaker) -> dict 
                 logger.error(f"Error merging PR #{pr_number}: {e}")
                 merge_results.append({"task": task.title, "pr": task.pr_url, "success": False, "error": str(e)})
         
-        # 8. Update release status to staging
+        # 8. Deploy to staging server
+        logger.info(f"Deploying to staging server...")
+        deploy_results = {}
+        try:
+            from autodev.deploy import deploy_staging
+            
+            # Determine which repos need deploying
+            repos_to_deploy = set()
+            for task in selected:
+                if task.repo:
+                    repos_to_deploy.add(task.repo)
+            
+            deploy_results = await deploy_staging(list(repos_to_deploy) if repos_to_deploy else None)
+            deploy_success = all(r.get("success") for r in deploy_results.values())
+            
+            if deploy_success:
+                logger.info(f"Staging deploy successful: {deploy_results}")
+            else:
+                logger.warning(f"Staging deploy partial failure: {deploy_results}")
+        except Exception as e:
+            logger.error(f"Staging deploy failed: {e}")
+            deploy_results = {"error": str(e)}
+        
+        # 9. Update release status to staging
         release.status = ReleaseStatus.STAGING
         release.staging_deployed_at = datetime.now(UTC)
         
-        # 9. Move selected tasks to staging
+        # 10. Move selected tasks to staging
         for task in selected:
             task.status = TaskStatus.STAGING
             task.release_id = release.id
