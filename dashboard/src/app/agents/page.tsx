@@ -6,7 +6,7 @@ import { AgentRunsTable } from '@/components/agents/AgentRunsTable'
 import { Loader2, ChevronDown, ChevronRight, RefreshCw, Power, PowerOff, StopCircle } from 'lucide-react'
 
 // Agent order by importance
-const AGENT_ORDER = ['developer', 'pm', 'project_manager', 'tester', 'release_manager']
+const AGENT_ORDER = ['developer', 'pm']
 
 function sortAgents(agents: AgentMonitor[]): AgentMonitor[] {
   return [...agents].sort((a, b) => {
@@ -63,9 +63,9 @@ const statusColors: Record<string, { dot: string; text: string }> = {
 const roleIcons: Record<string, string> = {
   developer: '👨‍💻',
   pm: '📋',
-  project_manager: '📋',
-  tester: '🧪',
-  release_manager: '🚀',
+
+
+
 }
 
 function AgentCard({ agent, selected, onClick, onToggle, onCancel, toggling, cancelling }: { agent: AgentMonitor; selected: boolean; onClick: () => void; onToggle: () => void; onCancel?: () => void; toggling?: boolean; cancelling?: boolean }) {

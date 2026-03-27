@@ -25,6 +25,10 @@ environments:
     requires_approval: true
 
 agents:
+  - role: pm
+    runner: llm
+    model: z-ai/glm-5-turbo
+
   - role: developer
     runner: claude-code
     model: claude-sonnet-4
