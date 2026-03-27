@@ -119,6 +119,13 @@ class TaskSource(enum.StrEnum):
     MANUAL = "manual"
 
 
+class TaskType(enum.StrEnum):
+    """Task types that affect routing."""
+
+    FEATURE = "feature"
+    HOTFIX = "hotfix"  # bypasses release manager, goes straight to current staging
+
+
 class Priority(enum.StrEnum):
     """Task priority levels."""
 
@@ -201,6 +208,7 @@ class Task(Base):
     title: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     source: Mapped[str] = mapped_column(String(50), nullable=False, default=TaskSource.MANUAL)
+    task_type: Mapped[str] = mapped_column(String(20), nullable=False, default=TaskType.FEATURE)
     priority: Mapped[str] = mapped_column(String(20), nullable=False, default=Priority.NORMAL)
     story_points: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=TaskStatus.QUEUED)

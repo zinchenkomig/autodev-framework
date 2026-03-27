@@ -553,6 +553,7 @@ async def release_feedback(
                 repo=task.repo,
                 story_points=max(1, (task.story_points or 1) // 2),  # fixes are usually simpler
                 created_by="user-feedback",
+                task_type="hotfix",
             )
             session.add(followup)
             await session.flush()
@@ -568,6 +569,7 @@ async def release_feedback(
             repo="",  # will be determined by PM
             story_points=3,
             created_by="user-feedback",
+                task_type="hotfix",
         )
         session.add(followup)
         await session.flush()

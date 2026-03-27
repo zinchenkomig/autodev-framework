@@ -144,10 +144,45 @@ async def github_ci_webhook(
     task = result.scalar_one_or_none()
     
     if task:
-        task.status = TaskStatus.READY_TO_RELEASE
         if not task.branch:
             task.branch = branch
-        logger.info(f"CI webhook: promoted task {task.id} to ready_to_release")
+        
+        # Hotfix: bypass release manager, go straight to current staging release
+        if getattr(task, 'task_type', 'feature') == 'hotfix':
+            from autodev.core.models import Release, ReleaseStatus
+            from autodev.core.github_ops import extract_pr_info, merge_pr
+            
+            # Find active staging release
+            rel_result = await session.execute(
+                select(Release).where(Release.status == ReleaseStatus.STAGING).order_by(Release.created_at.desc()).limit(1)
+            )
+            release = rel_result.scalar_one_or_none()
+            
+            if release:
+                # Merge PR immediately
+                if task.pr_url:
+                    info = extract_pr_info(task.pr_url)
+                    if info:
+                        repo, pr_number = info
+                        try:
+                            await merge_pr(repo, pr_number)
+                        except Exception as e:
+                            logger.warning(f"Hotfix merge failed: {e}")
+                
+                # Add to release and move to staging
+                if task.id not in (release.tasks or []):
+                    release.tasks = (release.tasks or []) + [task.id]
+                task.status = TaskStatus.STAGING
+                task.release_id = release.id
+                logger.info(f"CI webhook: hotfix {task.id} merged into staging release {release.version}")
+                return {"status": "hotfix_merged", "task_id": str(task.id), "release": release.version}
+            else:
+                # No staging release — treat as regular
+                task.status = TaskStatus.READY_TO_RELEASE
+        else:
+            task.status = TaskStatus.READY_TO_RELEASE
+        
+        logger.info(f"CI webhook: promoted task {task.id} to {task.status}")
         return {"status": "promoted", "task_id": str(task.id), "task": task.title}
     
     return {"status": "no_matching_task", "branch": branch, "task_id": task_id_str}

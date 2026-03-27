@@ -362,11 +362,12 @@ class TelegramPMBot:
 
             task = Task(
                 id=uuid4(),
-                title=f"Правки по staging ({version})",
+                title=f"Hotfix: {comment[:60]}",
                 description=f"Фидбек по staging {version}:\n\n{comment}",
                 status=TaskStatus.QUEUED,
                 priority="high",
-                story_points=3,
+                story_points=2,
+                task_type="hotfix",
                 repo="",
                 created_by="telegram-feedback",
                 created_at=datetime.now(UTC),
