@@ -322,6 +322,10 @@ async def release_worker_loop(session_factory: async_sessionmaker) -> None:
     
     while True:
         try:
+            # Check for stuck autoreview tasks first
+            await check_stuck_autoreview(session_factory)
+            
+            # Then check if we can form a release
             release_info = await check_and_create_release(session_factory)
             if release_info:
                 await notify_release(release_info)
@@ -329,3 +333,85 @@ async def release_worker_loop(session_factory: async_sessionmaker) -> None:
             logger.exception("Release Manager: unhandled error")
         
         await asyncio.sleep(RELEASE_CHECK_INTERVAL)
+
+
+async def check_stuck_autoreview(session_factory: async_sessionmaker) -> None:
+    """Check for autoreview tasks with merge conflicts and handle them."""
+    import httpx
+    from uuid import uuid4
+    
+    github_token = os.environ.get("GITHUB_TOKEN", "")
+    if not github_token:
+        return
+    
+    async with session_factory() as session:
+        result = await session.execute(
+            select(Task).where(Task.status == TaskStatus.AUTOREVIEW)
+        )
+        tasks = result.scalars().all()
+        
+        for task in tasks:
+            if not task.pr_url:
+                continue
+            
+            # Check PR mergeable status
+            try:
+                # Extract repo and PR number from URL
+                parts = task.pr_url.rstrip("/").split("/")
+                pr_number = parts[-1]
+                repo = f"{parts[-4]}/{parts[-3]}"
+                
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(
+                        f"https://api.github.com/repos/{repo}/pulls/{pr_number}",
+                        headers={"Authorization": f"token {github_token}"},
+                        timeout=10.0,
+                    )
+                    if resp.status_code != 200:
+                        continue
+                    
+                    pr_data = resp.json()
+                    mergeable_state = pr_data.get("mergeable_state", "")
+                    
+                    if mergeable_state == "dirty":
+                        logger.warning(f"Task '{task.title}' has merge conflict — creating resolution task")
+                        
+                        # Move back to ready_to_release
+                        task.status = TaskStatus.READY_TO_RELEASE
+                        
+                        # Create conflict resolution task
+                        conflict_task = Task(
+                            id=uuid4(),
+                            title=f"Resolve conflict: {task.title[:60]}",
+                            description=(
+                                f"PR {task.pr_url} имеет конфликт с develop.\n\n"
+                                f"Нужно обновить ветку из develop и разрешить конфликты."
+                            ),
+                            status=TaskStatus.QUEUED,
+                            priority="high",
+                            story_points=1,
+                            task_type="hotfix",
+                            repo=task.repo or repo,
+                            created_by="release-manager",
+                        )
+                        session.add(conflict_task)
+                    
+                    elif mergeable_state == "clean":
+                        # CI might have passed but webhook missed it
+                        # Check if checks passed
+                        check_resp = await client.get(
+                            f"https://api.github.com/repos/{repo}/commits/{pr_data['head']['sha']}/check-runs",
+                            headers={"Authorization": f"token {github_token}"},
+                            timeout=10.0,
+                        )
+                        if check_resp.status_code == 200:
+                            checks = check_resp.json().get("check_runs", [])
+                            all_passed = checks and all(c.get("conclusion") == "success" for c in checks)
+                            if all_passed:
+                                logger.info(f"Task '{task.title}' checks passed, promoting to ready_to_release")
+                                task.status = TaskStatus.READY_TO_RELEASE
+                        
+            except Exception as e:
+                logger.warning(f"Error checking PR for task '{task.title}': {e}")
+        
+        await session.commit()
