@@ -21,6 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from autodev.core.models import Task, TaskStatus, Priority, ProjectContext
+from autodev.agent_log import log_agent
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +139,8 @@ async def run_pm_cycle(session_factory: async_sessionmaker) -> list[dict]:
         
         if backlog_sp >= max_backlog_sp:
             logger.info(f"PM Worker: backlog full ({backlog_sp}/{max_backlog_sp} SP). Skipping.")
+            await log_agent(session, "pm", "info", f"⏸️ Backlog full ({backlog_sp}/{max_backlog_sp} SP). Skipping task creation.")
+            await session.commit()
             return []
         
         # 3. Build context
@@ -212,6 +215,8 @@ description: Подробное описание
         
         if "NO_TASKS" in response:
             logger.info("PM Worker: no tasks proposed")
+            await log_agent(session, "pm", "info", "🤔 Analyzed project — no improvements needed right now.")
+            await session.commit()
             return []
         
         # 5. Parse and create tasks
@@ -258,6 +263,15 @@ description: Подробное описание
             prev_task_id = task.id
             created.append({"id": str(task.id), "title": title, "repo": task.repo})
         
+        await session.commit()
+        
+        # Log task creation
+        titles = ", ".join([c["title"] for c in created])
+        await log_agent(
+            session, "pm", "info",
+            f"📋 Created {len(created)} tasks",
+            details=f"Tasks created:\n" + "\n".join([f"- {c['title']} ({c['repo']})" for c in created])
+        )
         await session.commit()
         
         logger.info(f"PM Worker: created {len(created)} tasks")

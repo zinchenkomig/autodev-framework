@@ -20,6 +20,7 @@ from autodev.core.models import (
     Task, TaskStatus, Priority, ProjectContext,
     ChatSession, PMChatMessage
 )
+from autodev.agent_log import log_agent
 
 router = APIRouter(tags=["pm"])
 
@@ -283,6 +284,20 @@ async def pm_chat(request: ChatRequest, session: Annotated[AsyncSession, Depends
     session.add(PMChatMessage(id=uuid4(), session_id=chat.id, role="pm", content=clean))
     chat.updated_at = datetime.now(UTC)
     
+    # Log PM activity
+    if proposals:
+        await log_agent(
+            session, "pm", "info",
+            f"💬 Chat: proposed {len(proposals)} task(s)",
+            details=f"User: {request.message[:200]}\n\nPM: {clean[:500]}\n\nProposals:\n" + "\n".join([f"- {p.title}" for p in proposals])
+        )
+    else:
+        await log_agent(
+            session, "pm", "info",
+            f"💬 Chat response (no tasks)",
+            details=f"User: {request.message[:200]}\n\nPM: {clean[:500]}"
+        )
+    
     return ChatResponse(response=clean, session_id=str(chat.id), proposals=proposals)
 
 
@@ -327,6 +342,14 @@ async def approve_tasks(request: ApproveRequest, session: Annotated[AsyncSession
                                       content=f"✅ Создано: {len(created)}\n\n{links}", task_id=UUID(created[0]["id"]) if created else None))
         except:
             pass
+    
+    # Log approved tasks
+    if created:
+        await log_agent(
+            session, "pm", "info",
+            f"✅ Approved {len(created)} task(s)",
+            details="\n".join([f"- {t['title']} ({t['repo']})" for t in created])
+        )
     
     return ApproveResponse(created_tasks=created)
 
