@@ -175,10 +175,38 @@ async def check_and_create_release(session_factory: async_sessionmaker) -> dict 
                 if success:
                     merged_count += 1
                     logger.info(f"Merged PR #{pr_number} for '{task.title}'")
+                    merge_results.append({"task": task.title, "pr": task.pr_url, "success": True})
                 else:
                     failed_count += 1
-                    logger.warning(f"Failed to merge PR #{pr_number} for '{task.title}'")
-                merge_results.append({"task": task.title, "pr": task.pr_url, "success": success})
+                    logger.warning(f"Failed to merge PR #{pr_number} for '{task.title}' — likely conflict")
+                    merge_results.append({"task": task.title, "pr": task.pr_url, "success": False, "reason": "merge_conflict"})
+                    
+                    # Remove from release, return to ready_to_release
+                    task.status = TaskStatus.READY_TO_RELEASE
+                    selected.remove(task)
+                    
+                    # Create conflict resolution task for developer
+                    from uuid import uuid4
+                    conflict_task = Task(
+                        id=uuid4(),
+                        title=f"Resolve merge conflict: {task.title[:60]}",
+                        description=(
+                            f"PR #{pr_number} не удалось замержить в develop (конфликт).\n\n"
+                            f"Оригинальная задача: {task.title}\n"
+                            f"PR: {task.pr_url}\n"
+                            f"Repo: {repo}\n\n"
+                            f"Нужно обновить ветку из develop и разрешить конфликты."
+                        ),
+                        status=TaskStatus.QUEUED,
+                        priority="high",
+                        story_points=1,
+                        task_type="hotfix",
+                        repo=repo,
+                        created_by="release-manager",
+                    )
+                    session.add(conflict_task)
+                    logger.info(f"Created conflict resolution task for PR #{pr_number}")
+                    
             except Exception as e:
                 failed_count += 1
                 logger.error(f"Error merging PR #{pr_number}: {e}")
