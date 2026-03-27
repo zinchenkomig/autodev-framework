@@ -224,7 +224,10 @@ async def check_and_create_release(session_factory: async_sessionmaker) -> dict 
                 if task.repo:
                     repos_to_deploy.add(task.repo)
             
-            deploy_results = await deploy_staging(list(repos_to_deploy) if repos_to_deploy else None)
+            deploy_results = await deploy_staging(
+                repos=list(repos_to_deploy) if repos_to_deploy else None,
+                release_version=version,
+            )
             deploy_success = all(r.get("success") for r in deploy_results.values())
             
             if deploy_success:

@@ -65,11 +65,12 @@ async def update_stage_branch(repo: str) -> str:
         await run_shell(f"rm -rf {tmpdir}", timeout=10)
 
 
-async def deploy_staging(repos: list[str] | None = None) -> dict:
-    """Deploy develop branch to staging.
+async def deploy_staging(repos: list[str] | None = None, release_version: str = "") -> dict:
+    """Deploy stage branch to staging.
     
     Args:
         repos: List of repos to deploy. None = all.
+        release_version: Release version string to display on frontend.
     
     Returns:
         Dict with deploy results per repo.
@@ -122,6 +123,8 @@ async def deploy_staging(repos: list[str] | None = None) -> dict:
             build_args = f"--build-arg GIT_COMMIT={commit}"
             if is_frontend:
                 build_args += f" --build-arg NEXT_PUBLIC_API_URL={api_url} --build-arg NEXT_PUBLIC_GIT_COMMIT={commit}"
+                if release_version:
+                    build_args += f" --build-arg NEXT_PUBLIC_RELEASE_VERSION={release_version}"
             
             logger.info(f"Building {image}...")
             await run_shell(
@@ -136,9 +139,16 @@ async def deploy_staging(repos: list[str] | None = None) -> dict:
             # Rollout on remote
             logger.info(f"Rolling out on {REMOTE}...")
             if is_backend:
+                version_cmd = ""
+                if release_version:
+                    version_cmd = (
+                        f"kubectl set env deployment/alerter-backend -n {env} RELEASE_VERSION={release_version} && "
+                        f"kubectl set env deployment/alerter-backend-scheduler -n {env} RELEASE_VERSION={release_version} && "
+                    )
                 await run_shell(
                     f'ssh -o StrictHostKeyChecking=accept-new {REMOTE} '
                     f'"export KUBECONFIG=/etc/rancher/k3s/k3s.yaml && '
+                    f'{version_cmd}'
                     f'kubectl rollout restart deployment/alerter-backend deployment/alerter-backend-scheduler -n {env}"',
                     timeout=60,
                 )
@@ -157,9 +167,14 @@ async def deploy_staging(repos: list[str] | None = None) -> dict:
                     logger.warning(f"Migration failed (may be ok): {e}")
             
             elif is_frontend:
+                # Set release version env var and rollout
+                version_cmd = ""
+                if release_version:
+                    version_cmd = f"kubectl set env deployment/alerter-frontend -n {env} NEXT_PUBLIC_RELEASE_VERSION={release_version} && "
                 await run_shell(
                     f'ssh -o StrictHostKeyChecking=accept-new {REMOTE} '
                     f'"export KUBECONFIG=/etc/rancher/k3s/k3s.yaml && '
+                    f'{version_cmd}'
                     f'kubectl rollout restart deployment/alerter-frontend -n {env}"',
                     timeout=60,
                 )
