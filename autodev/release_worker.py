@@ -232,6 +232,7 @@ async def check_and_create_release(session_factory: async_sessionmaker) -> dict 
             "merged": merged_count,
             "failed": failed_count,
             "remaining": remaining,
+            "deploy": deploy_results,
         }
 
 
@@ -266,7 +267,16 @@ async def notify_release(release_info: dict) -> None:
         if remaining:
             text += f"\n📦 {remaining} задач осталось в очереди на следующий релиз"
         
-        text += "\n\n📋 Посмотри staging и дай фидбек."
+        deploy = release_info.get("deploy", {})
+        if deploy:
+            deploy_ok = all(r.get("success") for r in deploy.values() if isinstance(r, dict))
+            if deploy_ok:
+                text += "\n\n✅ Задеплоено на staging"
+                text += "\nhttps://staging.alerter.zinchenkomig.com"
+            else:
+                text += "\n\n⚠️ Деплой на staging частично не удался"
+        
+        text += "\n\n📋 Посмотри staging и дай фидбек через /feedback"
         
         await bot.send_message(bot.owner_chat_id, text)
     except Exception as e:
