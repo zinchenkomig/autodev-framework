@@ -202,7 +202,10 @@ async def check_and_create_release(session_factory: async_sessionmaker) -> dict 
                         story_points=1,
                         task_type="hotfix",
                         repo=repo,
-                        created_by="release-manager",
+                        branch=task.branch,  # existing branch to reuse
+                        pr_number=task.pr_number,
+                        pr_url=task.pr_url,
+                        created_by="conflict-resolution",
                     )
                     session.add(conflict_task)
                     logger.info(f"Created conflict resolution task for PR #{pr_number}")
@@ -395,7 +398,10 @@ async def check_stuck_autoreview(session_factory: async_sessionmaker) -> None:
                             story_points=1,
                             task_type="hotfix",
                             repo=task.repo or repo,
-                            created_by="release-manager",
+                            branch=task.branch,
+                            pr_number=task.pr_number,
+                            pr_url=task.pr_url,
+                            created_by="conflict-resolution",
                         )
                         session.add(conflict_task)
                     

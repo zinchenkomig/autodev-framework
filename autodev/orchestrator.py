@@ -282,6 +282,9 @@ class Orchestrator:
         await self._update_agent_status("developer", AgentStatus.WORKING, task_id)
         await self._log("developer", task_id, "info", f"🚀 Started processing task: {task.title}", details=f"Repository: {repo_name or 'N/A'}\nDescription: {task.description or 'No description'}")
 
+        is_conflict_resolution = (getattr(task, 'created_by', '') == 'conflict-resolution')
+        existing_branch = task.branch if is_conflict_resolution else None
+        
         try:
             # 2. Clone repo
             if repo_name:
@@ -297,10 +300,25 @@ class Orchestrator:
             else:
                 Path(workdir).mkdir(parents=True, exist_ok=True)
 
-            # 3. Create feature branch
+            # 3. Create or checkout branch
             if repo_name:
-                await self._run_shell(f"git -C {workdir} checkout -b {branch}", timeout=30)
-                await self._log("developer", task_id, "info", f"Created branch {branch}")
+                if existing_branch:
+                    # Conflict resolution: checkout existing branch and merge develop
+                    await self._log("developer", task_id, "info", f"Checking out existing branch {existing_branch} for conflict resolution...")
+                    await self._run_shell(f"git -C {workdir} fetch origin {existing_branch}", timeout=30)
+                    await self._run_shell(f"git -C {workdir} checkout {existing_branch}", timeout=30)
+                    
+                    # Merge develop — this will create conflict markers
+                    try:
+                        await self._run_shell(f"git -C {workdir} merge origin/develop --no-edit", timeout=30)
+                        await self._log("developer", task_id, "info", "Merge from develop succeeded (no conflicts)")
+                    except Exception:
+                        await self._log("developer", task_id, "warning", "Merge conflicts detected — Claude Code will resolve them")
+                    
+                    branch = existing_branch
+                else:
+                    await self._run_shell(f"git -C {workdir} checkout -b {branch}", timeout=30)
+                    await self._log("developer", task_id, "info", f"Created branch {branch}")
 
             # 4. Load context
             claude_md = Path(workdir) / "CLAUDE.md"
@@ -492,10 +510,14 @@ Address the MUST_FIX issues. Make the necessary changes."""
                     has_changes = True
                 
                 if has_changes:
-                    commit_msg = f"feat: {task.title[:72]} [autodev-{task_id[:8]}]"
+                    if is_conflict_resolution:
+                        commit_msg = f"fix: resolve merge conflicts [autodev-{task_id[:8]}]"
+                    else:
+                        commit_msg = f"feat: {task.title[:72]} [autodev-{task_id[:8]}]"
                     await self._log("developer", task_id, "info", "Committing and pushing changes...")
+                    push_flags = "--force" if is_conflict_resolution else ""
                     await self._run_shell(
-                        f'git -C {workdir} commit -m "{commit_msg}" && git -C {workdir} push -u origin {branch}',
+                        f'git -C {workdir} commit -m "{commit_msg}" && git -C {workdir} push -u origin {branch} {push_flags}',
                         timeout=60,
                     )
 
@@ -533,14 +555,20 @@ Write ONLY the summary. No headers, no markdown formatting. Just 2-3 sentences i
                         pr_body += f"```\n{diff_stat[:800]}\n```\n\n"
                     pr_body += f"---\n*AutoDev task `{task_id[:8]}`*"
                     
-                    await self._log("developer", task_id, "info", f"Creating PR for branch {branch}...")
-                    pr_number = await self._create_pr(
-                        repo=repo_name, branch=branch, title=task.title,
-                        body=pr_body,
-                    )
-                    if pr_number:
-                        pr_url = f"https://github.com/{repo_name}/pull/{pr_number}"
-                        await self._log("developer", task_id, "info", f"PR #{pr_number} created: {pr_url}")
+                    if is_conflict_resolution:
+                        # PR already exists — just log, CI will re-run
+                        pr_number = task.pr_number
+                        pr_url = task.pr_url
+                        await self._log("developer", task_id, "info", f"Conflicts resolved, pushed to existing PR: {pr_url}")
+                    else:
+                        await self._log("developer", task_id, "info", f"Creating PR for branch {branch}...")
+                        pr_number = await self._create_pr(
+                            repo=repo_name, branch=branch, title=task.title,
+                            body=pr_body,
+                        )
+                        if pr_number:
+                            pr_url = f"https://github.com/{repo_name}/pull/{pr_number}"
+                            await self._log("developer", task_id, "info", f"PR #{pr_number} created: {pr_url}")
                 else:
                     await self._log("developer", task_id, "warning", "No changes to commit")
 
