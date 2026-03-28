@@ -393,13 +393,25 @@ class Orchestrator:
                     await self._log("developer", task_id, "info", "Regenerating API client from backend OpenAPI spec...")
                     
                     # Clone backend to extract OpenAPI spec
+                    # Use the branch from dependency task if available
                     backend_repo = repo_name.replace("frontend", "backend")
                     backend_clone_url = f"https://x-access-token:{self.github_token}@github.com/{backend_repo}.git"
                     backend_tmpdir = f"/tmp/autodev-backend-{task_id[:8]}"
                     
+                    backend_branch = "develop"
+                    if task.depends_on:
+                        async with self._session_factory() as dep_session:
+                            for dep_id in task.depends_on:
+                                dep_task = await dep_session.get(Task, dep_id)
+                                if dep_task and dep_task.branch and "backend" in (dep_task.repo or ""):
+                                    backend_branch = dep_task.branch
+                                    await self._log("developer", task_id, "info", f"Using backend branch: {backend_branch}")
+                                    break
+                    
                     await self._run_shell(f"rm -rf {backend_tmpdir}", timeout=10)
                     await self._run_shell(
-                        f"git clone -b develop --depth 1 {backend_clone_url} {backend_tmpdir}",
+                        f"git clone -b {backend_branch} --depth 1 {backend_clone_url} {backend_tmpdir} "
+                        f"|| git clone -b develop --depth 1 {backend_clone_url} {backend_tmpdir}",
                         timeout=60,
                     )
                     
