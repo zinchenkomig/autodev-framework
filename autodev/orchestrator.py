@@ -249,6 +249,68 @@ class Orchestrator:
         
         return True
 
+    async def _load_dependency_context(self, task: Task) -> str:
+        """Load context from completed dependency tasks (e.g. backend PR for frontend task).
+        
+        Fetches the PR diff from dependent tasks to give developer full context
+        about what the other repo implemented.
+        """
+        if not task.depends_on:
+            return ""
+        
+        import httpx
+        
+        parts = []
+        async with self._session_factory() as session:
+            for dep_id in task.depends_on:
+                dep_task = await session.get(Task, dep_id)
+                if dep_task is None or not dep_task.pr_url:
+                    continue
+                
+                # Only load cross-repo dependencies (e.g. backend context for frontend task)
+                if dep_task.repo == task.repo:
+                    continue
+                
+                # Fetch PR diff from GitHub
+                try:
+                    # Extract repo and PR number
+                    pr_parts = dep_task.pr_url.rstrip("/").split("/")
+                    repo = f"{pr_parts[-4]}/{pr_parts[-3]}"
+                    pr_number = pr_parts[-1]
+                    
+                    async with httpx.AsyncClient() as client:
+                        # Get PR files
+                        resp = await client.get(
+                            f"https://api.github.com/repos/{repo}/pulls/{pr_number}/files",
+                            headers={"Authorization": f"token {self.github_token}"},
+                            timeout=15.0,
+                        )
+                        if resp.status_code != 200:
+                            continue
+                        
+                        files = resp.json()
+                        
+                        # Build context from patches
+                        dep_context = f"## Dependency: {dep_task.title}\n"
+                        dep_context += f"Repository: {dep_task.repo}\n"
+                        dep_context += f"PR: {dep_task.pr_url}\n\n"
+                        dep_context += "### Changes made:\n"
+                        
+                        for f in files:
+                            dep_context += f"\n#### {f['filename']}\n"
+                            if 'patch' in f:
+                                dep_context += f"```diff\n{f['patch'][:3000]}\n```\n"
+                        
+                        parts.append(dep_context)
+                        
+                except Exception as e:
+                    logger.warning(f"Failed to load dependency context for {dep_task.id}: {e}")
+        
+        if not parts:
+            return ""
+        
+        return "--- DEPENDENCY CONTEXT (from related tasks in other repos) ---\n\n" + "\n\n".join(parts)
+
     # ------------------------------------------------------------------
     # Task processing
     # ------------------------------------------------------------------
@@ -324,6 +386,9 @@ class Orchestrator:
             claude_md = Path(workdir) / "CLAUDE.md"
             context = claude_md.read_text(encoding="utf-8", errors="replace") if claude_md.exists() else ""
             
+            # 4b. Load dependency context (e.g. backend PR for frontend task)
+            dep_context = await self._load_dependency_context(task)
+            
             from autodev.core.runner import ClaudeCodeRunner
             runner = ClaudeCodeRunner(model="claude-sonnet-4-20250514", timeout=1800)  # 30 minutes
             self._current_runner = runner
@@ -338,6 +403,8 @@ TASK: {task.title}
 DESCRIPTION: {task.description or 'No description'}
 
 {f'--- Project Context ---{chr(10)}{context}' if context else ''}
+
+{dep_context}
 
 Create a plan that includes:
 1. Files that need to be created or modified
@@ -402,6 +469,8 @@ PLAN:
 {f'REVIEWER FEEDBACK:{chr(10)}{plan_feedback}' if not plan_approved else ''}
 
 {f'--- Project Context ---{chr(10)}{context}' if context else ''}
+
+{dep_context}
 
 ## CRITICAL REQUIREMENTS:
 1. The implementation MUST be fully functional end-to-end
