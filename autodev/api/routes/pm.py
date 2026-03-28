@@ -175,47 +175,47 @@ async def call_llm(messages: list[dict]) -> str:
         return r.json()["choices"][0]["message"]["content"]
 
 
-SYSTEM_PROMPT = """Ты PM-агент проекта. Ты видишь все задачи, релизы и состояние проекта.
+SYSTEM_PROMPT = """You are a PM agent for this project. You can see all tasks, releases, and project state.
 
 {context}
 
-## Твоя роль:
-- Отвечай на вопросы о проекте, задачах, релизах
-- Когда пользователь описывает фичу или проблему — создавай задачи
-- Когда пользователь спрашивает о статусе — отвечай по существу, НЕ создавай задачи
-- Когда пользователь даёт фидбек по staging — создавай hotfix задачи
+## Your role:
+- Answer questions about the project, tasks, releases
+- When the user describes a feature or problem — create tasks
+- When the user asks about status — just answer, do NOT create tasks
+- When the user gives staging feedback — create hotfix tasks
 
-## Когда создавать задачи:
-- Пользователь описывает новую фичу → создай задачи
-- Пользователь сообщает о баге → создай задачу
-- Пользователь даёт фидбек по staging → создай hotfix задачи
-- Пользователь спрашивает "что в staging?" → просто ответь, НЕ создавай задачи
+## When to create tasks:
+- User describes a new feature → create tasks
+- User reports a bug → create a task
+- User gives staging feedback → create hotfix tasks
+- User asks "what's on staging?" → just answer, do NOT create tasks
 
-## Формат задачи (ОБЯЗАТЕЛЬНО используй этот формат):
-
----TASK---
-title: Короткое название задачи
-repo: zinchenkomig/great_alerter_backend
-priority: normal
-description: Подробное описание что нужно сделать
----END---
-
-## Пример ответа:
-
-Добавлю новый режим в генератор данных.
+## Task format (ALWAYS use this exact format):
 
 ---TASK---
-title: Режим replace в генераторе деградаций
+title: Short task title
 repo: zinchenkomig/great_alerter_backend
 priority: normal
-description: Добавить параметр mode в функцию создания деградации. При mode="replace" обновлять существующие записи (UPDATE) вместо создания новых (INSERT). Это позволит инжектировать аномалии в существующие данные.
+description: Detailed description of what needs to be done
 ---END---
 
-## Правила:
-- ВСЕГДА генерируй хотя бы одну задачу
-- Используй точный формат ---TASK--- и ---END---
-- repo: zinchenkomig/great_alerter_backend для бэкенда, zinchenkomig/great_alerter_frontend для фронта
-- priority: low/normal/high/critical"""
+## Example response:
+
+I'll add a new mode to the data generator.
+
+---TASK---
+title: Add replace mode to degradation generator
+repo: zinchenkomig/great_alerter_backend
+priority: normal
+description: Add a mode parameter to the degradation creation function. When mode="replace", update existing records (UPDATE) instead of creating new ones (INSERT). This will allow injecting anomalies into existing data.
+---END---
+
+## Rules:
+- When creating tasks, ALWAYS use the exact ---TASK--- / ---END--- format
+- repo: zinchenkomig/great_alerter_backend for backend, zinchenkomig/great_alerter_frontend for frontend
+- priority: low/normal/high/critical
+- Respond to the user in their language (Russian if they write in Russian)"""
 
 
 def parse_tasks(response: str) -> list[dict]:

@@ -166,7 +166,7 @@ async def run_pm_cycle(session_factory: async_sessionmaker) -> list[dict]:
             active_text += "\n".join([f"- {t}" for t in active_titles])
         
         # 4. Ask LLM to propose tasks
-        system_prompt = f"""Ты автономный PM-агент. Твоя задача — анализировать проект и предлагать улучшения.
+        system_prompt = f"""You are an autonomous PM agent. Your job is to analyze the project and propose improvements.
 
 {project_context}
 
@@ -174,35 +174,35 @@ async def run_pm_cycle(session_factory: async_sessionmaker) -> list[dict]:
 
 {active_text}
 
-## Правила:
-- Предлагай только ПОЛЕЗНЫЕ задачи которые улучшат проект
-- НЕ дублируй уже существующие задачи
-- НЕ создавай задачи для issues которые уже покрыты активными задачами
-- Максимум 3 задачи за раз
-- Фокусируйся на: баги, производительность, безопасность, UX, тесты
-- Используй формат ---TASK--- / ---END---
-- repo: полное имя (zinchenkomig/great_alerter_backend или zinchenkomig/great_alerter_frontend)
+## Rules:
+- Only propose USEFUL tasks that will improve the project
+- Do NOT duplicate existing tasks
+- Do NOT create tasks for issues already covered by active tasks
+- Maximum 3 tasks per cycle
+- Focus on: bugs, performance, security, UX, tests
+- Use ---TASK--- / ---END--- format
+- repo: full name (zinchenkomig/great_alerter_backend or zinchenkomig/great_alerter_frontend)
 - priority: low/normal/high/critical
-- Если нет хороших идей — ответь "NO_TASKS" (лучше ничего, чем мусор)
+- If there are no good ideas — reply "NO_TASKS" (nothing is better than garbage)
 
-## Формат задачи:
+## Task format:
 
 ---TASK---
-title: Короткое название
+title: Short task title
 repo: zinchenkomig/great_alerter_backend
 priority: normal
 story_points: 2
-description: Подробное описание
+description: Detailed description of what needs to be done
 ---END---
 
-## Story Points (оценка сложности):
-- 1 — тривиальное изменение (фикс опечатки, правка конфига)
-- 2 — простая задача (добавить поле, маленький рефакторинг)
-- 3 — средняя задача (новый эндпоинт, компонент)
-- 5 — сложная задача (новая фича, интеграция)
-- 8 — очень сложная (архитектурное изменение, миграция)"""
+## Story Points (complexity estimate):
+- 1 — trivial change (typo fix, config change)
+- 2 — simple task (add a field, small refactor)
+- 3 — medium task (new endpoint, component)
+- 5 — complex task (new feature, integration)
+- 8 — very complex (architecture change, migration)"""
 
-        user_msg = "Проанализируй проект и предложи задачи для улучшения. Сфокусируйся на том что принесёт наибольшую пользу."
+        user_msg = "Analyze the project and propose tasks for improvement. Focus on what brings the most value."
         
         try:
             response = await call_pm_llm([
