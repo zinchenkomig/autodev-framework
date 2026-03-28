@@ -403,8 +403,15 @@ PLAN:
 
 {f'--- Project Context ---{chr(10)}{context}' if context else ''}
 
-Now implement the solution. Create/modify files as needed.
-Follow the plan and address any reviewer feedback."""
+## CRITICAL REQUIREMENTS:
+1. The implementation MUST be fully functional end-to-end
+2. Do NOT leave placeholder comments like "TODO" or "will be added later"
+3. Do NOT comment out functionality — either implement it or don't include it
+4. If the task depends on a backend API, make sure you call the actual API
+5. If you add UI controls, they MUST actually do something when used
+6. Verify your changes work by checking imports, function calls, and data flow
+
+Now implement the solution. Create/modify files as needed."""
 
             impl_result = await runner.run(impl_prompt, context={"workdir": workdir})
             
@@ -442,6 +449,7 @@ Follow the plan and address any reviewer feedback."""
                 review_prompt = f"""You are a senior code reviewer. Review this code change.
 
 TASK: {task.title}
+TASK DESCRIPTION: {task.description or 'N/A'}
 
 CODE DIFF:
 ```diff
@@ -449,10 +457,13 @@ CODE DIFF:
 ```
 
 Review for:
-1. Bugs or logic errors
-2. Code style and best practices
-3. Missing error handling
-4. Security issues
+1. **Does it actually solve the task?** — Check if the feature works end-to-end, not just partially
+2. **Dead code / placeholders** — Any TODO comments, commented-out code, or "will be added later"?
+3. **Integration** — If it's a frontend change, does it call the backend API correctly? If backend, does the endpoint exist?
+4. **Bugs or logic errors**
+5. **Missing error handling**
+
+CRITICAL: If the code adds UI controls that don't actually do anything, or leaves functionality commented out with "TODO" — this is a MUST_FIX.
 
 If the code is ready to merge, respond with: APPROVED
 
@@ -460,7 +471,7 @@ If there are critical issues, respond with:
 MUST_FIX:
 - [critical issues]
 
-Be pragmatic - approve if it works correctly."""
+Be pragmatic but thorough — half-implemented features are worse than no feature."""
 
                 review_result = await runner.run(review_prompt, context={"workdir": workdir})
                 review_feedback = review_result.output
