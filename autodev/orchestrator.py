@@ -515,9 +515,9 @@ Address the MUST_FIX issues. Make the necessary changes."""
                     else:
                         commit_msg = f"feat: {task.title[:72]} [autodev-{task_id[:8]}]"
                     await self._log("developer", task_id, "info", "Committing and pushing changes...")
-                    push_flags = "--force" if is_conflict_resolution else ""
+                    
                     await self._run_shell(
-                        f'git -C {workdir} commit -m "{commit_msg}" && git -C {workdir} push -u origin {branch} {push_flags}',
+                        f'git -C {workdir} commit -m "{commit_msg}" && git -C {workdir} push -u origin {branch}',
                         timeout=60,
                     )
 
