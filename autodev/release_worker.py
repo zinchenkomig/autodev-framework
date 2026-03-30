@@ -186,7 +186,6 @@ async def check_and_create_release(session_factory: async_sessionmaker) -> dict 
                     selected.remove(task)
                     
                     # Create conflict resolution task for developer
-                    from uuid import uuid4
                     conflict_task = Task(
                         id=uuid4(),
                         title=f"Resolve merge conflict: {task.title[:60]}",
@@ -344,7 +343,6 @@ async def release_worker_loop(session_factory: async_sessionmaker) -> None:
 async def check_stuck_autoreview(session_factory: async_sessionmaker) -> None:
     """Check for autoreview tasks with merge conflicts and handle them."""
     import httpx
-    from uuid import uuid4
     
     github_token = os.environ.get("GITHUB_TOKEN", "")
     if not github_token:
