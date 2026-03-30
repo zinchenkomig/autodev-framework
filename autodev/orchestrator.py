@@ -396,32 +396,50 @@ class Orchestrator:
                 try:
                     await self._log("developer", task_id, "info", "Regenerating API client from backend OpenAPI spec...")
                     
-                    staging_api = os.environ.get("STAGING_API_URL", "https://staging.alerter.zinchenkomig.com/api")
-                    dev_api = os.environ.get("DEV_API_URL", "https://dev.alerter.zinchenkomig.com/api")
+                    # Determine backend branch: from dependency task or develop
+                    backend_repo = repo_name.replace("frontend", "backend")
+                    backend_branch = "develop"
                     
-                    # Try staging first (has latest merged code), fallback to dev
-                    spec_fetched = False
-                    for api_url in [staging_api, dev_api]:
-                        try:
-                            await self._run_shell(
-                                f"mkdir -p {workdir}/openapi && "
-                                f"curl -sf '{api_url}/openapi.json' -o {workdir}/openapi/openapi.json",
-                                timeout=15,
-                            )
-                            spec_fetched = True
-                            await self._log("developer", task_id, "info", f"Fetched OpenAPI spec from {api_url}")
-                            break
-                        except Exception:
-                            continue
+                    if task.depends_on:
+                        async with self._session_factory() as dep_session:
+                            for dep_id in task.depends_on:
+                                dep_task = await dep_session.get(Task, dep_id)
+                                if dep_task and dep_task.branch and "backend" in (dep_task.repo or ""):
+                                    backend_branch = dep_task.branch
+                                    break
                     
-                    if not spec_fetched:
-                        await self._log("developer", task_id, "warning", "Could not fetch OpenAPI spec — using existing generated.ts")
-                    else:
-                        # Run orval to regenerate API client
-                        await self._run_shell(
-                            f"cd {workdir} && npm install --silent 2>&1 | tail -1 && npm run gen:api 2>&1 | tail -1",
-                            timeout=120,
-                        )
+                    await self._log("developer", task_id, "info", f"Using backend branch: {backend_branch}")
+                    
+                    # Clone backend, extract OpenAPI spec
+                    backend_clone_url = f"https://x-access-token:{self.github_token}@github.com/{backend_repo}.git"
+                    backend_tmpdir = f"/tmp/autodev-backend-{task_id[:8]}"
+                    
+                    await self._run_shell(f"rm -rf {backend_tmpdir}", timeout=10)
+                    await self._run_shell(
+                        f"git clone -b {backend_branch} --depth 1 {backend_clone_url} {backend_tmpdir} "
+                        f"|| git clone -b develop --depth 1 {backend_clone_url} {backend_tmpdir}",
+                        timeout=60,
+                    )
+                    
+                    # Generate OpenAPI spec (FastAPI generates it without DB)
+                    await self._run_shell(
+                        f"cd {backend_tmpdir} && uv sync --frozen 2>&1 | tail -1 && "
+                        f"mkdir -p {workdir}/openapi && "
+                        f"uv run python -c \""
+                        f"from src.backend.main import app; "
+                        f"import json; "
+                        f"json.dump(app.openapi(), open('{workdir}/openapi/openapi.json', 'w'), indent=2)"
+                        f"\"",
+                        timeout=120,
+                    )
+                    
+                    await self._run_shell(f"rm -rf {backend_tmpdir}", timeout=10)
+                    
+                    # Run orval to regenerate API client
+                    await self._run_shell(
+                        f"cd {workdir} && npm install --silent 2>&1 | tail -1 && npm run gen:api 2>&1 | tail -1",
+                        timeout=120,
+                    )
                     await self._log("developer", task_id, "info", "API client regenerated ✅")
                 except Exception as e:
                     await self._log("developer", task_id, "warning", f"Failed to regenerate API client: {e}. Developer will use existing generated.ts.")
