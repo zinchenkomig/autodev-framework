@@ -346,8 +346,10 @@ class Orchestrator:
         await self._update_agent_status("developer", AgentStatus.WORKING, task_id)
         await self._log("developer", task_id, "info", f"🚀 Started processing task: {task.title}", details=f"Repository: {repo_name or 'N/A'}\nDescription: {task.description or 'No description'}")
 
-        is_conflict_resolution = (getattr(task, 'created_by', '') == 'conflict-resolution')
-        existing_branch = task.branch if is_conflict_resolution else None
+        # Reuse existing branch if task already has one (QA return, conflict resolution)
+        has_existing_branch = bool(task.branch)
+        is_conflict_resolution = has_existing_branch
+        existing_branch = task.branch if has_existing_branch else None
         
         try:
             # 2. Clone repo

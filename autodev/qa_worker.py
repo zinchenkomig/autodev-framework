@@ -387,36 +387,19 @@ async def process_qa_task(task: Task, session_factory: async_sessionmaker) -> No
                     t.status = TaskStatus.READY_TO_RELEASE
                     logger.info(f"QA PASSED: {task.title}")
                 else:
-                    # QA failed — block original task, create fix task for developer
-                    t.status = TaskStatus.FAILED
-                    logger.warning(f"QA FAILED: {task.title}")
+                    # QA failed — return same task to developer with QA report
+                    t.status = TaskStatus.QUEUED
                     
-                    # Create fix task with QA report
-                    fix_task = Task(
-                        id=uuid4(),
-                        title=f"QA fix: {task.title[:60]}",
-                        description=(
-                            f"QA тестирование выявило проблемы:\n\n"
-                            f"{report[:2000]}\n\n---\n"
-                            f"Original task: {task_id}\n"
-                            f"PR: {task.pr_url or 'N/A'}\n"
-                            f"Branch: {task.branch or 'N/A'}"
-                        ),
-                        status=TaskStatus.QUEUED,
-                        priority="high",
-                        story_points=max(1, (task.story_points or 2) // 2),
-                        task_type="hotfix",
-                        repo=task.repo,
-                        branch=task.branch,  # reuse same branch
-                        pr_number=task.pr_number,
-                        pr_url=task.pr_url,
-                        created_by="qa-agent",
-                    )
-                    session.add(fix_task)
+                    # Append QA feedback to description so developer sees it
+                    qa_feedback = f"\n\n--- QA FEEDBACK ---\n{report[:2000]}"
+                    t.description = (t.description or "") + qa_feedback
+                    
+                    logger.warning(f"QA FAILED: {task.title} — returned to queue")
                     
                     await log_agent(session, "qa", "warning",
-                        f"Created fix task: {fix_task.title}",
-                        task_id=task_id)
+                        f"Returned to developer: {task.title}",
+                        task_id=task_id,
+                        details=report[:2000])
             await session.commit()
         
     except Exception as e:
