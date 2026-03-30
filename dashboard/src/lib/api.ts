@@ -1,7 +1,7 @@
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? ''
 
 export type Priority = 'critical' | 'high' | 'normal' | 'low'
-export type TaskStatus = 'queued' | 'assigned' | 'in_progress' | 'autoreview' | 'review' | 'ready_to_release' | 'staging' | 'released' | 'failed'
+export type TaskStatus = 'queued' | 'assigned' | 'in_progress' | 'autoreview' | 'review' | 'qa_testing' | 'ready_to_release' | 'staging' | 'released' | 'failed'
 export type AgentStatus = 'idle' | 'running' | 'failed'
 export type ReleaseStatus = 'draft' | 'staging' | 'testing' | 'pending_approval' | 'approved' | 'deployed' | 'failed' | 'cancelled' | 'reverted'
 

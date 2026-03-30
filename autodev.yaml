@@ -31,6 +31,9 @@ agents:
 
   - role: developer
     runner: claude-code
+
+  - role: qa
+    runner: claude-code
     model: claude-sonnet-4
     max_iterations: 20
     triggers:

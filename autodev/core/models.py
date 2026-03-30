@@ -142,6 +142,7 @@ class TaskStatus(enum.StrEnum):
     ASSIGNED = "assigned"
     IN_PROGRESS = "in_progress"
     AUTOREVIEW = "autoreview"
+    QA_TESTING = "qa_testing"
     REVIEW = "review"  # kept for backward compat
     READY_TO_RELEASE = "ready_to_release"
     STAGING = "staging"

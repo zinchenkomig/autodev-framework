@@ -12,6 +12,7 @@ const statusConfig: Record<TaskStatus, { label: string; color: string; bg: strin
   assigned:    { label: 'assigned',    color: '#9876AA', bg: 'rgba(152,118,170,0.15)' },
   in_progress: { label: 'in progress', color: '#CC7832', bg: 'rgba(204,120,50,0.15)'  },
   autoreview:  { label: 'auto review', color: '#3592C4', bg: 'rgba(53,146,196,0.15)'  },
+  qa_testing:   { label: 'QA testing', color: '#E5C07B', bg: 'rgba(229,192,123,0.15)' },
   review:      { label: 'review',      color: '#3592C4', bg: 'rgba(53,146,196,0.15)'  },
   ready_to_release: { label: 'staging', color: '#9876AA', bg: 'rgba(152,118,170,0.15)' },
   staging:      { label: 'staging',      color: '#E5C07B', bg: 'rgba(229,192,123,0.15)'  },

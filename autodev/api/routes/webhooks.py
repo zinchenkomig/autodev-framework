@@ -178,9 +178,9 @@ async def github_ci_webhook(
                 return {"status": "hotfix_merged", "task_id": str(task.id), "release": release.version}
             else:
                 # No staging release — treat as regular
-                task.status = TaskStatus.READY_TO_RELEASE
+                task.status = TaskStatus.QA_TESTING
         else:
-            task.status = TaskStatus.READY_TO_RELEASE
+            task.status = TaskStatus.QA_TESTING
         
         logger.info(f"CI webhook: promoted task {task.id} to {task.status}")
         return {"status": "promoted", "task_id": str(task.id), "task": task.title}
