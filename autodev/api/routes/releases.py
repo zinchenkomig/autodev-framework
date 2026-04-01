@@ -581,3 +581,81 @@ async def release_feedback(
         "tasks": created,
         "release": release.version,
     }
+
+
+@router.post("/{release_id}/remove-task/{task_id}", summary="Remove task from release")
+async def remove_task_from_release(
+    release_id: str,
+    task_id: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict:
+    """Remove a task from a release. Reverts task to queued status, closes PR, deletes branch."""
+    import os
+    import httpx
+    
+    try:
+        release_uuid = uuid.UUID(release_id)
+        task_uuid = uuid.UUID(task_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid ID format")
+    
+    release = await session.get(Release, release_uuid)
+    if not release:
+        raise HTTPException(status_code=404, detail="Release not found")
+    
+    task = await session.get(Task, task_uuid)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    actions = []
+    github_token = os.environ.get("GITHUB_TOKEN", "")
+    
+    # 1. Close PR if exists
+    if task.pr_url and task.pr_number and task.repo and github_token:
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.patch(
+                    f"https://api.github.com/repos/{task.repo}/pulls/{task.pr_number}",
+                    headers={"Authorization": f"token {github_token}"},
+                    json={"state": "closed"},
+                    timeout=10.0,
+                )
+                if resp.status_code == 200:
+                    actions.append(f"Closed PR #{task.pr_number}")
+        except Exception as e:
+            actions.append(f"Failed to close PR: {e}")
+    
+    # 2. Delete branch if exists
+    if task.branch and task.repo and github_token:
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.delete(
+                    f"https://api.github.com/repos/{task.repo}/git/refs/heads/{task.branch}",
+                    headers={"Authorization": f"token {github_token}"},
+                    timeout=10.0,
+                )
+                if resp.status_code == 204:
+                    actions.append(f"Deleted branch {task.branch}")
+        except Exception as e:
+            actions.append(f"Failed to delete branch: {e}")
+    
+    # 3. Remove task from release
+    if release.tasks and task_uuid in release.tasks:
+        release.tasks = [t for t in release.tasks if t != task_uuid]
+        actions.append(f"Removed from release {release.version}")
+    
+    # 4. Reset task
+    task.status = "queued"
+    task.release_id = None
+    task.branch = None
+    task.pr_number = None
+    task.pr_url = None
+    task.assigned_to = None
+    actions.append("Task reset to queued")
+    
+    return {
+        "status": "removed",
+        "task": task.title,
+        "release": release.version,
+        "actions": actions,
+    }
