@@ -334,6 +334,137 @@ async def restart_task(
     return results
 
 
+class RestartStagingBody(BaseModel):
+    comment: str = ""
+
+
+@router.post("/{task_id}/restart-staging", summary="Restart task from staging - revert merge, requeue as hotfix")
+async def restart_staging_task(
+    task_id: str,
+    body: RestartStagingBody,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict:
+    """Restart a staging task: revert the merged PR on develop, remove from release, requeue as hotfix.
+    
+    The task goes back to queued with task_type=hotfix so it bypasses release manager 
+    and goes straight to staging after autoreview.
+    """
+    import os
+    import httpx
+    from autodev.core.github_ops import revert_pr_merge, extract_pr_info
+    from autodev.core.models import Release
+    
+    try:
+        tid = uuid.UUID(task_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid task ID format")
+    
+    task = await session.get(Task, tid)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    if task.status != "staging":
+        raise HTTPException(status_code=400, detail=f"Task must be in staging status (current: {task.status})")
+    
+    actions = []
+    github_token = os.environ.get("GITHUB_TOKEN", "")
+    
+    # 1. Revert the merged PR on develop
+    if task.pr_number and task.repo:
+        # Extract repo name from full path (e.g., "zinchenkomig/great_alerter_backend" -> "great_alerter_backend")
+        repo_name = task.repo.split("/")[-1] if "/" in task.repo else task.repo
+        revert_result = await revert_pr_merge(repo_name, task.pr_number)
+        if revert_result["success"]:
+            actions.append(f"✅ Reverted PR #{task.pr_number} merge on develop (sha: {revert_result['revert_sha'][:8]})")
+        else:
+            actions.append(f"⚠️ Revert failed: {revert_result['error']}")
+    
+    # 2. Close PR if still open (shouldn't be, but just in case)
+    if task.pr_number and task.repo and github_token:
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.patch(
+                    f"https://api.github.com/repos/{task.repo}/pulls/{task.pr_number}",
+                    headers={"Authorization": f"token {github_token}"},
+                    json={"state": "closed"},
+                    timeout=10.0,
+                )
+                if resp.status_code == 200:
+                    actions.append(f"Closed PR #{task.pr_number}")
+        except Exception as e:
+            actions.append(f"Failed to close PR: {e}")
+    
+    # 3. Delete feature branch
+    if task.branch and task.repo and github_token:
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.delete(
+                    f"https://api.github.com/repos/{task.repo}/git/refs/heads/{task.branch}",
+                    headers={"Authorization": f"token {github_token}"},
+                    timeout=10.0,
+                )
+                if resp.status_code == 204:
+                    actions.append(f"Deleted branch {task.branch}")
+                elif resp.status_code == 422:
+                    actions.append(f"Branch {task.branch} already deleted")
+        except Exception as e:
+            actions.append(f"Failed to delete branch: {e}")
+    
+    # 4. Remove task from release
+    if task.release_id:
+        release = await session.get(Release, task.release_id)
+        if release and release.tasks and tid in release.tasks:
+            release.tasks = [t for t in release.tasks if t != tid]
+            actions.append(f"Removed from release {release.version}")
+        task.release_id = None
+    
+    # 5. Reset task as hotfix
+    original_description = task.description or ""
+    if body.comment.strip():
+        task.description = (
+            f"{original_description}\n\n"
+            f"---\n⚠️ **Restart feedback:**\n{body.comment}\n"
+            f"(Restarted from staging at {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')})"
+        )
+        actions.append(f"Added restart feedback to description")
+    
+    task.status = "queued"
+    task.task_type = "hotfix"
+    task.assigned_to = None
+    task.branch = None
+    task.pr_number = None
+    task.pr_url = None
+    task.updated_at = datetime.now(UTC)
+    
+    actions.append("Task reset to queued as hotfix (bypasses release manager)")
+    
+    # 6. Reset developer agent if stuck on this task
+    from autodev.core.models import Agent
+    dev_agent = await session.get(Agent, "developer")
+    if dev_agent and str(dev_agent.current_task_id) == task_id:
+        dev_agent.status = "idle"
+        dev_agent.current_task_id = None
+        actions.append("Reset developer agent")
+    
+    # 7. Log the restart
+    from autodev.core.models import AgentLog
+    log = AgentLog(
+        agent_id="user",
+        task_id=tid,
+        level="warning",
+        message=f"Task restarted from staging" + (f": {body.comment}" if body.comment.strip() else ""),
+        details="\n".join(actions),
+    )
+    session.add(log)
+    
+    return {
+        "task_id": task_id,
+        "status": "restarted",
+        "task_type": "hotfix",
+        "actions": actions,
+    }
+
+
 class RequestChangesBody(BaseModel):
     comment: str
     priority: str = "high"

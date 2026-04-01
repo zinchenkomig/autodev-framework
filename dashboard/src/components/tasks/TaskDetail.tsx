@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { type Task, type TaskStatus, type TaskLog, updateTask, getTaskLogs, restartTask, requestChanges } from '@/lib/api'
+import { type Task, type TaskStatus, type TaskLog, updateTask, getTaskLogs, restartTask, requestChanges, restartStagingTask } from '@/lib/api'
 import { formatDistanceToNow } from '@/lib/utils'
 import { X, GitPullRequest, GitBranch, ChevronDown, ChevronRight, RefreshCw, FileText, RotateCcw, Loader2 } from 'lucide-react'
 import { PriorityBadge } from '@/components/Badge'
@@ -41,6 +41,15 @@ const levelConfig: Record<string, { color: string; label: string }> = {
   error:   { color: '#CC4E4E', label: 'ERR' },
 }
 
+function formatLogTime(dateStr: string): string {
+  try {
+    const d = new Date(dateStr)
+    return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  } catch {
+    return ''
+  }
+}
+
 function LogEntry({ log }: { log: TaskLog }) {
   const [expanded, setExpanded] = useState(false)
   const cfg = levelConfig[log.level] || levelConfig.info
@@ -56,6 +65,7 @@ function LogEntry({ log }: { log: TaskLog }) {
         <span style={{ color: '#515151', width: '12px', marginTop: '2px' }}>
           {hasDetails ? (expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />) : null}
         </span>
+        <span className="font-mono shrink-0" style={{ color: '#616161', fontSize: '10px' }}>{formatLogTime(log.created_at)}</span>
         <span className="px-1 rounded font-bold" style={{ color: cfg.color, fontSize: '10px' }}>{cfg.label}</span>
         <span className="flex-1" style={{ color: '#BABABA', wordBreak: 'break-word' }}>{log.message}</span>
       </div>
@@ -233,6 +243,55 @@ export function TaskDetail({ task, onClose, onStatusChange }: TaskDetailProps) {
                 <p className="text-xs mt-2" style={{ color: changesResult.startsWith('✅') ? '#6A8759' : '#CC4E4E' }}>
                   {changesResult}
                 </p>
+              )}
+            </div>
+          )}
+
+          {/* Staging Restart */}
+          {effectiveStatus === 'staging' && (
+            <div>
+              <p className="text-xs uppercase tracking-wider mb-2" style={{ color: '#808080' }}>Restart from Staging</p>
+              <textarea
+                value={changesComment}
+                onChange={e => setChangesComment(e.target.value)}
+                placeholder="Что сделано некорректно? (опционально)"
+                className="w-full px-3 py-2 rounded text-xs resize-none outline-none"
+                rows={3}
+                style={{ background: '#1E1F22', border: '1px solid #515151', color: '#BABABA' }}
+              />
+              <button
+                onClick={async () => {
+                  if (!task) return
+                  setRestarting(true)
+                  setRestartResult(null)
+                  try {
+                    const result = await restartStagingTask(task.id, changesComment)
+                    setRestartResult(result.actions)
+                    setCurrentStatus('queued')
+                    onStatusChange?.(task.id, 'queued')
+                    setChangesComment('')
+                  } catch (e) {
+                    setRestartResult(['Error: ' + String(e)])
+                  } finally {
+                    setRestarting(false)
+                  }
+                }}
+                disabled={restarting}
+                className="mt-2 flex items-center gap-2 px-3 py-2 rounded text-xs font-medium transition-colors disabled:opacity-50"
+                style={{ background: '#CC4E4E22', color: '#CC4E4E', border: '1px solid #CC4E4E' }}
+              >
+                {restarting ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
+                Restart (Revert & Requeue as Hotfix)
+              </button>
+              <p className="text-xs mt-1" style={{ color: '#515151' }}>
+                Reverts merge on develop, removes from release, requeues as hotfix
+              </p>
+              {restartResult && (
+                <div className="mt-2 p-2 rounded text-xs" style={{ background: '#1E1F22', border: '1px solid #515151' }}>
+                  {restartResult.map((action, i) => (
+                    <p key={i} style={{ color: action.startsWith('Error') || action.includes('⚠️') ? '#CC4E4E' : '#6A8759' }}>{action}</p>
+                  ))}
+                </div>
               )}
             </div>
           )}

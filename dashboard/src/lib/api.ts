@@ -392,6 +392,24 @@ export async function deleteAlert(alertId: string): Promise<void> {
   if (!res.ok) throw new Error(`Failed to delete alert: ${res.status}`)
 }
 
+// Restart a staging task (revert merge, requeue as hotfix)
+export interface RestartStagingResult {
+  task_id: string
+  status: string
+  task_type: string
+  actions: string[]
+}
+
+export async function restartStagingTask(taskId: string, comment: string = ''): Promise<RestartStagingResult> {
+  const res = await fetch(`${BASE_URL}/api/tasks/${taskId}/restart-staging`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ comment })
+  })
+  if (!res.ok) throw new Error(`Failed: ${res.status}`)
+  return res.json()
+}
+
 // Request changes on a task (creates follow-up task)
 export async function requestChanges(taskId: string, comment: string): Promise<{ status: string; followup_task_id: string; followup_title: string }> {
   const res = await fetch(`${BASE_URL}/api/tasks/${taskId}/request-changes`, {
