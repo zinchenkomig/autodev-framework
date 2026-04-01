@@ -589,9 +589,11 @@ async def remove_task_from_release(
     task_id: str,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict:
-    """Remove a task from a release. Reverts task to queued status, closes PR, deletes branch."""
+    """Remove a task from release: revert merge commit on develop, remove from release, reset task."""
     import os
     import httpx
+    import tempfile
+    import asyncio
     
     try:
         release_uuid = uuid.UUID(release_id)
@@ -610,22 +612,59 @@ async def remove_task_from_release(
     actions = []
     github_token = os.environ.get("GITHUB_TOKEN", "")
     
-    # 1. Close PR if exists
-    if task.pr_url and task.pr_number and task.repo and github_token:
+    # 1. Revert the merge commit on develop (if PR was merged)
+    if task.pr_url and task.repo and github_token:
         try:
+            # Get merge commit SHA
+            parts = task.pr_url.rstrip("/").split("/")
+            pr_number = parts[-1]
+            
             async with httpx.AsyncClient() as client:
-                resp = await client.patch(
-                    f"https://api.github.com/repos/{task.repo}/pulls/{task.pr_number}",
+                resp = await client.get(
+                    f"https://api.github.com/repos/{task.repo}/pulls/{pr_number}",
                     headers={"Authorization": f"token {github_token}"},
-                    json={"state": "closed"},
                     timeout=10.0,
                 )
                 if resp.status_code == 200:
-                    actions.append(f"Closed PR #{task.pr_number}")
+                    pr_data = resp.json()
+                    merge_sha = pr_data.get("merge_commit_sha")
+                    was_merged = pr_data.get("merged", False)
+                    
+                    if was_merged and merge_sha:
+                        # Git revert via clone + push
+                        tmpdir = tempfile.mkdtemp(prefix="revert-")
+                        clone_url = f"https://x-access-token:{github_token}@github.com/{task.repo}.git"
+                        
+                        proc = await asyncio.create_subprocess_exec(
+                            "/bin/bash", "-c",
+                            f"git clone -b develop {clone_url} {tmpdir} && "
+                            f"cd {tmpdir} && "
+                            f"git revert {merge_sha} --no-edit -m 1 && "
+                            f"git push origin develop",
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE,
+                        )
+                        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+                        
+                        if proc.returncode == 0:
+                            actions.append(f"Reverted merge commit {merge_sha[:12]} on develop")
+                        else:
+                            actions.append(f"Failed to revert: {stderr.decode()[:200]}")
+                        
+                        await asyncio.create_subprocess_exec("/bin/rm", "-rf", tmpdir)
+                    elif not was_merged:
+                        # PR not merged — just close it
+                        await client.patch(
+                            f"https://api.github.com/repos/{task.repo}/pulls/{pr_number}",
+                            headers={"Authorization": f"token {github_token}"},
+                            json={"state": "closed"},
+                            timeout=10.0,
+                        )
+                        actions.append(f"Closed unmerged PR #{pr_number}")
         except Exception as e:
-            actions.append(f"Failed to close PR: {e}")
+            actions.append(f"Revert error: {e}")
     
-    # 2. Delete branch if exists
+    # 2. Delete branch
     if task.branch and task.repo and github_token:
         try:
             async with httpx.AsyncClient() as client:
@@ -636,8 +675,8 @@ async def remove_task_from_release(
                 )
                 if resp.status_code == 204:
                     actions.append(f"Deleted branch {task.branch}")
-        except Exception as e:
-            actions.append(f"Failed to delete branch: {e}")
+        except Exception:
+            pass
     
     # 3. Remove task from release
     if release.tasks and task_uuid in release.tasks:
