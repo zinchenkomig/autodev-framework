@@ -68,7 +68,7 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
-            kubectl -n autodev set image deploy/autodev-api autodev-api=${{ env.API_IMAGE }}:${{ github.sha }}
+            kubectl -n autodev set image deploy/autodev-api api=${{ env.API_IMAGE }}:${{ github.sha }}
             kubectl -n autodev set image deploy/autodev-dashboard dashboard=${{ env.DASHBOARD_IMAGE }}:${{ github.sha }}
             kubectl -n autodev rollout status deploy/autodev-api --timeout=120s
             kubectl -n autodev rollout status deploy/autodev-dashboard --timeout=120s
