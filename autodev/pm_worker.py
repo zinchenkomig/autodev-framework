@@ -18,10 +18,10 @@ from uuid import uuid4
 
 import httpx
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from autodev.core.models import Task, TaskStatus, Priority, ProjectContext
 from autodev.agent_log import log_agent
+from autodev.core.models import Priority, ProjectContext, Task, TaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,11 @@ async def get_github_issues(repo: str, limit: int = 10) -> list[dict]:
             )
             if resp.status_code == 200:
                 return [
-                    {"number": i["number"], "title": i["title"], "labels": [l["name"] for l in i.get("labels", [])]}
+                    {
+                        "number": i["number"],
+                        "title": i["title"],
+                        "labels": [l["name"] for l in i.get("labels", [])],
+                    }
                     for i in resp.json()
                     if "pull_request" not in i  # Skip PRs
                 ]
@@ -72,10 +76,10 @@ async def call_pm_llm(messages: list[dict]) -> str:
     key = os.environ.get("OPENROUTER_API_KEY")
     if not key:
         return ""
-    
+
     base = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     model = os.environ.get("PM_MODEL", "z-ai/glm-5-turbo")
-    
+
     async with httpx.AsyncClient() as client:
         r = await client.post(
             f"{base}/chat/completions",
@@ -110,39 +114,48 @@ def parse_tasks(response: str) -> list[dict]:
 
 async def run_pm_cycle(session_factory: async_sessionmaker) -> list[dict]:
     """Run one PM cycle: analyze repos, propose and create tasks."""
-    
+
     async with session_factory() as session:
         # 1. Get repos
         result = await session.execute(select(ProjectContext.repo))
         repos = [r[0] for r in result.all()]
-        
+
         if not repos:
             logger.info("PM Worker: no repos configured")
             return []
-        
+
         # 2. Get current tasks and check backlog limit
         result = await session.execute(
             select(Task).where(
-                Task.status.in_([
-                    TaskStatus.QUEUED, TaskStatus.IN_PROGRESS, 
-                    TaskStatus.AUTOREVIEW, TaskStatus.READY_TO_RELEASE,
-                    TaskStatus.STAGING
-                ])
+                Task.status.in_(
+                    [
+                        TaskStatus.QUEUED,
+                        TaskStatus.IN_PROGRESS,
+                        TaskStatus.AUTOREVIEW,
+                        TaskStatus.READY_TO_RELEASE,
+                        TaskStatus.STAGING,
+                    ]
+                )
             )
         )
         active_tasks = result.scalars().all()
         active_titles = [t.title for t in active_tasks]
-        
+
         # Check backlog SP limit
         backlog_sp = sum(t.story_points or 1 for t in active_tasks)
         max_backlog_sp = int(os.environ.get("MAX_BACKLOG_SP", "15"))
-        
+
         if backlog_sp >= max_backlog_sp:
             logger.info(f"PM Worker: backlog full ({backlog_sp}/{max_backlog_sp} SP). Skipping.")
-            await log_agent(session, "pm", "info", f"⏸️ Backlog full ({backlog_sp}/{max_backlog_sp} SP). Skipping task creation.")
+            await log_agent(
+                session,
+                "pm",
+                "info",
+                f"⏸️ Backlog full ({backlog_sp}/{max_backlog_sp} SP). Skipping task creation.",
+            )
             await session.commit()
             return []
-        
+
         # 3. Build context
         repo_docs = []
         all_issues = []
@@ -152,19 +165,19 @@ async def run_pm_cycle(session_factory: async_sessionmaker) -> list[dict]:
                 repo_docs.append(docs)
             issues = await get_github_issues(repo)
             all_issues.extend(issues)
-        
+
         project_context = "\n\n---\n\n".join(repo_docs) if repo_docs else "No project docs found"
-        
+
         issues_text = ""
         if all_issues:
             issues_text = "\n## Open GitHub Issues:\n"
             issues_text += "\n".join([f"- #{i['number']}: {i['title']} [{', '.join(i['labels'])}]" for i in all_issues])
-        
+
         active_text = ""
         if active_titles:
             active_text = "\n## Current Active Tasks (DO NOT duplicate):\n"
             active_text += "\n".join([f"- {t}" for t in active_titles])
-        
+
         # 4. Ask LLM to propose tasks
         system_prompt = f"""You are an autonomous PM agent. Your job is to analyze the project and propose improvements.
 
@@ -203,31 +216,38 @@ description: Detailed description of what needs to be done
 - 8 — very complex (architecture change, migration)"""
 
         user_msg = "Analyze the project and propose tasks for improvement. Focus on what brings the most value."
-        
+
         try:
-            response = await call_pm_llm([
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_msg},
-            ])
+            response = await call_pm_llm(
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_msg},
+                ]
+            )
         except Exception as e:
             logger.error(f"PM Worker: LLM call failed: {e}")
             return []
-        
+
         if "NO_TASKS" in response:
             logger.info("PM Worker: no tasks proposed")
             await log_agent(session, "pm", "info", "🤔 Analyzed project — no improvements needed right now.")
             await session.commit()
             return []
-        
+
         # 5. Parse and create tasks
         proposed = parse_tasks(response)
         if not proposed:
             logger.info("PM Worker: no tasks parsed from response")
             return []
-        
-        pmap = {"low": Priority.LOW, "normal": Priority.NORMAL, "high": Priority.HIGH, "critical": Priority.CRITICAL}
+
+        pmap = {
+            "low": Priority.LOW,
+            "normal": Priority.NORMAL,
+            "high": Priority.HIGH,
+            "critical": Priority.CRITICAL,
+        }
         created = []
-        
+
         prev_task_id = None
         for p in proposed:
             # Skip if title is too similar to existing
@@ -235,16 +255,16 @@ description: Detailed description of what needs to be done
             if any(title.lower() in t.lower() or t.lower() in title.lower() for t in active_titles):
                 logger.info(f"PM Worker: skipping duplicate '{title}'")
                 continue
-            
+
             depends_on = [prev_task_id] if prev_task_id else []
-            
+
             # Parse story_points (default 2)
             try:
                 sp = int(p.get("story_points", "2"))
                 sp = max(1, min(sp, 13))  # clamp to 1-13
             except (ValueError, TypeError):
                 sp = 2
-            
+
             task = Task(
                 id=uuid4(),
                 title=title,
@@ -262,18 +282,19 @@ description: Detailed description of what needs to be done
             await session.flush()
             prev_task_id = task.id
             created.append({"id": str(task.id), "title": title, "repo": task.repo})
-        
+
         await session.commit()
-        
+
         # Log task creation
-        titles = ", ".join([c["title"] for c in created])
         await log_agent(
-            session, "pm", "info",
+            session,
+            "pm",
+            "info",
             f"📋 Created {len(created)} tasks",
-            details=f"Tasks created:\n" + "\n".join([f"- {c['title']} ({c['repo']})" for c in created])
+            details="Tasks created:\n" + "\n".join([f"- {c['title']} ({c['repo']})" for c in created]),
         )
         await session.commit()
-        
+
         logger.info(f"PM Worker: created {len(created)} tasks")
         return created
 
@@ -282,16 +303,17 @@ async def notify_new_tasks(tasks: list[dict]) -> None:
     """Notify user about auto-created tasks via Telegram."""
     if not tasks:
         return
-    
+
     try:
         from autodev.integrations.telegram_pm import get_telegram_bot
+
         bot = await get_telegram_bot()
-        
+
         text = f"📋 <b>PM Agent создал {len(tasks)} задач(и):</b>\n\n"
         for t in tasks:
             text += f"• <b>{t['title']}</b>\n  <i>{t['repo']}</i>\n\n"
         text += "Задачи в очереди. Удалите ненужные через Dashboard."
-        
+
         await bot.send_message(bot.owner_chat_id, text)
     except Exception as e:
         logger.warning(f"PM Worker: failed to notify: {e}")
@@ -300,12 +322,12 @@ async def notify_new_tasks(tasks: list[dict]) -> None:
 async def pm_worker_loop(session_factory: async_sessionmaker) -> None:
     """Endless loop: run PM cycle every hour."""
     import asyncio
-    
+
     logger.info(f"PM Worker started — running every {PM_INTERVAL_SECONDS}s")
-    
+
     # Wait 2 minutes on startup before first run
     await asyncio.sleep(120)
-    
+
     while True:
         try:
             created = await run_pm_cycle(session_factory)
@@ -313,5 +335,5 @@ async def pm_worker_loop(session_factory: async_sessionmaker) -> None:
                 await notify_new_tasks(created)
         except Exception:
             logger.exception("PM Worker: unhandled error")
-        
+
         await asyncio.sleep(PM_INTERVAL_SECONDS)

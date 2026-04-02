@@ -82,9 +82,7 @@ async def list_agents(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> list[AgentResponse]:
     """Return all registered agents, including current task title."""
-    result = await session.execute(
-        select(Agent).options(selectinload(Agent.current_task))
-    )
+    result = await session.execute(select(Agent).options(selectinload(Agent.current_task)))
     agents = result.scalars().all()
     return [_agent_to_response(a) for a in agents]
 
@@ -101,12 +99,7 @@ async def get_agent_logs(
     if agent is None:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    stmt = (
-        select(AgentLog)
-        .where(AgentLog.agent_id == agent_id)
-        .order_by(AgentLog.created_at.desc())
-        .limit(limit)
-    )
+    stmt = select(AgentLog).where(AgentLog.agent_id == agent_id).order_by(AgentLog.created_at.desc()).limit(limit)
     if task_id is not None:
         try:
             tid = _uuid.UUID(task_id)
@@ -164,9 +157,7 @@ async def toggle_agent(
 ) -> AgentResponse:
     """Toggle an agent's enabled state."""
     # Use eager loading for current_task to avoid lazy loading issues
-    result = await session.execute(
-        select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.current_task))
-    )
+    result = await session.execute(select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.current_task)))
     agent = result.scalar_one_or_none()
     if agent is None:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -194,11 +185,12 @@ async def cancel_developer_task(request: Request) -> dict:
     if orchestrator is None:
         # Fallback to global
         from autodev.orchestrator import get_orchestrator
+
         orchestrator = get_orchestrator()
-    
+
     if orchestrator is None:
         raise HTTPException(status_code=503, detail="Orchestrator not running")
-    
+
     cancelled = orchestrator.cancel_current_task()
     if cancelled:
         return {"status": "cancelled", "message": "Task cancellation requested"}

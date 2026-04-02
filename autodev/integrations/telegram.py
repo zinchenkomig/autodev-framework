@@ -91,9 +91,7 @@ class TelegramNotifier:
 
     def __init__(self, bot_token: str, chat_id: str) -> None:
         self.chat_id = chat_id
-        self._client = httpx.AsyncClient(
-            base_url=f"{TELEGRAM_API_BASE}/bot{bot_token}"
-        )
+        self._client = httpx.AsyncClient(base_url=f"{TELEGRAM_API_BASE}/bot{bot_token}")
 
     async def send(self, text: str, parse_mode: str = "HTML") -> dict:
         """Send a text message with the given parse mode.

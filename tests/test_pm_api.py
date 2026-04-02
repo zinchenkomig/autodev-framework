@@ -38,6 +38,7 @@ async def app():
         await conn.run_sync(Base.metadata.create_all)
 
     from autodev.api.app import create_app
+
     application = create_app()
 
     yield application
@@ -161,9 +162,7 @@ async def test_chat_suggest_shows_queued_tasks(app, client: AsyncClient):
 @pytest.mark.asyncio
 async def test_chat_auth_creates_subtasks(client: AsyncClient):
     """A message with 'авторизацию' should create multiple subtasks."""
-    resp = await client.post(
-        "/pm/chat", json={"message": "Добавь авторизацию в приложение"}
-    )
+    resp = await client.post("/pm/chat", json={"message": "Добавь авторизацию в приложение"})
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["tasks_created"]) >= 3

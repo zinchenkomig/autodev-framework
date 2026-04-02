@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-import uuid
 import os
+import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select, desc
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
-import httpx
 
 from autodev.api.database import get_session
-from autodev.core.models import Alert, AlertSeverity, AlertType
+from autodev.core.models import Alert
 
 router = APIRouter(tags=["alerts"])
 
@@ -56,25 +56,18 @@ class AlertStats(BaseModel):
 
 async def notify_openclaw(alert: Alert) -> bool:
     """Send alert to OpenClaw for Brian to handle."""
-    severity_emoji = {
-        "critical": "🚨",
-        "high": "🔴",
-        "medium": "🟡",
-        "low": "🟢"
-    }
+    severity_emoji = {"critical": "🚨", "high": "🔴", "medium": "🟡", "low": "🟢"}
     emoji = severity_emoji.get(alert.severity, "⚠️")
-    
+
     message = (
-        f"{emoji} **AutoDev Alert** [{alert.severity.upper()}]\n\n"
-        f"**Type:** {alert.type}\n"
-        f"**Title:** {alert.title}\n"
+        f"{emoji} **AutoDev Alert** [{alert.severity.upper()}]\n\n**Type:** {alert.type}\n**Title:** {alert.title}\n"
     )
     if alert.message:
         message += f"\n**Details:**\n```\n{alert.message[:1000]}\n```\n"
     if alert.source:
         message += f"\n**Source:** {alert.source}"
     message += f"\n\n**Alert ID:** `{alert.id}`"
-    
+
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
@@ -83,9 +76,9 @@ async def notify_openclaw(alert: Alert) -> bool:
                     "channel": "telegram",
                     "account": "default",
                     "chatId": OPENCLAW_CHAT_ID,
-                    "message": message
+                    "message": message,
                 },
-                timeout=10.0
+                timeout=10.0,
             )
             return resp.status_code == 200
     except Exception as e:
@@ -113,12 +106,12 @@ async def create_alert(
     )
     session.add(alert)
     await session.flush()
-    
+
     # Notify OpenClaw
     if notify:
         notified = await notify_openclaw(alert)
         alert.notified = notified
-    
+
     return AlertResponse(
         id=str(alert.id),
         type=alert.type,
@@ -144,17 +137,17 @@ async def list_alerts(
 ) -> list[AlertResponse]:
     """List alerts with optional filters."""
     query = select(Alert).order_by(desc(Alert.created_at)).limit(limit)
-    
+
     if unresolved_only:
-        query = query.where(Alert.resolved == False)
+        query = query.where(not Alert.resolved)
     if severity:
         query = query.where(Alert.severity == severity)
     if alert_type:
         query = query.where(Alert.type == alert_type)
-    
+
     result = await session.execute(query)
     alerts = result.scalars().all()
-    
+
     return [
         AlertResponse(
             id=str(a.id),
@@ -180,11 +173,11 @@ async def get_alert_stats(
     """Get alert statistics."""
     result = await session.execute(select(Alert))
     alerts = result.scalars().all()
-    
+
     by_type: dict[str, int] = {}
     for a in alerts:
         by_type[a.type] = by_type.get(a.type, 0) + 1
-    
+
     return AlertStats(
         total=len(alerts),
         unresolved=sum(1 for a in alerts if not a.resolved),
@@ -205,15 +198,15 @@ async def resolve_alert(
         aid = uuid.UUID(alert_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid alert ID")
-    
+
     alert = await session.get(Alert, aid)
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
-    
+
     alert.resolved = True
     alert.resolved_at = datetime.now(UTC)
     alert.resolved_by = resolved_by
-    
+
     return AlertResponse(
         id=str(alert.id),
         type=alert.type,
@@ -239,10 +232,10 @@ async def delete_alert(
         aid = uuid.UUID(alert_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid alert ID")
-    
+
     alert = await session.get(Alert, aid)
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
-    
+
     await session.delete(alert)
     return {"status": "deleted"}

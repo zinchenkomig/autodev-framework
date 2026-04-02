@@ -77,9 +77,7 @@ class NotificationManager:
             try:
                 notifier = self._create_notifier(target.type, cfg)
             except Exception as exc:
-                logger.warning(
-                    "Failed to create notifier for type %s: %s", target.type, exc
-                )
+                logger.warning("Failed to create notifier for type %s: %s", target.type, exc)
                 continue
 
             for event in target_events:

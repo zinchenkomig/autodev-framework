@@ -550,9 +550,7 @@ async def test_evaluate_staging_files_issues_on_errors() -> None:
 
 @pytest.mark.asyncio
 async def test_generate_report_with_feature_evaluations() -> None:
-    page = PageEvaluation(
-        page_name="Search", url=BASE_URL + "/search", loaded=True, status_code=200
-    )
+    page = PageEvaluation(page_name="Search", url=BASE_URL + "/search", loaded=True, status_code=200)
     feat = FeatureEvaluation(
         feature="search",
         base_url=BASE_URL,

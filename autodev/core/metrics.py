@@ -24,8 +24,8 @@ from autodev.core.models import Agent, AgentRun, AgentRunStatus, Task, TaskStatu
 class DailyMetric:
     """A single day's aggregated metric value."""
 
-    date: str          # ISO-8601 date string, e.g. "2026-03-15"
-    value: float       # numeric metric value for that day
+    date: str  # ISO-8601 date string, e.g. "2026-03-15"
+    value: float  # numeric metric value for that day
 
 
 @dataclass
@@ -33,8 +33,8 @@ class CostSummary:
     """Aggregated cost metrics over a period."""
 
     total_cost_usd: float
-    cost_by_agent: dict[str, float]        # agent_id → total USD
-    cost_by_day: list[DailyMetric]         # daily spend
+    cost_by_agent: dict[str, float]  # agent_id → total USD
+    cost_by_day: list[DailyMetric]  # daily spend
     total_tokens: int
     avg_cost_per_task: float
     period_days: int
@@ -44,25 +44,25 @@ class CostSummary:
 class SpeedMetrics:
     """Aggregated speed / throughput metrics over a period."""
 
-    avg_issue_to_pr_hours: float           # avg hours from task creation to PR
-    avg_pr_to_merge_hours: float           # avg hours from PR to task done
-    throughput_tasks_per_day: float        # completed tasks per day
+    avg_issue_to_pr_hours: float  # avg hours from task creation to PR
+    avg_pr_to_merge_hours: float  # avg hours from PR to task done
+    throughput_tasks_per_day: float  # completed tasks per day
     tasks_completed: int
     period_days: int
-    daily_throughput: list[DailyMetric]    # completed tasks per day over period
+    daily_throughput: list[DailyMetric]  # completed tasks per day over period
 
 
 @dataclass
 class QualityMetrics:
     """Aggregated quality metrics over a period."""
 
-    agent_success_rate: float              # fraction of runs that succeeded
-    bugs_found_by_tester: int             # FAILED runs by tester agents
-    code_churn: int                        # total tasks that were re-run (>1 run)
+    agent_success_rate: float  # fraction of runs that succeeded
+    bugs_found_by_tester: int  # FAILED runs by tester agents
+    code_churn: int  # total tasks that were re-run (>1 run)
     total_runs: int
     failed_runs: int
     period_days: int
-    success_rate_by_agent: dict[str, float]   # agent_id → success_rate
+    success_rate_by_agent: dict[str, float]  # agent_id → success_rate
 
 
 @dataclass
@@ -145,13 +145,12 @@ class MetricsCollector:
                 select(
                     AgentRun.agent_id,
                     func.coalesce(func.sum(AgentRun.cost_usd), 0).label("agent_cost"),
-                ).where(AgentRun.started_at >= since)
+                )
+                .where(AgentRun.started_at >= since)
                 .group_by(AgentRun.agent_id)
             )
             cost_by_agent: dict[str, float] = {
-                row.agent_id: float(row.agent_cost)
-                for row in agent_rows
-                if row.agent_id is not None
+                row.agent_id: float(row.agent_cost) for row in agent_rows if row.agent_id is not None
             }
 
             # Daily costs
@@ -159,14 +158,12 @@ class MetricsCollector:
                 select(
                     func.date(AgentRun.started_at).label("day"),
                     func.coalesce(func.sum(AgentRun.cost_usd), 0).label("day_cost"),
-                ).where(AgentRun.started_at >= since)
+                )
+                .where(AgentRun.started_at >= since)
                 .group_by(func.date(AgentRun.started_at))
                 .order_by(text("day"))
             )
-            cost_by_day = [
-                DailyMetric(date=str(row.day), value=float(row.day_cost))
-                for row in daily_rows
-            ]
+            cost_by_day = [DailyMetric(date=str(row.day), value=float(row.day_cost)) for row in daily_rows]
 
             total_cost = float(total.total_cost)
             run_count = int(total.run_count)
@@ -204,9 +201,7 @@ class MetricsCollector:
             # avg issue→PR (created_at → updated_at for done tasks, in hours)
             if completed_tasks:
                 durations = [
-                    (
-                        t.updated_at.replace(tzinfo=UTC) - t.created_at.replace(tzinfo=UTC)
-                    ).total_seconds() / 3600
+                    (t.updated_at.replace(tzinfo=UTC) - t.created_at.replace(tzinfo=UTC)).total_seconds() / 3600
                     for t in completed_tasks
                 ]
                 avg_issue_to_pr = sum(durations) / len(durations)
@@ -224,9 +219,7 @@ class MetricsCollector:
             runs = list(run_rows.scalars().all())
             if runs:
                 run_durations = [
-                    (
-                        r.finished_at.replace(tzinfo=UTC) - r.started_at.replace(tzinfo=UTC)
-                    ).total_seconds() / 3600
+                    (r.finished_at.replace(tzinfo=UTC) - r.started_at.replace(tzinfo=UTC)).total_seconds() / 3600
                     for r in runs
                     if r.finished_at and r.started_at
                 ]
@@ -241,10 +234,7 @@ class MetricsCollector:
             for t in completed_tasks:
                 day = t.updated_at.date().isoformat()
                 daily_map[day] = daily_map.get(day, 0) + 1
-            daily_throughput = [
-                DailyMetric(date=day, value=float(count))
-                for day, count in sorted(daily_map.items())
-            ]
+            daily_throughput = [DailyMetric(date=day, value=float(count)) for day, count in sorted(daily_map.items())]
 
         return SpeedMetrics(
             avg_issue_to_pr_hours=avg_issue_to_pr,
@@ -267,9 +257,7 @@ class MetricsCollector:
 
         async with self._session_factory() as session:
             # All runs in period
-            all_runs_rows = await session.execute(
-                select(AgentRun).where(AgentRun.started_at >= since)
-            )
+            all_runs_rows = await session.execute(select(AgentRun).where(AgentRun.started_at >= since))
             all_runs = list(all_runs_rows.scalars().all())
 
             total_runs = len(all_runs)
@@ -315,9 +303,7 @@ class MetricsCollector:
                 if row.status == AgentRunStatus.SUCCESS:
                     agent_successes[aid] = agent_successes.get(aid, 0) + row.cnt
             success_rate_by_agent = {
-                aid: agent_successes.get(aid, 0) / total
-                for aid, total in agent_totals.items()
-                if total > 0
+                aid: agent_successes.get(aid, 0) / total for aid, total in agent_totals.items() if total > 0
             }
 
         return QualityMetrics(
@@ -344,16 +330,12 @@ class MetricsCollector:
             If no agent with the given ID exists.
         """
         async with self._session_factory() as session:
-            agent_row = await session.execute(
-                select(Agent).where(Agent.id == agent_id)
-            )
+            agent_row = await session.execute(select(Agent).where(Agent.id == agent_id))
             agent = agent_row.scalar_one_or_none()
             if agent is None:
                 raise ValueError(f"Agent '{agent_id}' not found")
 
-            runs_rows = await session.execute(
-                select(AgentRun).where(AgentRun.agent_id == agent_id)
-            )
+            runs_rows = await session.execute(select(AgentRun).where(AgentRun.agent_id == agent_id))
             runs = list(runs_rows.scalars().all())
 
             total_runs = len(runs)
@@ -362,9 +344,7 @@ class MetricsCollector:
             success_rate = successful_runs / total_runs if total_runs > 0 else 0.0
 
             durations = [
-                (
-                    r.finished_at.replace(tzinfo=UTC) - r.started_at.replace(tzinfo=UTC)
-                ).total_seconds()
+                (r.finished_at.replace(tzinfo=UTC) - r.started_at.replace(tzinfo=UTC)).total_seconds()
                 for r in runs
                 if r.started_at and r.finished_at
             ]
@@ -373,11 +353,7 @@ class MetricsCollector:
             total_cost = float(sum(r.cost_usd or Decimal("0") for r in runs))
             total_tokens = sum(r.tokens_used or 0 for r in runs)
 
-            last_run_at = (
-                agent.last_run_at.isoformat()
-                if agent.last_run_at
-                else None
-            )
+            last_run_at = agent.last_run_at.isoformat() if agent.last_run_at else None
 
         return AgentStats(
             agent_id=agent_id,
@@ -401,15 +377,14 @@ class MetricsCollector:
 
         async with self._session_factory() as session:
             # All-time total cost
-            total_cost_row = await session.execute(
-                select(func.coalesce(func.sum(AgentRun.cost_usd), 0).label("total"))
-            )
+            total_cost_row = await session.execute(select(func.coalesce(func.sum(AgentRun.cost_usd), 0).label("total")))
             total_cost = float(total_cost_row.scalar_one())
 
             # This-month cost
             month_cost_row = await session.execute(
-                select(func.coalesce(func.sum(AgentRun.cost_usd), 0).label("total"))
-                .where(AgentRun.started_at >= since_month)
+                select(func.coalesce(func.sum(AgentRun.cost_usd), 0).label("total")).where(
+                    AgentRun.started_at >= since_month
+                )
             )
             cost_this_month = float(month_cost_row.scalar_one())
 
@@ -423,9 +398,7 @@ class MetricsCollector:
             done_tasks = list(done_tasks_rows.scalars().all())
             if done_tasks:
                 durations_h = [
-                    (
-                        t.updated_at.replace(tzinfo=UTC) - t.created_at.replace(tzinfo=UTC)
-                    ).total_seconds() / 3600
+                    (t.updated_at.replace(tzinfo=UTC) - t.created_at.replace(tzinfo=UTC)).total_seconds() / 3600
                     for t in done_tasks
                 ]
                 avg_task_duration = sum(durations_h) / len(durations_h)
@@ -433,9 +406,7 @@ class MetricsCollector:
                 avg_task_duration = 0.0
 
             # Overall success rate (last 30 days)
-            runs_month_rows = await session.execute(
-                select(AgentRun).where(AgentRun.started_at >= since_month)
-            )
+            runs_month_rows = await session.execute(select(AgentRun).where(AgentRun.started_at >= since_month))
             runs_month = list(runs_month_rows.scalars().all())
             total_r = len(runs_month)
             failed_r = sum(1 for r in runs_month if r.status == AgentRunStatus.FAILED)
@@ -452,9 +423,7 @@ class MetricsCollector:
 
             # Active agents
             active_statuses = ["working", "busy", "assigned"]
-            active_row = await session.execute(
-                select(func.count(Agent.id)).where(Agent.status.in_(active_statuses))
-            )
+            active_row = await session.execute(select(func.count(Agent.id)).where(Agent.status.in_(active_statuses)))
             active_agents = int(active_row.scalar_one())
 
             # Top agent by cost
@@ -487,10 +456,7 @@ class MetricsCollector:
                 .group_by(func.date(AgentRun.started_at))
                 .order_by(text("day"))
             )
-            daily_cost = [
-                DailyMetric(date=str(row.day), value=float(row.day_cost))
-                for row in daily_cost_rows
-            ]
+            daily_cost = [DailyMetric(date=str(row.day), value=float(row.day_cost)) for row in daily_cost_rows]
 
         return DashboardStats(
             total_cost_usd=total_cost,

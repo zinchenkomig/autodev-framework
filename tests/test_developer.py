@@ -238,6 +238,7 @@ class _AnyInt:
     def __eq__(self, other: object) -> bool:
         return isinstance(other, int)
 
+
 ANY_INT = _AnyInt()
 
 
@@ -315,6 +316,7 @@ class TestProcessTaskFailure:
 
         class _FlippingRunner:
             calls: list = []
+
             async def run(self, instructions: str, context: dict) -> AgentResult:
                 nonlocal call_count
                 r = results[min(call_count, len(results) - 1)]

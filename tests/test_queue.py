@@ -200,9 +200,7 @@ async def test_get_returns_none_for_missing(queue: TaskQueue) -> None:
 async def test_depends_on_blocks_dequeue(queue: TaskQueue) -> None:
     """A task whose dependency is not yet done must not be dequeued."""
     dep = await queue.enqueue(task_data("Dependency", priority=Priority.LOW))
-    child = await queue.enqueue(
-        task_data("Child", priority=Priority.CRITICAL, depends_on=[dep.id])
-    )
+    child = await queue.enqueue(task_data("Child", priority=Priority.CRITICAL, depends_on=[dep.id]))
 
     # Only the dependency is eligible (child is blocked)
     t = await queue.dequeue()

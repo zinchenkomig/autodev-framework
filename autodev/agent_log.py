@@ -28,7 +28,7 @@ async def log_agent(
             tid = uuid.UUID(task_id)
         except ValueError:
             pass
-    
+
     entry = AgentLog(
         id=uuid.uuid4(),
         agent_id=agent_id,

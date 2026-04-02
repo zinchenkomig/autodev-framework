@@ -560,6 +560,7 @@ class ProviderRegistry:
             items = []
 
         for name, cfg in items:
+
             def _get(key: str, default: str = "") -> str:
                 if isinstance(cfg, dict):
                     return cfg.get(key, default)

@@ -129,9 +129,7 @@ class GitHubClient:
         response.raise_for_status()
         return response.json()
 
-    async def add_comment(
-        self, issue_number: int, body: str, repo: str | None = None
-    ) -> dict:
+    async def add_comment(self, issue_number: int, body: str, repo: str | None = None) -> dict:
         """Add a comment to an issue or pull request.
 
         Args:
@@ -336,9 +334,7 @@ class GitHubClient:
     # Releases (kept from original stub)
     # ------------------------------------------------------------------
 
-    async def create_release(
-        self, tag: str, name: str, body: str = "", repo: str | None = None
-    ) -> dict:
+    async def create_release(self, tag: str, name: str, body: str = "", repo: str | None = None) -> dict:
         """Create a GitHub Release.
 
         TODO: Add asset upload support.

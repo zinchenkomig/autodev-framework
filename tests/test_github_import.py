@@ -287,9 +287,7 @@ async def test_import_label_filter_passed_to_github(client):
     assert resp.status_code == 200
     # Verify labels were passed in params
     call_kwargs = mock_get.call_args
-    params = call_kwargs.kwargs.get(
-        "params", call_kwargs.args[1] if len(call_kwargs.args) > 1 else {}
-    )
+    params = call_kwargs.kwargs.get("params", call_kwargs.args[1] if len(call_kwargs.args) > 1 else {})
     assert "bug" in params.get("labels", "")
 
 

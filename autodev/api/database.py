@@ -30,6 +30,6 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
             await session.rollback()
             raise
 
+
 # Alias for background tasks
 async_session_factory = SessionLocal
-

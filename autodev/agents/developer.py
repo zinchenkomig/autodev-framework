@@ -144,7 +144,10 @@ class DeveloperAgent:
             for attempt in range(1, self._max_iterations + 1):
                 logger.info(
                     "[%s] Running task %s attempt %d/%d",
-                    self._agent_id, task.id, attempt, self._max_iterations,
+                    self._agent_id,
+                    task.id,
+                    attempt,
+                    self._max_iterations,
                 )
                 result = await self.runner.run(prompt, context)
                 last_result = result
@@ -154,12 +157,17 @@ class DeveloperAgent:
 
                 logger.warning(
                     "[%s] Attempt %d failed for task %s: %s",
-                    self._agent_id, attempt, task.id, result.output,
+                    self._agent_id,
+                    attempt,
+                    task.id,
+                    result.output,
                 )
                 if attempt == self._max_iterations:
                     logger.error(
                         "[%s] All %d attempts exhausted for task %s",
-                        self._agent_id, self._max_iterations, task.id,
+                        self._agent_id,
+                        self._max_iterations,
+                        task.id,
                     )
 
             # 5. Handle outcome
@@ -173,10 +181,7 @@ class DeveloperAgent:
 
                 # Open PR via GitHub API
                 pr_title = task.title or f"Fix issue #{issue_number}"
-                pr_body = (
-                    f"Closes #{issue_number}\n\n"
-                    f"{task.description or ''}"
-                ).strip()
+                pr_body = (f"Closes #{issue_number}\n\n{task.description or ''}").strip()
                 repo_slug = task.metadata_.get("github_repo") if task.metadata_ else None  # type: ignore[union-attr]
                 pr = await self.github.create_pr(
                     title=pr_title,
@@ -201,9 +206,7 @@ class DeveloperAgent:
                     },
                     source=self._agent_id,
                 )
-                logger.info(
-                    "[%s] PR #%d created for task %s", self._agent_id, pr_number, task.id
-                )
+                logger.info("[%s] PR #%d created for task %s", self._agent_id, pr_number, task.id)
 
             else:
                 # Mark task failed
@@ -260,9 +263,7 @@ class DeveloperAgent:
             try:
                 await self.process_task(task)
             except Exception:
-                logger.exception(
-                    "[%s] Unhandled error in process_task for %s", self._agent_id, task.id
-                )
+                logger.exception("[%s] Unhandled error in process_task for %s", self._agent_id, task.id)
             finally:
                 await self.state.set(f"agents.{self._agent_id}.status", "idle")
                 await self.state.delete(f"agents.{self._agent_id}.current_task")
@@ -294,7 +295,10 @@ class DeveloperAgent:
             return Path(work_dir)
 
         proc = await asyncio.create_subprocess_exec(
-            "git", "clone", repo_url, work_dir,
+            "git",
+            "clone",
+            repo_url,
+            work_dir,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -316,7 +320,10 @@ class DeveloperAgent:
             RuntimeError: If the ``git checkout -b`` command fails.
         """
         proc = await asyncio.create_subprocess_exec(
-            "git", "checkout", "-b", branch_name,
+            "git",
+            "checkout",
+            "-b",
+            branch_name,
             cwd=str(work_dir),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -398,8 +405,7 @@ class DeveloperAgent:
             stdout, stderr = await proc.communicate()
             if proc.returncode != 0:
                 raise RuntimeError(
-                    f"'{' '.join(cmd)}' failed (exit {proc.returncode}): "
-                    f"{stderr.decode(errors='replace').strip()}"
+                    f"'{' '.join(cmd)}' failed (exit {proc.returncode}): {stderr.decode(errors='replace').strip()}"
                 )
         logger.debug("[%s] Committed and pushed branch %r", self._agent_id, branch)
 

@@ -11,14 +11,14 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 from fastapi import FastAPI
-from autodev.api.middleware import ErrorAlertMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 
 from autodev.api.database import SessionLocal, engine
+from autodev.api.middleware import ErrorAlertMiddleware
 from autodev.api.routes import agents, events, releases, tasks, webhooks
 from autodev.api.routes import metrics as metrics_router
 from autodev.api.routes import pm as pm_router
@@ -35,30 +35,32 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database tables created/verified")
-    
+
     # Sync project contexts from config
     await sync_project_contexts_from_config()
-    
+
     yield
 
 
 async def sync_project_contexts_from_config():
     """Sync project contexts from autodev.yaml on startup."""
-    import yaml
     from pathlib import Path
     from uuid import uuid4
+
+    import yaml
     from sqlalchemy import select
+
     from autodev.core.models import ProjectContext
-    
+
     config_path = Path(os.environ.get("AUTODEV_CONFIG", "/app/autodev.yaml"))
     if not config_path.exists():
         logger.info("No autodev.yaml found, skipping context sync")
         return
-    
+
     try:
         with open(config_path) as f:
             config = yaml.safe_load(f)
-        
+
         repos_config = config.get("repos", [])
         repos = []
         for repo_config in repos_config:
@@ -69,16 +71,14 @@ async def sync_project_contexts_from_config():
                 repo = repo_url
             if "/" in repo:
                 repos.append(repo)
-        
+
         if not repos:
             logger.info("No repos in config")
             return
-        
+
         async with SessionLocal() as session:
             for repo in repos:
-                existing = await session.scalar(
-                    select(ProjectContext).where(ProjectContext.repo == repo)
-                )
+                existing = await session.scalar(select(ProjectContext).where(ProjectContext.repo == repo))
                 if not existing:
                     ctx = ProjectContext(
                         id=uuid4(),
@@ -88,9 +88,9 @@ async def sync_project_contexts_from_config():
                     )
                     session.add(ctx)
                     logger.info(f"Added project context placeholder: {repo}")
-            
+
             await session.commit()
-        
+
         logger.info(f"Synced {len(repos)} project contexts from config")
     except Exception as e:
         logger.warning(f"Failed to sync project contexts: {e}")
@@ -126,9 +126,10 @@ def create_app() -> FastAPI:
     app.include_router(metrics_router.router, prefix="/api/metrics", tags=["metrics"])
     app.include_router(pm_router.router, prefix="/api/pm", tags=["pm"])
     app.include_router(tester_router.router, prefix="/api/tester", tags=["tester"])
-    
-    from autodev.api.routes import settings as settings_router
+
     from autodev.api.routes import alerts as alerts_router
+    from autodev.api.routes import settings as settings_router
+
     app.include_router(settings_router.router, prefix="/api/settings", tags=["settings"])
     app.include_router(alerts_router.router, prefix="/api/alerts", tags=["alerts"])
 

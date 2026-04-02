@@ -145,11 +145,7 @@ class TaskQueue:
                     task = result.scalar_one_or_none()
                 else:
                     # SQLite: fetch candidates and pick the first whose deps are done
-                    stmt = (
-                        select(Task)
-                        .where(and_(*filters))
-                        .order_by(_PRIORITY_CASE, Task.created_at)
-                    )
+                    stmt = select(Task).where(and_(*filters)).order_by(_PRIORITY_CASE, Task.created_at)
                     result = await session.execute(stmt)
                     candidates = result.scalars().all()
                     task = None
@@ -348,10 +344,14 @@ class TaskQueue:
         if not dep_ids:
             return True
 
-        stmt = select(func.count()).select_from(Task).where(
-            and_(
-                Task.id.in_(dep_ids),
-                Task.status != TaskStatus.REVIEW,
+        stmt = (
+            select(func.count())
+            .select_from(Task)
+            .where(
+                and_(
+                    Task.id.in_(dep_ids),
+                    Task.status != TaskStatus.REVIEW,
+                )
             )
         )
         result = await session.execute(stmt)

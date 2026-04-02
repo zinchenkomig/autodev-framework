@@ -165,7 +165,7 @@ class ClaudeCodeRunner:
                 )
 
             duration = time.monotonic() - start
-            
+
             # Check if cancelled
             if self._cancelled:
                 logger.info("ClaudeCodeRunner: cancelled after %.1fs", duration)

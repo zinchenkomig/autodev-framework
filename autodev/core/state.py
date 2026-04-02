@@ -157,9 +157,7 @@ class AgentStateManager:
         """Open a new async DB session."""
         return self._session_factory()
 
-    def _validate_transition(
-        self, agent_id: str, current: AgentStatus, target: AgentStatus
-    ) -> None:
+    def _validate_transition(self, agent_id: str, current: AgentStatus, target: AgentStatus) -> None:
         """Raise ValueError if *current* → *target* is not a valid transition."""
         allowed = _VALID_TRANSITIONS.get(current, set())
         if target not in allowed:
@@ -192,21 +190,15 @@ class AgentStateManager:
             source="state_manager",
         )
 
-    async def _get_agent_or_raise(
-        self, session: AsyncSession, agent_id: str
-    ) -> Agent:
+    async def _get_agent_or_raise(self, session: AsyncSession, agent_id: str) -> Agent:
         """Fetch an agent by id, raising ValueError if not found."""
-        result = await session.execute(
-            select(Agent).where(Agent.id == agent_id)
-        )
+        result = await session.execute(select(Agent).where(Agent.id == agent_id))
         agent = result.scalar_one_or_none()
         if agent is None:
             raise ValueError(f"Agent {agent_id!r} not found")
         return agent
 
-    async def _get_active_run(
-        self, session: AsyncSession, agent_id: str
-    ) -> AgentRun | None:
+    async def _get_active_run(self, session: AsyncSession, agent_id: str) -> AgentRun | None:
         """Return the most recent RUNNING AgentRun for the given agent."""
         result = await session.execute(
             select(AgentRun)
@@ -253,9 +245,7 @@ class AgentStateManager:
             The :class:`Agent` ORM object or ``None`` if not found.
         """
         async with self._session() as session:
-            result = await session.execute(
-                select(Agent).where(Agent.id == agent_id)
-            )
+            result = await session.execute(select(Agent).where(Agent.id == agent_id))
             return result.scalar_one_or_none()
 
     async def list_agents(self) -> list[Agent]:
@@ -449,9 +439,7 @@ class AgentStateManager:
 
         async with self._session() as session:
             # Find all WORKING agents
-            result = await session.execute(
-                select(Agent).where(Agent.status == AgentStatus.WORKING)
-            )
+            result = await session.execute(select(Agent).where(Agent.status == AgentStatus.WORKING))
             working_agents = list(result.scalars().all())
 
             for agent in working_agents:

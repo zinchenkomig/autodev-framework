@@ -142,9 +142,7 @@ async def test_record_outcome_null_agent_id(store: LearningStore) -> None:
 @pytest.mark.asyncio
 async def test_get_lessons_all(store: LearningStore) -> None:
     for i in range(5):
-        await store.record_outcome(
-            task_id=str(uuid.uuid4()), agent_id=f"dev-{i}", success=i % 2 == 0
-        )
+        await store.record_outcome(task_id=str(uuid.uuid4()), agent_id=f"dev-{i}", success=i % 2 == 0)
     lessons = await store.get_lessons(limit=10)
     assert len(lessons) == 5
 
@@ -185,11 +183,15 @@ async def test_get_lessons_ordered_by_recency(store: LearningStore) -> None:
 @pytest.mark.asyncio
 async def test_get_similar_failures_matches_error(store: LearningStore) -> None:
     await store.record_outcome(
-        task_id="t1", agent_id="dev-1", success=False,
-        error="ImportError: cannot import name 'foo' from 'bar'"
+        task_id="t1",
+        agent_id="dev-1",
+        success=False,
+        error="ImportError: cannot import name 'foo' from 'bar'",
     )
     await store.record_outcome(
-        task_id="t2", agent_id="dev-1", success=True,
+        task_id="t2",
+        agent_id="dev-1",
+        success=True,
     )
     results = await store.get_similar_failures("ImportError cannot import")
     assert len(results) >= 1
@@ -198,9 +200,7 @@ async def test_get_similar_failures_matches_error(store: LearningStore) -> None:
 
 @pytest.mark.asyncio
 async def test_get_similar_failures_no_match_returns_empty(store: LearningStore) -> None:
-    await store.record_outcome(
-        task_id="t1", agent_id="dev-1", success=False, error="ConnectionRefused"
-    )
+    await store.record_outcome(task_id="t1", agent_id="dev-1", success=False, error="ConnectionRefused")
     results = await store.get_similar_failures("authentication JWT token")
     # May return some results via keyword matching, just verify it doesn't crash
     assert isinstance(results, list)
@@ -210,8 +210,10 @@ async def test_get_similar_failures_no_match_returns_empty(store: LearningStore)
 async def test_get_similar_failures_limit(store: LearningStore) -> None:
     for i in range(10):
         await store.record_outcome(
-            task_id=str(i), agent_id="dev-1", success=False,
-            error="ValueError: invalid literal for int"
+            task_id=str(i),
+            agent_id="dev-1",
+            success=False,
+            error="ValueError: invalid literal for int",
         )
     results = await store.get_similar_failures("ValueError invalid literal", limit=3)
     assert len(results) <= 3
@@ -233,8 +235,11 @@ async def test_build_context_no_lessons(store: LearningStore) -> None:
 async def test_build_context_with_agent_lessons(store: LearningStore) -> None:
     task = _make_task(agent_id="dev-99")
     await store.record_outcome(
-        task_id="prev-task", agent_id="dev-99", success=False,
-        error="SyntaxError", lesson="Always lint before committing"
+        task_id="prev-task",
+        agent_id="dev-99",
+        success=False,
+        error="SyntaxError",
+        lesson="Always lint before committing",
     )
     context = await store.build_context(task)
     assert "Lesson" in context
@@ -246,8 +251,11 @@ async def test_build_context_deduplicates(store: LearningStore) -> None:
     """Lessons that appear in both agent and similar should not be duplicated."""
     task = _make_task(agent_id="dev-X", description="SyntaxError in authentication")
     await store.record_outcome(
-        task_id="t1", agent_id="dev-X", success=False,
-        error="SyntaxError in auth module", lesson="Check syntax"
+        task_id="t1",
+        agent_id="dev-X",
+        success=False,
+        error="SyntaxError in auth module",
+        lesson="Check syntax",
     )
     context = await store.build_context(task)
     # Count occurrences of the lesson id

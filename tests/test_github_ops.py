@@ -1,6 +1,5 @@
 """Unit tests for autodev.core.github_ops."""
 
-
 from autodev.core.github_ops import extract_pr_info
 
 

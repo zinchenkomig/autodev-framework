@@ -16,6 +16,7 @@ runner = CliRunner()
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def make_response(data, status_code: int = 200) -> MagicMock:
     """Create a mock httpx Response."""
     mock = MagicMock()
@@ -28,6 +29,7 @@ def make_response(data, status_code: int = 200) -> MagicMock:
 # ---------------------------------------------------------------------------
 # Test: autodev init
 # ---------------------------------------------------------------------------
+
 
 class TestInit:
     def test_init_creates_file_from_template(self, tmp_path: Path) -> None:
@@ -58,6 +60,7 @@ class TestInit:
 # ---------------------------------------------------------------------------
 # Test: autodev status
 # ---------------------------------------------------------------------------
+
 
 class TestStatus:
     def test_status_online(self) -> None:
@@ -94,6 +97,7 @@ class TestStatus:
 # Test: autodev task add
 # ---------------------------------------------------------------------------
 
+
 class TestTaskAdd:
     def test_task_add_minimal(self) -> None:
         """task add should POST to /api/tasks and print task id."""
@@ -113,9 +117,7 @@ class TestTaskAdd:
         """task add should pass repo and priority to API."""
         with patch("autodev.cli.main.api_post") as mock_post:
             mock_post.return_value = {"id": "def456", "status": "queued"}
-            result = runner.invoke(
-                app, ["task", "add", "Add feature", "--repo", "backend", "--priority", "high"]
-            )
+            result = runner.invoke(app, ["task", "add", "Add feature", "--repo", "backend", "--priority", "high"])
 
         assert result.exit_code == 0
         payload = mock_post.call_args[0][1]
@@ -127,17 +129,24 @@ class TestTaskAdd:
 # Test: autodev task list
 # ---------------------------------------------------------------------------
 
+
 class TestTaskList:
     def test_task_list_all(self) -> None:
         """task list should print a table of tasks."""
         tasks = [
             {
-                "id": "t1", "title": "Task A", "status": "queued",
-                "priority": "normal", "repo": "backend",
+                "id": "t1",
+                "title": "Task A",
+                "status": "queued",
+                "priority": "normal",
+                "repo": "backend",
             },
             {
-                "id": "t2", "title": "Task B", "status": "done",
-                "priority": "low", "repo": "frontend",
+                "id": "t2",
+                "title": "Task B",
+                "status": "done",
+                "priority": "low",
+                "repo": "frontend",
             },
         ]
         with patch("autodev.cli.main.api_get") as mock_get:
@@ -173,6 +182,7 @@ class TestTaskList:
 # Test: autodev agent trigger
 # ---------------------------------------------------------------------------
 
+
 class TestAgentTrigger:
     def test_agent_trigger(self) -> None:
         """agent trigger should POST to /api/agents/{id}/trigger."""
@@ -199,6 +209,7 @@ class TestAgentTrigger:
 # Test: autodev release create
 # ---------------------------------------------------------------------------
 
+
 class TestReleaseCreate:
     def test_release_create(self) -> None:
         """release create should POST to /api/releases."""
@@ -214,6 +225,7 @@ class TestReleaseCreate:
 # ---------------------------------------------------------------------------
 # Test: autodev release approve
 # ---------------------------------------------------------------------------
+
 
 class TestReleaseApprove:
     def test_release_approve(self) -> None:
@@ -244,6 +256,7 @@ class TestReleaseApprove:
 # ---------------------------------------------------------------------------
 # Test: autodev logs
 # ---------------------------------------------------------------------------
+
 
 class TestLogs:
     def test_logs_no_file(self) -> None:

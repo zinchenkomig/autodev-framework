@@ -87,9 +87,7 @@ class TestTelegramNotifier:
 
         notifier = TelegramNotifier(bot_token="BAD", chat_id="0")
         mock_resp = MagicMock()
-        mock_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "400", request=MagicMock(), response=MagicMock()
-        )
+        mock_resp.raise_for_status.side_effect = httpx.HTTPStatusError("400", request=MagicMock(), response=MagicMock())
 
         with patch.object(notifier._client, "post", new_callable=AsyncMock) as mock_post:
             mock_post.return_value = mock_resp
@@ -113,9 +111,7 @@ class TestSlackNotifier:
             mock_post.return_value = mock_resp
             result = await notifier.send("Hello Slack")
 
-        mock_post.assert_called_once_with(
-            "https://hooks.slack.com/test", json={"text": "Hello Slack"}
-        )
+        mock_post.assert_called_once_with("https://hooks.slack.com/test", json={"text": "Hello Slack"})
         assert result == {"ok": True}
 
     @pytest.mark.asyncio

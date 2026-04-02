@@ -128,9 +128,21 @@ class TestTaskModel:
     def test_task_has_required_columns(self):
         columns = {c.name for c in Task.__table__.columns}
         required = {
-            "id", "title", "description", "source", "priority", "status",
-            "assigned_to", "repo", "issue_number", "pr_number",
-            "depends_on", "metadata", "created_by", "created_at", "updated_at",
+            "id",
+            "title",
+            "description",
+            "source",
+            "priority",
+            "status",
+            "assigned_to",
+            "repo",
+            "issue_number",
+            "pr_number",
+            "depends_on",
+            "metadata",
+            "created_by",
+            "created_at",
+            "updated_at",
         }
         assert required.issubset(columns)
 
@@ -171,8 +183,13 @@ class TestAgentModel:
     def test_agent_has_required_columns(self):
         columns = {c.name for c in Agent.__table__.columns}
         required = {
-            "id", "role", "status", "current_task_id",
-            "last_run_at", "total_runs", "total_failures",
+            "id",
+            "role",
+            "status",
+            "current_task_id",
+            "last_run_at",
+            "total_runs",
+            "total_failures",
         }
         assert required.issubset(columns)
 
@@ -244,8 +261,15 @@ class TestAgentRunModel:
     def test_agent_run_has_required_columns(self):
         columns = {c.name for c in AgentRun.__table__.columns}
         required = {
-            "id", "agent_id", "task_id", "status",
-            "started_at", "finished_at", "result", "tokens_used", "cost_usd",
+            "id",
+            "agent_id",
+            "task_id",
+            "status",
+            "started_at",
+            "finished_at",
+            "result",
+            "tokens_used",
+            "cost_usd",
         }
         assert required.issubset(columns)
 
@@ -295,9 +319,16 @@ class TestReleaseModel:
     def test_release_has_required_columns(self):
         columns = {c.name for c in Release.__table__.columns}
         required = {
-            "id", "version", "status", "tasks", "release_notes",
-            "staging_deployed_at", "production_deployed_at",
-            "approved_by", "approved_at", "created_at",
+            "id",
+            "version",
+            "status",
+            "tasks",
+            "release_notes",
+            "staging_deployed_at",
+            "production_deployed_at",
+            "approved_by",
+            "approved_at",
+            "created_at",
         }
         assert required.issubset(columns)
 

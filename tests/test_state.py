@@ -170,23 +170,17 @@ class TestSetStatus:
 
 
 class TestAssignTask:
-    async def test_assign_task_transitions_to_assigned(
-        self, manager: AgentStateManager, task: Task
-    ):
+    async def test_assign_task_transitions_to_assigned(self, manager: AgentStateManager, task: Task):
         await manager.register_agent("at-1", "developer")
         agent = await manager.assign_task("at-1", task.id)
         assert agent.status == AgentStatus.ASSIGNED
 
-    async def test_assign_task_sets_current_task_id(
-        self, manager: AgentStateManager, task: Task
-    ):
+    async def test_assign_task_sets_current_task_id(self, manager: AgentStateManager, task: Task):
         await manager.register_agent("at-2", "developer")
         agent = await manager.assign_task("at-2", task.id)
         assert agent.current_task_id == task.id
 
-    async def test_assign_task_from_non_idle_raises(
-        self, manager: AgentStateManager, task: Task
-    ):
+    async def test_assign_task_from_non_idle_raises(self, manager: AgentStateManager, task: Task):
         await manager.register_agent("at-3", "developer")
         await manager.assign_task("at-3", task.id)  # now assigned
         with pytest.raises(ValueError, match="Invalid status transition"):
@@ -199,27 +193,21 @@ class TestAssignTask:
 
 
 class TestStartWork:
-    async def test_start_work_creates_run(
-        self, manager: AgentStateManager, task: Task
-    ):
+    async def test_start_work_creates_run(self, manager: AgentStateManager, task: Task):
         await manager.register_agent("sw-1", "developer")
         await manager.assign_task("sw-1", task.id)
         run = await manager.start_work("sw-1")
         assert isinstance(run, AgentRun)
         assert run.status == AgentRunStatus.RUNNING
 
-    async def test_start_work_transitions_to_working(
-        self, manager: AgentStateManager, task: Task
-    ):
+    async def test_start_work_transitions_to_working(self, manager: AgentStateManager, task: Task):
         await manager.register_agent("sw-2", "developer")
         await manager.assign_task("sw-2", task.id)
         await manager.start_work("sw-2")
         agent = await manager.get_agent("sw-2")
         assert agent.status == AgentStatus.WORKING
 
-    async def test_start_work_increments_total_runs(
-        self, manager: AgentStateManager, task: Task
-    ):
+    async def test_start_work_increments_total_runs(self, manager: AgentStateManager, task: Task):
         await manager.register_agent("sw-3", "developer")
         await manager.assign_task("sw-3", task.id)
         await manager.start_work("sw-3")
@@ -238,27 +226,21 @@ class TestStartWork:
 
 
 class TestCompleteWork:
-    async def test_complete_work_marks_run_success(
-        self, manager: AgentStateManager, task: Task
-    ):
+    async def test_complete_work_marks_run_success(self, manager: AgentStateManager, task: Task):
         await manager.register_agent("cw-1", "developer")
         await manager.assign_task("cw-1", task.id)
         await manager.start_work("cw-1")
         run = await manager.complete_work("cw-1", result={"pr": 5}, tokens=100, cost=0.01)
         assert run.status == AgentRunStatus.SUCCESS
 
-    async def test_complete_work_stores_result(
-        self, manager: AgentStateManager, task: Task
-    ):
+    async def test_complete_work_stores_result(self, manager: AgentStateManager, task: Task):
         await manager.register_agent("cw-2", "developer")
         await manager.assign_task("cw-2", task.id)
         await manager.start_work("cw-2")
         run = await manager.complete_work("cw-2", result={"key": "val"})
         assert run.result == {"key": "val"}
 
-    async def test_complete_work_transitions_to_idle(
-        self, manager: AgentStateManager, task: Task
-    ):
+    async def test_complete_work_transitions_to_idle(self, manager: AgentStateManager, task: Task):
         await manager.register_agent("cw-3", "developer")
         await manager.assign_task("cw-3", task.id)
         await manager.start_work("cw-3")
@@ -266,9 +248,7 @@ class TestCompleteWork:
         agent = await manager.get_agent("cw-3")
         assert agent.status == AgentStatus.IDLE
 
-    async def test_complete_work_clears_current_task(
-        self, manager: AgentStateManager, task: Task
-    ):
+    async def test_complete_work_clears_current_task(self, manager: AgentStateManager, task: Task):
         await manager.register_agent("cw-4", "developer")
         await manager.assign_task("cw-4", task.id)
         await manager.start_work("cw-4")
@@ -288,18 +268,14 @@ class TestCompleteWork:
 
 
 class TestFailWork:
-    async def test_fail_work_marks_run_failed(
-        self, manager: AgentStateManager, task: Task
-    ):
+    async def test_fail_work_marks_run_failed(self, manager: AgentStateManager, task: Task):
         await manager.register_agent("fw-1", "developer")
         await manager.assign_task("fw-1", task.id)
         await manager.start_work("fw-1")
         run = await manager.fail_work("fw-1", error="timeout")
         assert run.status == AgentRunStatus.FAILED
 
-    async def test_fail_work_increments_failures(
-        self, manager: AgentStateManager, task: Task
-    ):
+    async def test_fail_work_increments_failures(self, manager: AgentStateManager, task: Task):
         await manager.register_agent("fw-2", "developer")
         await manager.assign_task("fw-2", task.id)
         await manager.start_work("fw-2")
@@ -307,9 +283,7 @@ class TestFailWork:
         agent = await manager.get_agent("fw-2")
         assert agent.total_failures == 1
 
-    async def test_fail_work_transitions_to_idle(
-        self, manager: AgentStateManager, task: Task
-    ):
+    async def test_fail_work_transitions_to_idle(self, manager: AgentStateManager, task: Task):
         await manager.register_agent("fw-3", "developer")
         await manager.assign_task("fw-3", task.id)
         await manager.start_work("fw-3")
@@ -317,9 +291,7 @@ class TestFailWork:
         agent = await manager.get_agent("fw-3")
         assert agent.status == AgentStatus.IDLE
 
-    async def test_fail_work_stores_error_in_result(
-        self, manager: AgentStateManager, task: Task
-    ):
+    async def test_fail_work_stores_error_in_result(self, manager: AgentStateManager, task: Task):
         await manager.register_agent("fw-4", "developer")
         await manager.assign_task("fw-4", task.id)
         await manager.start_work("fw-4")
@@ -333,16 +305,12 @@ class TestFailWork:
 
 
 class TestCheckTimeouts:
-    async def test_check_timeouts_returns_empty_when_no_working(
-        self, manager: AgentStateManager
-    ):
+    async def test_check_timeouts_returns_empty_when_no_working(self, manager: AgentStateManager):
         await manager.register_agent("ct-1", "developer")
         timed_out = await manager.check_timeouts(timeout_minutes=1)
         assert timed_out == []
 
-    async def test_check_timeouts_detects_overdue_agent(
-        self, db_factory, task: Task
-    ):
+    async def test_check_timeouts_detects_overdue_agent(self, db_factory, task: Task):
         """Manually create an old run and verify it gets timed out."""
         manager = AgentStateManager(db_factory)
         await manager.register_agent("ct-2", "developer")
@@ -352,9 +320,8 @@ class TestCheckTimeouts:
         # Backdate the run's started_at to simulate a timeout
         async with db_factory() as session:
             from sqlalchemy import select as sa_select
-            result = await session.execute(
-                sa_select(AgentRun).where(AgentRun.id == run.id)
-            )
+
+            result = await session.execute(sa_select(AgentRun).where(AgentRun.id == run.id))
             stale_run = result.scalar_one()
             stale_run.started_at = datetime.now(UTC) - timedelta(minutes=60)
             await session.commit()
@@ -364,9 +331,7 @@ class TestCheckTimeouts:
         assert timed_out[0].id == "ct-2"
         assert timed_out[0].status == AgentStatus.IDLE
 
-    async def test_check_timeouts_increments_failures(
-        self, db_factory, task: Task
-    ):
+    async def test_check_timeouts_increments_failures(self, db_factory, task: Task):
         manager = AgentStateManager(db_factory)
         await manager.register_agent("ct-3", "developer")
         await manager.assign_task("ct-3", task.id)
@@ -374,9 +339,8 @@ class TestCheckTimeouts:
 
         async with db_factory() as session:
             from sqlalchemy import select as sa_select
-            result = await session.execute(
-                sa_select(AgentRun).where(AgentRun.id == run.id)
-            )
+
+            result = await session.execute(sa_select(AgentRun).where(AgentRun.id == run.id))
             stale_run = result.scalar_one()
             stale_run.started_at = datetime.now(UTC) - timedelta(minutes=60)
             await session.commit()
@@ -385,9 +349,7 @@ class TestCheckTimeouts:
         agent = await manager.get_agent("ct-3")
         assert agent.total_failures == 1
 
-    async def test_check_timeouts_marks_run_timeout(
-        self, db_factory, task: Task
-    ):
+    async def test_check_timeouts_marks_run_timeout(self, db_factory, task: Task):
         manager = AgentStateManager(db_factory)
         await manager.register_agent("ct-4", "developer")
         await manager.assign_task("ct-4", task.id)
@@ -395,9 +357,8 @@ class TestCheckTimeouts:
 
         async with db_factory() as session:
             from sqlalchemy import select as sa_select
-            result = await session.execute(
-                sa_select(AgentRun).where(AgentRun.id == run.id)
-            )
+
+            result = await session.execute(sa_select(AgentRun).where(AgentRun.id == run.id))
             stale_run = result.scalar_one()
             stale_run.started_at = datetime.now(UTC) - timedelta(minutes=60)
             await session.commit()
@@ -406,15 +367,12 @@ class TestCheckTimeouts:
 
         async with db_factory() as session:
             from sqlalchemy import select as sa_select
-            result = await session.execute(
-                sa_select(AgentRun).where(AgentRun.id == run.id)
-            )
+
+            result = await session.execute(sa_select(AgentRun).where(AgentRun.id == run.id))
             updated_run = result.scalar_one()
             assert updated_run.status == AgentRunStatus.TIMEOUT
 
-    async def test_check_timeouts_does_not_affect_recent_agent(
-        self, db_factory, task: Task
-    ):
+    async def test_check_timeouts_does_not_affect_recent_agent(self, db_factory, task: Task):
         """An agent that just started should not be timed out."""
         manager = AgentStateManager(db_factory)
         await manager.register_agent("ct-5", "developer")
@@ -433,9 +391,7 @@ class TestCheckTimeouts:
 
 
 class TestEventEmission:
-    async def test_register_does_not_emit_event(
-        self, manager_with_bus: AgentStateManager, bus: EventBus
-    ):
+    async def test_register_does_not_emit_event(self, manager_with_bus: AgentStateManager, bus: EventBus):
         calls: list = []
 
         async def handler(event):
@@ -445,9 +401,7 @@ class TestEventEmission:
         await manager_with_bus.register_agent("ev-1", "developer")
         assert len(calls) == 0
 
-    async def test_set_status_emits_assigned_event(
-        self, manager_with_bus: AgentStateManager, bus: EventBus
-    ):
+    async def test_set_status_emits_assigned_event(self, manager_with_bus: AgentStateManager, bus: EventBus):
         calls: list = []
 
         async def handler(event):
@@ -458,9 +412,7 @@ class TestEventEmission:
         await manager_with_bus.set_status("ev-2", AgentStatus.ASSIGNED)
         assert any(c.type == "agent.assigned" for c in calls)
 
-    async def test_set_status_emits_idle_event(
-        self, manager_with_bus: AgentStateManager, bus: EventBus
-    ):
+    async def test_set_status_emits_idle_event(self, manager_with_bus: AgentStateManager, bus: EventBus):
         calls: list = []
 
         async def handler(event):
@@ -489,9 +441,7 @@ class TestEventEmission:
         failed_events = [c for c in calls if c.type == "agent.failed"]
         assert len(failed_events) >= 1
 
-    async def test_no_event_bus_no_error(
-        self, manager: AgentStateManager, task: Task
-    ):
+    async def test_no_event_bus_no_error(self, manager: AgentStateManager, task: Task):
         """All operations should work normally without an event bus."""
         await manager.register_agent("ev-5", "developer")
         await manager.assign_task("ev-5", task.id)

@@ -240,9 +240,7 @@ class BAAgent(BaseAgent):
         """
         logger.debug("[ba] Event received: %s", event.event_type)
         if event.event_type == EventTypes.DEPLOY_STAGING:
-            staging_url = (
-                event.payload.get("staging_url", "") if event.payload else ""
-            )
+            staging_url = event.payload.get("staging_url", "") if event.payload else ""
             if staging_url:
                 await self.evaluate_staging(staging_url)
 
@@ -400,9 +398,7 @@ class BAAgent(BaseAgent):
         Returns:
             List of :class:`PageEvaluation` objects, one per page.
         """
-        pages: list[tuple[str, str]] = self.config.get(
-            "navigation_pages", DEFAULT_PAGES
-        )
+        pages: list[tuple[str, str]] = self.config.get("navigation_pages", DEFAULT_PAGES)
         evaluations: list[PageEvaluation] = []
         for path, name in pages:
             url = base_url.rstrip("/") + path
@@ -410,9 +406,7 @@ class BAAgent(BaseAgent):
             evaluations.append(evaluation)
         return evaluations
 
-    async def evaluate_new_features(
-        self, base_url: str, features: list[str]
-    ) -> list[FeatureEvaluation]:
+    async def evaluate_new_features(self, base_url: str, features: list[str]) -> list[FeatureEvaluation]:
         """Evaluate specific features by checking their dedicated pages.
 
         For each feature name the agent looks for a matching page path in the
@@ -435,11 +429,7 @@ class BAAgent(BaseAgent):
         for feature in features:
             feature_lower = feature.lower().replace(" ", "-")
             # Try to find a link containing the feature name
-            matching_links = [
-                lnk
-                for lnk in home_links
-                if feature_lower in lnk.lower()
-            ]
+            matching_links = [lnk for lnk in home_links if feature_lower in lnk.lower()]
 
             page_evals: list[PageEvaluation] = []
             if matching_links:
@@ -454,10 +444,7 @@ class BAAgent(BaseAgent):
                 eval_ = await self.check_page(guessed_url, f"{feature} (guessed)")
                 page_evals.append(eval_)
                 found = eval_.loaded
-                notes = (
-                    f"No link found for '{feature}' on home page; "
-                    f"guessed path /{feature_lower}."
-                )
+                notes = f"No link found for '{feature}' on home page; guessed path /{feature_lower}."
 
             feature_evaluations.append(
                 FeatureEvaluation(
@@ -506,10 +493,7 @@ class BAAgent(BaseAgent):
         if total == 0:
             summary = f"All {pages_total} page(s) passed UX evaluation with no issues."
         else:
-            summary = (
-                f"{pages_ok}/{pages_total} pages passed. "
-                f"Found {total} issue(s) ({critical} critical)."
-            )
+            summary = f"{pages_ok}/{pages_total} pages passed. Found {total} issue(s) ({critical} critical)."
 
         return BAReport(
             staging_url="",

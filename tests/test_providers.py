@@ -98,10 +98,12 @@ async def test_anthropic_complete_with_system_message() -> None:
 
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_resp) as mock_post:
         provider = AnthropicProvider(api_key="test-key")
-        await provider.complete([
-            {"role": "system", "content": "You are helpful."},
-            {"role": "user", "content": "Hello"},
-        ])
+        await provider.complete(
+            [
+                {"role": "system", "content": "You are helpful."},
+                {"role": "user", "content": "Hello"},
+            ]
+        )
 
     payload = mock_post.call_args[1]["json"]
     assert "system" in payload
@@ -291,7 +293,11 @@ def test_registry_list_providers() -> None:
 def test_registry_from_config_anthropic() -> None:
     config = {
         "providers": {
-            "claude": {"type": "anthropic", "api_key": "sk-ant-test", "model": "claude-sonnet-4-20250514"},
+            "claude": {
+                "type": "anthropic",
+                "api_key": "sk-ant-test",
+                "model": "claude-sonnet-4-20250514",
+            },
         }
     }
     registry = ProviderRegistry.from_config(config)

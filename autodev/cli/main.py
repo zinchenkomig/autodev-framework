@@ -77,6 +77,7 @@ def api_post(path: str, data: dict) -> dict:
 # autodev init
 # ---------------------------------------------------------------------------
 
+
 @app.command()
 def init(
     output: Path | None = typer.Option(None, "--output", "-o", help="Output path for autodev.yaml"),
@@ -133,6 +134,7 @@ release:
 # autodev start
 # ---------------------------------------------------------------------------
 
+
 @app.command()
 def start(
     config: str = typer.Option("autodev.yaml", "--config", "-c", help="Path to config file"),
@@ -152,6 +154,7 @@ def start(
 # ---------------------------------------------------------------------------
 # autodev status
 # ---------------------------------------------------------------------------
+
 
 @app.command()
 def status() -> None:
@@ -232,13 +235,12 @@ def status() -> None:
 # autodev task add / list
 # ---------------------------------------------------------------------------
 
+
 @task_app.command("add")
 def task_add(
     description: str = typer.Argument(..., help="Task description"),
     repo: str | None = typer.Option(None, "--repo", "-r", help="Target repository"),
-    priority: str = typer.Option(
-        "normal", "--priority", "-p", help="Priority: critical/high/normal/low"
-    ),
+    priority: str = typer.Option("normal", "--priority", "-p", help="Priority: critical/high/normal/low"),
 ) -> None:
     """Create a new task via the API."""
     payload: dict = {
@@ -313,6 +315,7 @@ def task_list(
 # autodev agent trigger
 # ---------------------------------------------------------------------------
 
+
 @agent_app.command("trigger")
 def agent_trigger(
     agent_id: str = typer.Argument(..., help="Agent ID or role to trigger"),
@@ -333,6 +336,7 @@ def agent_trigger(
 # autodev release create / approve
 # ---------------------------------------------------------------------------
 
+
 @release_app.command("create")
 def release_create(
     version: str | None = typer.Option(None, "--version", "-v", help="Release version"),
@@ -348,9 +352,7 @@ def release_create(
     result = api_post("/api/releases", payload)
     release_id = result.get("id", "?")
     release_version = result.get("version", version or "?")
-    console.print(
-        f"[green]✓[/green] Release [bold]{release_version}[/bold] created (id: {release_id})."
-    )
+    console.print(f"[green]✓[/green] Release [bold]{release_version}[/bold] created (id: {release_id}).")
 
 
 @release_app.command("approve")
@@ -380,6 +382,7 @@ def release_approve(
 # ---------------------------------------------------------------------------
 # autodev logs
 # ---------------------------------------------------------------------------
+
 
 @app.command()
 def logs(
@@ -416,12 +419,8 @@ def logs(
                 tail_lines = content.splitlines()[-lines:]
                 console.print("\n".join(tail_lines))
     else:
-        console.print(
-            "[yellow]No log file found. Start the server with `autodev start` first.[/yellow]"
-        )
-        console.print(
-            "[dim]Hint: set --file path/to/autodev.log or use AUTODEV_LOG_FILE env var.[/dim]"
-        )
+        console.print("[yellow]No log file found. Start the server with `autodev start` first.[/yellow]")
+        console.print("[dim]Hint: set --file path/to/autodev.log or use AUTODEV_LOG_FILE env var.[/dim]")
         if follow:
             raise typer.Exit(code=1)
 

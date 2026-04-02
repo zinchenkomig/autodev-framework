@@ -123,9 +123,7 @@ class EventBus:
             handler: Async callable that accepts a single :class:`Event` ORM object.
         """
         self._handlers.setdefault(event_type, []).append(handler)
-        logger.debug(
-            "Subscribed %s to pattern %r", getattr(handler, "__name__", handler), event_type
-        )
+        logger.debug("Subscribed %s to pattern %r", getattr(handler, "__name__", handler), event_type)
 
     def unsubscribe(self, event_type: str, handler: EventHandler) -> None:
         """Remove a previously registered handler.

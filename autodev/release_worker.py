@@ -14,15 +14,19 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import httpx
-from sqlalchemy import select, case
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from autodev.core.models import (
-    Release, ReleaseStatus, Task, TaskStatus, Priority,
+    Priority,
+    Release,
+    ReleaseStatus,
+    Task,
+    TaskStatus,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,7 +46,7 @@ PRIORITY_ORDER = {
 
 def select_tasks_for_release(tasks: list[Task]) -> list[Task]:
     """Select optimal set of tasks for a release.
-    
+
     Strategy:
     - Sort by priority (critical first), then by created_at (oldest first)
     - Add tasks until we reach MIN_SP
@@ -51,23 +55,26 @@ def select_tasks_for_release(tasks: list[Task]) -> list[Task]:
     - Stop adding when next task would push us significantly over MAX_SP
     """
     # Sort: priority first, then age
-    sorted_tasks = sorted(tasks, key=lambda t: (
-        PRIORITY_ORDER.get(t.priority, 2),
-        t.created_at or datetime.min,
-    ))
-    
+    sorted_tasks = sorted(
+        tasks,
+        key=lambda t: (
+            PRIORITY_ORDER.get(t.priority, 2),
+            t.created_at or datetime.min,
+        ),
+    )
+
     selected = []
     total_sp = 0
-    
+
     for task in sorted_tasks:
         sp = task.story_points or 1
-        
+
         # Always include first task (handles single large task)
         if not selected:
             selected.append(task)
             total_sp += sp
             continue
-        
+
         # Check if adding this task keeps us within soft limit
         if total_sp + sp <= MAX_RELEASE_SP:
             selected.append(task)
@@ -83,55 +90,51 @@ def select_tasks_for_release(tasks: list[Task]) -> list[Task]:
                 selected.append(task)
                 total_sp += sp
             break
-    
+
     return selected
 
 
 async def check_and_create_release(session_factory: async_sessionmaker) -> dict | None:
     """Check for ready tasks and create a release if conditions are met."""
-    
+
     async with session_factory() as session:
         # 1. Get all ready_to_release tasks
         result = await session.execute(
-            select(Task)
-            .where(Task.status == TaskStatus.READY_TO_RELEASE)
-            .order_by(Task.created_at)
+            select(Task).where(Task.status == TaskStatus.READY_TO_RELEASE).order_by(Task.created_at)
         )
         ready_tasks = list(result.scalars().all())
-        
+
         if not ready_tasks:
             return None
-        
+
         # 2. Calculate total SP
         total_sp = sum(t.story_points or 1 for t in ready_tasks)
-        
+
         # Only release when we have enough SP (or manual trigger via API)
         if total_sp < MIN_RELEASE_SP:
-            logger.info(
-                f"Release Manager: {len(ready_tasks)} tasks ({total_sp}/{MIN_RELEASE_SP} SP). Waiting."
-            )
+            logger.info(f"Release Manager: {len(ready_tasks)} tasks ({total_sp}/{MIN_RELEASE_SP} SP). Waiting.")
             return None
-        
+
         # 3. Select tasks for this release
         selected = select_tasks_for_release(ready_tasks)
         selected_sp = sum(t.story_points or 1 for t in selected)
         remaining = len(ready_tasks) - len(selected)
-        
+
         logger.info(
             f"Release Manager: forming release with {len(selected)} tasks "
             f"({selected_sp} SP), {remaining} tasks remain for next release"
         )
-        
+
         # 4. Generate version
         version = datetime.now(UTC).strftime("v%Y-%m-%d-%H%M")
-        
+
         # 5. Generate release notes
         release_notes = f"# Release {version}\n\n"
         release_notes += f"**{len(selected)} задач ({selected_sp} SP)**\n\n"
-        
+
         backend_tasks = [t for t in selected if "backend" in (t.repo or "")]
         frontend_tasks = [t for t in selected if "frontend" in (t.repo or "")]
-        
+
         for label, group in [("Backend", backend_tasks), ("Frontend", frontend_tasks)]:
             if group:
                 release_notes += f"### {label}\n"
@@ -140,7 +143,7 @@ async def check_and_create_release(session_factory: async_sessionmaker) -> dict 
                     pr_link = f" ([PR]({t.pr_url}))" if t.pr_url else ""
                     release_notes += f"- {sp_badge} {t.title}{pr_link}\n"
                 release_notes += "\n"
-        
+
         # 6. Create release
         task_ids = [t.id for t in selected]
         release = Release(
@@ -153,22 +156,22 @@ async def check_and_create_release(session_factory: async_sessionmaker) -> dict 
         )
         session.add(release)
         await session.flush()
-        
+
         # 7. Merge PRs into develop
         merge_results = []
         merged_count = 0
         failed_count = 0
-        
+
         from autodev.core.github_ops import extract_pr_info, merge_pr
-        
+
         for task in selected:
             if not task.pr_url:
                 continue
-            
+
             info = extract_pr_info(task.pr_url)
             if not info:
                 continue
-            
+
             repo, pr_number = info
             try:
                 success = await merge_pr(repo, pr_number)
@@ -179,12 +182,19 @@ async def check_and_create_release(session_factory: async_sessionmaker) -> dict 
                 else:
                     failed_count += 1
                     logger.warning(f"Failed to merge PR #{pr_number} for '{task.title}' — likely conflict")
-                    merge_results.append({"task": task.title, "pr": task.pr_url, "success": False, "reason": "merge_conflict"})
-                    
+                    merge_results.append(
+                        {
+                            "task": task.title,
+                            "pr": task.pr_url,
+                            "success": False,
+                            "reason": "merge_conflict",
+                        }
+                    )
+
                     # Remove from release, return to ready_to_release
                     task.status = TaskStatus.READY_TO_RELEASE
                     selected.remove(task)
-                    
+
                     # Create conflict resolution task for developer
                     conflict_task = Task(
                         id=uuid4(),
@@ -208,30 +218,30 @@ async def check_and_create_release(session_factory: async_sessionmaker) -> dict 
                     )
                     session.add(conflict_task)
                     logger.info(f"Created conflict resolution task for PR #{pr_number}")
-                    
+
             except Exception as e:
                 failed_count += 1
                 logger.error(f"Error merging PR #{pr_number}: {e}")
                 merge_results.append({"task": task.title, "pr": task.pr_url, "success": False, "error": str(e)})
-        
+
         # 8. Deploy to staging server
-        logger.info(f"Deploying to staging server...")
+        logger.info("Deploying to staging server...")
         deploy_results = {}
         try:
             from autodev.deploy import deploy_staging
-            
+
             # Determine which repos need deploying
             repos_to_deploy = set()
             for task in selected:
                 if task.repo:
                     repos_to_deploy.add(task.repo)
-            
+
             deploy_results = await deploy_staging(
                 repos=list(repos_to_deploy) if repos_to_deploy else None,
                 release_version=version,
             )
             deploy_success = all(r.get("success") for r in deploy_results.values())
-            
+
             if deploy_success:
                 logger.info(f"Staging deploy successful: {deploy_results}")
             else:
@@ -239,23 +249,22 @@ async def check_and_create_release(session_factory: async_sessionmaker) -> dict 
         except Exception as e:
             logger.error(f"Staging deploy failed: {e}")
             deploy_results = {"error": str(e)}
-        
+
         # 9. Update release status to staging
         release.status = ReleaseStatus.STAGING
         release.staging_deployed_at = datetime.now(UTC)
-        
+
         # 10. Move selected tasks to staging
         for task in selected:
             task.status = TaskStatus.STAGING
             task.release_id = release.id
-        
+
         await session.commit()
-        
+
         logger.info(
-            f"Release {version}: {len(selected)} tasks ({selected_sp} SP), "
-            f"{merged_count} merged, {failed_count} failed"
+            f"Release {version}: {len(selected)} tasks ({selected_sp} SP), {merged_count} merged, {failed_count} failed"
         )
-        
+
         return {
             "version": version,
             "release_id": str(release.id),
@@ -273,33 +282,34 @@ async def notify_release(release_info: dict) -> None:
     """Notify user about new release via Telegram."""
     if not release_info:
         return
-    
+
     try:
         from autodev.integrations.telegram_pm import get_telegram_bot
+
         bot = await get_telegram_bot()
-        
+
         v = release_info["version"]
         tc = release_info["task_count"]
         sp = release_info["total_sp"]
         merged = release_info["merged"]
         failed = release_info["failed"]
         remaining = release_info["remaining"]
-        
+
         text = f"🚀 <b>Release {v}</b>\n\n"
         text += f"<b>{tc} задач ({sp} SP)</b>\n"
         text += f"✅ {merged} PR замержено"
         if failed:
             text += f" | ⚠️ {failed} не замержено"
         text += "\n\n"
-        
+
         for t in release_info["tasks"]:
-            sp_str = f"[{t['sp']}SP] " if t.get('sp') else ""
+            sp_str = f"[{t['sp']}SP] " if t.get("sp") else ""
             pr_link = f' <a href="{t["pr_url"]}">PR</a>' if t.get("pr_url") else ""
             text += f"• {sp_str}{t['title']}{pr_link}\n"
-        
+
         if remaining:
             text += f"\n📦 {remaining} задач осталось в очереди на следующий релиз"
-        
+
         deploy = release_info.get("deploy", {})
         if deploy:
             deploy_ok = all(r.get("success") for r in deploy.values() if isinstance(r, dict))
@@ -308,9 +318,9 @@ async def notify_release(release_info: dict) -> None:
                 text += "\nhttps://staging.alerter.zinchenkomig.com"
             else:
                 text += "\n\n⚠️ Деплой на staging частично не удался"
-        
+
         text += "\n\n📋 Посмотри staging и дай фидбек через /feedback"
-        
+
         await bot.send_message(bot.owner_chat_id, text)
     except Exception as e:
         logger.warning(f"Release Manager: failed to notify: {e}")
@@ -319,52 +329,51 @@ async def notify_release(release_info: dict) -> None:
 async def release_worker_loop(session_factory: async_sessionmaker) -> None:
     """Endless loop: check for ready tasks and form releases."""
     import asyncio
-    
-    logger.info(f"Release Manager started — checking every {RELEASE_CHECK_INTERVAL}s, SP range {MIN_RELEASE_SP}-{MAX_RELEASE_SP}")
-    
+
+    logger.info(
+        f"Release Manager started — checking every {RELEASE_CHECK_INTERVAL}s, SP range {MIN_RELEASE_SP}-{MAX_RELEASE_SP}"
+    )
+
     # Wait 5 minutes on startup
     await asyncio.sleep(300)
-    
+
     while True:
         try:
             # Check for stuck autoreview tasks first
             await check_stuck_autoreview(session_factory)
-            
+
             # Then check if we can form a release
             release_info = await check_and_create_release(session_factory)
             if release_info:
                 await notify_release(release_info)
         except Exception:
             logger.exception("Release Manager: unhandled error")
-        
+
         await asyncio.sleep(RELEASE_CHECK_INTERVAL)
 
 
 async def check_stuck_autoreview(session_factory: async_sessionmaker) -> None:
     """Check for autoreview tasks with merge conflicts and handle them."""
-    import httpx
-    
+
     github_token = os.environ.get("GITHUB_TOKEN", "")
     if not github_token:
         return
-    
+
     async with session_factory() as session:
-        result = await session.execute(
-            select(Task).where(Task.status == TaskStatus.AUTOREVIEW)
-        )
+        result = await session.execute(select(Task).where(Task.status == TaskStatus.AUTOREVIEW))
         tasks = result.scalars().all()
-        
+
         for task in tasks:
             if not task.pr_url:
                 continue
-            
+
             # Check PR mergeable status
             try:
                 # Extract repo and PR number from URL
                 parts = task.pr_url.rstrip("/").split("/")
                 pr_number = parts[-1]
                 repo = f"{parts[-4]}/{parts[-3]}"
-                
+
                 async with httpx.AsyncClient() as client:
                     resp = await client.get(
                         f"https://api.github.com/repos/{repo}/pulls/{pr_number}",
@@ -373,16 +382,16 @@ async def check_stuck_autoreview(session_factory: async_sessionmaker) -> None:
                     )
                     if resp.status_code != 200:
                         continue
-                    
+
                     pr_data = resp.json()
                     mergeable_state = pr_data.get("mergeable_state", "")
-                    
+
                     if mergeable_state == "dirty":
                         logger.warning(f"Task '{task.title}' has merge conflict — creating resolution task")
-                        
+
                         # Move back to ready_to_release
                         task.status = TaskStatus.READY_TO_RELEASE
-                        
+
                         # Create conflict resolution task
                         conflict_task = Task(
                             id=uuid4(),
@@ -402,7 +411,7 @@ async def check_stuck_autoreview(session_factory: async_sessionmaker) -> None:
                             created_by="conflict-resolution",
                         )
                         session.add(conflict_task)
-                    
+
                     elif mergeable_state == "clean":
                         # CI might have passed but webhook missed it
                         # Check if checks passed
@@ -417,8 +426,8 @@ async def check_stuck_autoreview(session_factory: async_sessionmaker) -> None:
                             if all_passed:
                                 logger.info(f"Task '{task.title}' checks passed, promoting to ready_to_release")
                                 task.status = TaskStatus.READY_TO_RELEASE
-                        
+
             except Exception as e:
                 logger.warning(f"Error checking PR for task '{task.title}': {e}")
-        
+
         await session.commit()

@@ -55,10 +55,7 @@ class Lesson(Base):
     )
 
     def __repr__(self) -> str:
-        return (
-            f"<Lesson id={self.id} agent={self.agent_id!r} "
-            f"task={self.task_id!r} success={self.success}>"
-        )
+        return f"<Lesson id={self.id} agent={self.agent_id!r} task={self.task_id!r} success={self.success}>"
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize the lesson to a plain dict."""
@@ -195,6 +192,7 @@ class LearningStore:
 
             if keywords:
                 from sqlalchemy import or_
+
                 conditions = []
                 for kw in keywords:
                     pattern = f"%{kw}%"
@@ -288,8 +286,12 @@ class LearningStore:
                 base_filter.append(Lesson.agent_id == agent_id)
 
             total_stmt = select(func.count()).select_from(Lesson)
-            success_stmt = select(func.count()).select_from(Lesson).where(
-                Lesson.success == True  # noqa: E712
+            success_stmt = (
+                select(func.count())
+                .select_from(Lesson)
+                .where(
+                    Lesson.success == True  # noqa: E712
+                )
             )
             if base_filter:
                 total_stmt = total_stmt.where(*base_filter)

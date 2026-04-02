@@ -8,19 +8,23 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID, uuid4
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select, desc
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-import httpx
 
+from autodev.agent_log import log_agent
 from autodev.api.database import get_session
 from autodev.core.models import (
-    Task, TaskStatus, Priority, ProjectContext,
-    ChatSession, PMChatMessage
+    ChatSession,
+    PMChatMessage,
+    Priority,
+    ProjectContext,
+    Task,
+    TaskStatus,
 )
-from autodev.agent_log import log_agent
 
 router = APIRouter(tags=["pm"])
 
@@ -101,32 +105,32 @@ async def build_context(session: AsyncSession) -> str:
         docs = await get_repo_docs(repo)
         if docs:
             parts.append(f"# {repo}\n{docs}")
-    
+
     # 2. Current tasks by status
     from autodev.core.models import Release, ReleaseStatus
-    
+
     result = await session.execute(
-        select(Task).where(
-            Task.status.in_(['queued', 'in_progress', 'autoreview', 'ready_to_release', 'staging', 'failed'])
-        ).order_by(Task.status, Task.created_at)
+        select(Task)
+        .where(Task.status.in_(["queued", "in_progress", "autoreview", "ready_to_release", "staging", "failed"]))
+        .order_by(Task.status, Task.created_at)
     )
     tasks = result.scalars().all()
-    
+
     if tasks:
         task_section = "\n\n# Текущие задачи\n"
         by_status: dict[str, list] = {}
         for t in tasks:
             by_status.setdefault(t.status, []).append(t)
-        
+
         status_labels = {
-            'queued': '📋 В очереди',
-            'in_progress': '🔨 В работе',
-            'autoreview': '🔍 Автоматическая проверка',
-            'ready_to_release': '✅ Готово к релизу',
-            'staging': '🚀 На staging',
-            'failed': '❌ Ошибка',
+            "queued": "📋 В очереди",
+            "in_progress": "🔨 В работе",
+            "autoreview": "🔍 Автоматическая проверка",
+            "ready_to_release": "✅ Готово к релизу",
+            "staging": "🚀 На staging",
+            "failed": "❌ Ошибка",
         }
-        
+
         for status, task_list in by_status.items():
             label = status_labels.get(status, status)
             total_sp = sum(t.story_points or 1 for t in task_list)
@@ -137,22 +141,22 @@ async def build_context(session: AsyncSession) -> str:
                 task_section += f"- {sp} {t.title} ({t.repo}){pr}\n"
                 if t.description:
                     task_section += f"  Описание: {t.description[:150]}\n"
-        
+
         parts.append(task_section)
-    
+
     # 3. Active release on staging
     result = await session.execute(
         select(Release).where(Release.status == ReleaseStatus.STAGING).order_by(Release.created_at.desc()).limit(1)
     )
     release = result.scalar_one_or_none()
-    
+
     if release:
         release_section = f"\n\n# Текущий релиз на staging: {release.version}\n"
         release_section += f"Задач: {len(release.tasks or [])}\n"
         if release.release_notes:
             release_section += f"\nRelease notes:\n{release.release_notes[:1000]}\n"
         parts.append(release_section)
-    
+
     return "\n\n---\n\n".join(parts) if parts else "Нет данных о проекте"
 
 
@@ -160,10 +164,10 @@ async def call_llm(messages: list[dict]) -> str:
     key = os.environ.get("OPENROUTER_API_KEY")
     if not key:
         return "No API key"
-    
+
     base = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     model = os.environ.get("PM_MODEL", "z-ai/glm-5-turbo")
-    
+
     async with httpx.AsyncClient() as client:
         r = await client.post(
             f"{base}/chat/completions",
@@ -246,28 +250,28 @@ async def pm_chat(request: ChatRequest, session: Annotated[AsyncSession, Depends
             chat = await session.get(ChatSession, UUID(request.session_id))
         except:
             pass
-    
+
     if not chat:
         chat = ChatSession(id=uuid4(), title=request.message[:50])
         session.add(chat)
         await session.flush()
-    
+
     session.add(PMChatMessage(id=uuid4(), session_id=chat.id, role="user", content=request.message))
-    
+
     history = await session.execute(
         select(PMChatMessage).where(PMChatMessage.session_id == chat.id).order_by(PMChatMessage.created_at)
     )
-    
+
     ctx = await build_context(session)
     msgs = [{"role": "system", "content": SYSTEM_PROMPT.format(context=ctx)}]
     for m in history.scalars().all():
         msgs.append({"role": "user" if m.role == "user" else "assistant", "content": m.content})
-    
+
     try:
         llm_resp = await call_llm(msgs)
     except Exception as e:
         return ChatResponse(response=f"Ошибка: {e}", session_id=str(chat.id))
-    
+
     tasks = parse_tasks(llm_resp)
     proposals = [
         TaskProposal(
@@ -278,86 +282,125 @@ async def pm_chat(request: ChatRequest, session: Annotated[AsyncSession, Depends
         )
         for t in tasks
     ]
-    
+
     clean = re.sub(r"---TASK---.*?---END---", "", llm_resp, flags=re.DOTALL).strip()
-    
+
     session.add(PMChatMessage(id=uuid4(), session_id=chat.id, role="pm", content=clean))
     chat.updated_at = datetime.now(UTC)
-    
+
     # Log PM activity
     if proposals:
         await log_agent(
-            session, "pm", "info",
+            session,
+            "pm",
+            "info",
             f"💬 Chat: proposed {len(proposals)} task(s)",
-            details=f"User: {request.message[:200]}\n\nPM: {clean[:500]}\n\nProposals:\n" + "\n".join([f"- {p.title}" for p in proposals])
+            details=f"User: {request.message[:200]}\n\nPM: {clean[:500]}\n\nProposals:\n"
+            + "\n".join([f"- {p.title}" for p in proposals]),
         )
     else:
         await log_agent(
-            session, "pm", "info",
-            f"💬 Chat response (no tasks)",
-            details=f"User: {request.message[:200]}\n\nPM: {clean[:500]}"
+            session,
+            "pm",
+            "info",
+            "💬 Chat response (no tasks)",
+            details=f"User: {request.message[:200]}\n\nPM: {clean[:500]}",
         )
-    
+
     return ChatResponse(response=clean, session_id=str(chat.id), proposals=proposals)
 
 
 @router.post("/approve")
-async def approve_tasks(request: ApproveRequest, session: Annotated[AsyncSession, Depends(get_session)]) -> ApproveResponse:
+async def approve_tasks(
+    request: ApproveRequest, session: Annotated[AsyncSession, Depends(get_session)]
+) -> ApproveResponse:
     created = []
-    pmap = {"low": Priority.LOW, "normal": Priority.NORMAL, "high": Priority.HIGH, "critical": Priority.CRITICAL}
-    
+    pmap = {
+        "low": Priority.LOW,
+        "normal": Priority.NORMAL,
+        "high": Priority.HIGH,
+        "critical": Priority.CRITICAL,
+    }
+
     prev_task_id = None
     for i, p in enumerate(request.proposals):
         # Each subsequent task depends on the previous one (sequential execution)
         depends_on = [prev_task_id] if prev_task_id else []
-        
+
         task = Task(
-            id=uuid4(), 
-            title=p.title, 
-            description=p.description, 
+            id=uuid4(),
+            title=p.title,
+            description=p.description,
             status=TaskStatus.QUEUED,
-            priority=pmap.get(p.priority, Priority.NORMAL), 
-            repo=p.repo, 
+            priority=pmap.get(p.priority, Priority.NORMAL),
+            repo=p.repo,
             depends_on=depends_on,
-            created_at=datetime.now(UTC), 
-            created_by="pm"
+            created_at=datetime.now(UTC),
+            created_by="pm",
         )
         session.add(task)
         await session.flush()
-        
+
         prev_task_id = task.id
-        dep_info = f" (depends on #{i})" if depends_on else ""
-        created.append({
-            "id": str(task.id), 
-            "title": task.title, 
-            "repo": task.repo, 
-            "url": f"{DASHBOARD_URL}/tasks?id={task.id}",
-            "depends_on": [str(d) for d in depends_on]
-        })
-    
+
+        created.append(
+            {
+                "id": str(task.id),
+                "title": task.title,
+                "repo": task.repo,
+                "url": f"{DASHBOARD_URL}/tasks?id={task.id}",
+                "depends_on": [str(d) for d in depends_on],
+            }
+        )
+
     if request.session_id:
         try:
             links = "\n".join([f"• [{t['title']}]({t['url']})" for t in created])
-            session.add(PMChatMessage(id=uuid4(), session_id=UUID(request.session_id), role="pm",
-                                      content=f"✅ Создано: {len(created)}\n\n{links}", task_id=UUID(created[0]["id"]) if created else None))
+            session.add(
+                PMChatMessage(
+                    id=uuid4(),
+                    session_id=UUID(request.session_id),
+                    role="pm",
+                    content=f"✅ Создано: {len(created)}\n\n{links}",
+                    task_id=UUID(created[0]["id"]) if created else None,
+                )
+            )
         except:
             pass
-    
+
     # Log approved tasks
     if created:
         await log_agent(
-            session, "pm", "info",
+            session,
+            "pm",
+            "info",
             f"✅ Approved {len(created)} task(s)",
-            details="\n".join([f"- {t['title']} ({t['repo']})" for t in created])
+            details="\n".join([f"- {t['title']} ({t['repo']})" for t in created]),
         )
-    
+
     return ApproveResponse(created_tasks=created)
 
 
 @router.get("/sessions")
-async def list_sessions(session: Annotated[AsyncSession, Depends(get_session)], limit: int = 20) -> list[SessionSummary]:
-    r = await session.execute(select(ChatSession).options(selectinload(ChatSession.messages)).order_by(desc(ChatSession.updated_at)).limit(limit))
-    return [SessionSummary(id=str(s.id), title=s.title, created_at=s.created_at, updated_at=s.updated_at, message_count=len(s.messages)) for s in r.scalars().all()]
+async def list_sessions(
+    session: Annotated[AsyncSession, Depends(get_session)], limit: int = 20
+) -> list[SessionSummary]:
+    r = await session.execute(
+        select(ChatSession)
+        .options(selectinload(ChatSession.messages))
+        .order_by(desc(ChatSession.updated_at))
+        .limit(limit)
+    )
+    return [
+        SessionSummary(
+            id=str(s.id),
+            title=s.title,
+            created_at=s.created_at,
+            updated_at=s.updated_at,
+            message_count=len(s.messages),
+        )
+        for s in r.scalars().all()
+    ]
 
 
 @router.get("/sessions/{session_id}")
@@ -366,12 +409,26 @@ async def get_session_detail(session_id: str, session: Annotated[AsyncSession, D
         sid = UUID(session_id)
     except:
         raise HTTPException(400, "Invalid ID")
-    r = await session.execute(select(ChatSession).options(selectinload(ChatSession.messages)).where(ChatSession.id == sid))
+    r = await session.execute(
+        select(ChatSession).options(selectinload(ChatSession.messages)).where(ChatSession.id == sid)
+    )
     chat = r.scalar_one_or_none()
     if not chat:
         raise HTTPException(404)
-    return SessionDetail(id=str(chat.id), title=chat.title, created_at=chat.created_at,
-                         messages=[{"id": str(m.id), "role": m.role, "content": m.content, "created_at": m.created_at.isoformat()} for m in chat.messages])
+    return SessionDetail(
+        id=str(chat.id),
+        title=chat.title,
+        created_at=chat.created_at,
+        messages=[
+            {
+                "id": str(m.id),
+                "role": m.role,
+                "content": m.content,
+                "created_at": m.created_at.isoformat(),
+            }
+            for m in chat.messages
+        ],
+    )
 
 
 @router.delete("/sessions/{session_id}")

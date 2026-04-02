@@ -253,9 +253,7 @@ class TestMergePRs:
         github = MagicMock()
         merge_calls: list[tuple[int, str]] = []
 
-        async def mock_merge(
-            pr_number: int, merge_method: str = "squash", repo: str | None = None
-        ) -> dict:
+        async def mock_merge(pr_number: int, merge_method: str = "squash", repo: str | None = None) -> dict:
             merge_calls.append((pr_number, repo or ""))
             return {"merged": True}
 
@@ -277,9 +275,7 @@ class TestMergePRs:
     async def test_failed_merge_captured_in_result(self) -> None:
         github = MagicMock()
 
-        async def mock_merge(
-            pr_number: int, merge_method: str = "squash", repo: str | None = None
-        ) -> dict:
+        async def mock_merge(pr_number: int, merge_method: str = "squash", repo: str | None = None) -> dict:
             if pr_number == 99:
                 raise RuntimeError("Merge conflict")
             return {"merged": True}
@@ -302,9 +298,7 @@ class TestMergePRs:
         github = MagicMock()
         merge_order: list[int] = []
 
-        async def mock_merge(
-            pr_number: int, merge_method: str = "squash", repo: str | None = None
-        ) -> dict:
+        async def mock_merge(pr_number: int, merge_method: str = "squash", repo: str | None = None) -> dict:
             merge_order.append(pr_number)
             return {"merged": True}
 
@@ -481,6 +475,7 @@ class TestRun:
 
         async def capture(event: object) -> None:
             from autodev.core.models import Event
+
             if isinstance(event, Event):
                 received_events.append(event.payload)
 

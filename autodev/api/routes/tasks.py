@@ -206,6 +206,7 @@ async def delete_task(
 # Task Logs
 # ---------------------------------------------------------------------------
 
+
 class TaskLogResponse(BaseModel):
     id: str
     agent_id: str
@@ -225,20 +226,17 @@ async def get_task_logs(
 ) -> list[TaskLogResponse]:
     """Get agent logs for a specific task."""
     from autodev.core.models import AgentLog
-    
+
     try:
         tid = uuid.UUID(task_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid task ID format")
-    
+
     result = await session.execute(
-        select(AgentLog)
-        .where(AgentLog.task_id == tid)
-        .order_by(AgentLog.created_at.desc())
-        .limit(limit)
+        select(AgentLog).where(AgentLog.task_id == tid).order_by(AgentLog.created_at.desc()).limit(limit)
     )
     logs = result.scalars().all()
-    
+
     return [
         TaskLogResponse(
             id=str(log.id),
@@ -259,24 +257,25 @@ async def restart_task(
 ) -> dict:
     """Fully restart a task: delete GitHub branch, close PR, reset to queued."""
     import os
+
     import httpx
-    
+
     try:
         tid = uuid.UUID(task_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid task ID format")
-    
+
     task = await session.get(Task, tid)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     github_token = os.environ.get("GITHUB_TOKEN", "")
     repo = task.repo
     branch = task.branch
     pr_number = task.pr_number
-    
+
     results = {"task_id": task_id, "actions": []}
-    
+
     # 1. Close PR if exists
     if pr_number and repo and github_token:
         try:
@@ -294,7 +293,7 @@ async def restart_task(
                     results["actions"].append(f"Failed to close PR: {resp.status_code}")
         except Exception as e:
             results["actions"].append(f"Error closing PR: {e}")
-    
+
     # 2. Delete branch if exists
     if branch and repo and github_token:
         try:
@@ -312,25 +311,26 @@ async def restart_task(
                     results["actions"].append(f"Failed to delete branch: {resp.status_code}")
         except Exception as e:
             results["actions"].append(f"Error deleting branch: {e}")
-    
+
     # 3. Reset task
     task.status = "queued"
     task.assigned_to = None
     task.branch = None
     task.pr_number = None
     task.pr_url = None
-    
+
     # 4. Reset developer agent if it was working on this task
     from autodev.core.models import Agent
+
     dev_agent = await session.get(Agent, "developer")
     if dev_agent and str(dev_agent.current_task_id) == task_id:
         dev_agent.status = "idle"
         dev_agent.current_task_id = None
         results["actions"].append("Reset developer agent")
-    
+
     results["actions"].append("Task reset to queued")
     results["status"] = "restarted"
-    
+
     return results
 
 
@@ -338,47 +338,54 @@ class RestartStagingBody(BaseModel):
     comment: str = ""
 
 
-@router.post("/{task_id}/restart-staging", summary="Restart task from staging - revert merge, requeue as hotfix")
+@router.post(
+    "/{task_id}/restart-staging",
+    summary="Restart task from staging - revert merge, requeue as hotfix",
+)
 async def restart_staging_task(
     task_id: str,
     body: RestartStagingBody,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict:
     """Restart a staging task: revert the merged PR on develop, remove from release, requeue as hotfix.
-    
-    The task goes back to queued with task_type=hotfix so it bypasses release manager 
+
+    The task goes back to queued with task_type=hotfix so it bypasses release manager
     and goes straight to staging after autoreview.
     """
     import os
+
     import httpx
-    from autodev.core.github_ops import revert_pr_merge, extract_pr_info
+
+    from autodev.core.github_ops import revert_pr_merge
     from autodev.core.models import Release
-    
+
     try:
         tid = uuid.UUID(task_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid task ID format")
-    
+
     task = await session.get(Task, tid)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     if task.status != "staging":
         raise HTTPException(status_code=400, detail=f"Task must be in staging status (current: {task.status})")
-    
+
     actions = []
     github_token = os.environ.get("GITHUB_TOKEN", "")
-    
+
     # 1. Revert the merged PR on develop
     if task.pr_number and task.repo:
         # Extract repo name from full path (e.g., "zinchenkomig/great_alerter_backend" -> "great_alerter_backend")
         repo_name = task.repo.split("/")[-1] if "/" in task.repo else task.repo
         revert_result = await revert_pr_merge(repo_name, task.pr_number)
         if revert_result["success"]:
-            actions.append(f"✅ Reverted PR #{task.pr_number} merge on develop (sha: {revert_result['revert_sha'][:8]})")
+            actions.append(
+                f"✅ Reverted PR #{task.pr_number} merge on develop (sha: {revert_result['revert_sha'][:8]})"
+            )
         else:
             actions.append(f"⚠️ Revert failed: {revert_result['error']}")
-    
+
     # 2. Close PR if still open (shouldn't be, but just in case)
     if task.pr_number and task.repo and github_token:
         try:
@@ -393,7 +400,7 @@ async def restart_staging_task(
                     actions.append(f"Closed PR #{task.pr_number}")
         except Exception as e:
             actions.append(f"Failed to close PR: {e}")
-    
+
     # 3. Delete feature branch
     if task.branch and task.repo and github_token:
         try:
@@ -409,7 +416,7 @@ async def restart_staging_task(
                     actions.append(f"Branch {task.branch} already deleted")
         except Exception as e:
             actions.append(f"Failed to delete branch: {e}")
-    
+
     # 4. Remove task from release
     if task.release_id:
         release = await session.get(Release, task.release_id)
@@ -417,7 +424,7 @@ async def restart_staging_task(
             release.tasks = [t for t in release.tasks if t != tid]
             actions.append(f"Removed from release {release.version}")
         task.release_id = None
-    
+
     # 5. Reset task as hotfix
     original_description = task.description or ""
     if body.comment.strip():
@@ -426,8 +433,8 @@ async def restart_staging_task(
             f"---\n⚠️ **Restart feedback:**\n{body.comment}\n"
             f"(Restarted from staging at {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')})"
         )
-        actions.append(f"Added restart feedback to description")
-    
+        actions.append("Added restart feedback to description")
+
     task.status = "queued"
     task.task_type = "hotfix"
     task.assigned_to = None
@@ -435,28 +442,30 @@ async def restart_staging_task(
     task.pr_number = None
     task.pr_url = None
     task.updated_at = datetime.now(UTC)
-    
+
     actions.append("Task reset to queued as hotfix (bypasses release manager)")
-    
+
     # 6. Reset developer agent if stuck on this task
     from autodev.core.models import Agent
+
     dev_agent = await session.get(Agent, "developer")
     if dev_agent and str(dev_agent.current_task_id) == task_id:
         dev_agent.status = "idle"
         dev_agent.current_task_id = None
         actions.append("Reset developer agent")
-    
+
     # 7. Log the restart
     from autodev.core.models import AgentLog
+
     log = AgentLog(
         agent_id="user",
         task_id=tid,
         level="warning",
-        message=f"Task restarted from staging" + (f": {body.comment}" if body.comment.strip() else ""),
+        message="Task restarted from staging" + (f": {body.comment}" if body.comment.strip() else ""),
         details="\n".join(actions),
     )
     session.add(log)
-    
+
     return {
         "task_id": task_id,
         "status": "restarted",
@@ -481,11 +490,11 @@ async def request_changes(
         tid = uuid.UUID(task_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid task ID format")
-    
+
     task = await session.get(Task, tid)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     # Create follow-up task with reference to original
     followup = Task(
         id=uuid.uuid4(),
@@ -500,7 +509,7 @@ async def request_changes(
     )
     session.add(followup)
     await session.flush()
-    
+
     return {
         "status": "created",
         "followup_task_id": str(followup.id),
@@ -515,24 +524,25 @@ async def release_task(
 ) -> dict:
     """Merge the PR on GitHub and mark task as released."""
     import os
+
     import httpx
-    
+
     try:
         tid = uuid.UUID(task_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid task ID format")
-    
+
     task = await session.get(Task, tid)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     if not task.pr_number or not task.repo:
         raise HTTPException(status_code=400, detail="No PR to merge")
-    
+
     github_token = os.environ.get("GITHUB_TOKEN", "")
     if not github_token:
         raise HTTPException(status_code=500, detail="GITHUB_TOKEN not configured")
-    
+
     # Merge PR
     repo = task.repo
     try:
@@ -543,7 +553,7 @@ async def release_task(
                 json={"merge_method": "squash"},
                 timeout=15.0,
             )
-            
+
             if resp.status_code == 200:
                 task.status = "released"
                 return {"status": "released", "merged": True}

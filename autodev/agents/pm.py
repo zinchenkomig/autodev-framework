@@ -121,9 +121,9 @@ class PMAgent:
 
         python_files = list(root.rglob("*.py"))
         source_files = [
-            f for f in python_files
-            if not any(part.startswith(".") or part in {"node_modules", "__pycache__"}
-                       for part in f.parts)
+            f
+            for f in python_files
+            if not any(part.startswith(".") or part in {"node_modules", "__pycache__"} for part in f.parts)
         ]
 
         test_modules: set[str] = set()
@@ -175,9 +175,20 @@ class PMAgent:
             for node in ast.walk(tree):
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     branches = sum(
-                        1 for n in ast.walk(node)
-                        if isinstance(n, (ast.If, ast.For, ast.While, ast.Try,
-                                          ast.ExceptHandler, ast.With, ast.Assert))
+                        1
+                        for n in ast.walk(node)
+                        if isinstance(
+                            n,
+                            (
+                                ast.If,
+                                ast.For,
+                                ast.While,
+                                ast.Try,
+                                ast.ExceptHandler,
+                                ast.With,
+                                ast.Assert,
+                            ),
+                        )
                     )
                     if branches > 10:
                         improvements.append(

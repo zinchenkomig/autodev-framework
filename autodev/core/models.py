@@ -203,9 +203,7 @@ class Task(Base):
 
     __tablename__ = "tasks"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        _UUID(), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(_UUID(), primary_key=True, default=uuid.uuid4)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     source: Mapped[str] = mapped_column(String(50), nullable=False, default=TaskSource.MANUAL)
@@ -219,15 +217,9 @@ class Task(Base):
     pr_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     pr_url: Mapped[str | None] = mapped_column(String, nullable=True)
     branch: Mapped[str | None] = mapped_column(String, nullable=True)
-    release_id: Mapped[uuid.UUID | None] = mapped_column(
-        _UUID(), nullable=True
-    )
-    depends_on: Mapped[list[uuid.UUID] | None] = mapped_column(
-        _JSONEncodedList(), nullable=True, default=list
-    )
-    metadata_: Mapped[dict | None] = mapped_column(
-        "metadata", _JSONEncodedDict(), nullable=True, default=dict
-    )
+    release_id: Mapped[uuid.UUID | None] = mapped_column(_UUID(), nullable=True)
+    depends_on: Mapped[list[uuid.UUID] | None] = mapped_column(_JSONEncodedList(), nullable=True, default=list)
+    metadata_: Mapped[dict | None] = mapped_column("metadata", _JSONEncodedDict(), nullable=True, default=dict)
     created_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
@@ -275,9 +267,7 @@ class Event(Base):
 
     __tablename__ = "events"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        _UUID(), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(_UUID(), primary_key=True, default=uuid.uuid4)
     type: Mapped[str] = mapped_column(String(100), nullable=False)
     payload: Mapped[dict] = mapped_column(_JSONEncodedDict(), nullable=False, default=dict)
     source: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -294,9 +284,7 @@ class AgentRun(Base):
 
     __tablename__ = "agent_runs"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        _UUID(), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(_UUID(), primary_key=True, default=uuid.uuid4)
     agent_id: Mapped[str | None] = mapped_column(
         String(100), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
     )
@@ -323,9 +311,7 @@ class ChatMessage(Base):
 
     __tablename__ = "chat_messages"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        _UUID(), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(_UUID(), primary_key=True, default=uuid.uuid4)
     role: Mapped[str] = mapped_column(String(20), nullable=False)  # 'user' | 'pm'
     content: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -341,9 +327,7 @@ class AgentLog(Base):
 
     __tablename__ = "agent_logs"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        _UUID(), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(_UUID(), primary_key=True, default=uuid.uuid4)
     agent_id: Mapped[str] = mapped_column(String(100), index=True, nullable=False)
     task_id: Mapped[uuid.UUID | None] = mapped_column(
         _UUID(), ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True
@@ -365,23 +349,13 @@ class Release(Base):
 
     __tablename__ = "releases"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        _UUID(), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(_UUID(), primary_key=True, default=uuid.uuid4)
     version: Mapped[str] = mapped_column(String(50), nullable=False)
-    status: Mapped[str] = mapped_column(
-        String(30), nullable=False, default=ReleaseStatus.DRAFT
-    )
-    tasks: Mapped[list[uuid.UUID]] = mapped_column(
-        _JSONEncodedList(), nullable=False, default=list
-    )
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default=ReleaseStatus.DRAFT)
+    tasks: Mapped[list[uuid.UUID]] = mapped_column(_JSONEncodedList(), nullable=False, default=list)
     release_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    staging_deployed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    production_deployed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    staging_deployed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    production_deployed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     approved_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reverted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -400,9 +374,7 @@ class ProjectContext(Base):
 
     __tablename__ = "project_contexts"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        _UUID(), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(_UUID(), primary_key=True, default=uuid.uuid4)
     repo: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -428,9 +400,7 @@ class ChatSession(Base):
 
     __tablename__ = "chat_sessions"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        _UUID(), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(_UUID(), primary_key=True, default=uuid.uuid4)
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
@@ -441,7 +411,7 @@ class ChatSession(Base):
         onupdate=lambda: datetime.now(UTC),
         nullable=False,
     )
-    
+
     messages: Mapped[list["PMChatMessage"]] = relationship(
         "PMChatMessage", back_populates="session", order_by="PMChatMessage.created_at"
     )
@@ -452,19 +422,15 @@ class PMChatMessage(Base):
 
     __tablename__ = "pm_chat_messages"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        _UUID(), primary_key=True, default=uuid.uuid4
-    )
-    session_id: Mapped[uuid.UUID] = mapped_column(
-        _UUID(), ForeignKey("chat_sessions.id"), nullable=False
-    )
+    id: Mapped[uuid.UUID] = mapped_column(_UUID(), primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID] = mapped_column(_UUID(), ForeignKey("chat_sessions.id"), nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False)  # user or pm
     content: Mapped[str] = mapped_column(Text, nullable=False)
     task_id: Mapped[uuid.UUID | None] = mapped_column(_UUID(), nullable=True)  # If task was created
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
-    
+
     session: Mapped["ChatSession"] = relationship("ChatSession", back_populates="messages")
 
 
@@ -484,7 +450,7 @@ class Setting(Base):
 
 class AlertSeverity(enum.StrEnum):
     """Alert severity levels."""
-    
+
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
@@ -493,7 +459,7 @@ class AlertSeverity(enum.StrEnum):
 
 class AlertType(enum.StrEnum):
     """Types of alerts."""
-    
+
     TASK_FAILED = "task_failed"
     API_ERROR = "api_error"
     TASK_STUCK = "task_stuck"
@@ -507,9 +473,7 @@ class Alert(Base):
 
     __tablename__ = "alerts"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        _UUID(), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(_UUID(), primary_key=True, default=uuid.uuid4)
     type: Mapped[str] = mapped_column(String(50), nullable=False)
     severity: Mapped[str] = mapped_column(String(20), nullable=False, default=AlertSeverity.MEDIUM)
     title: Mapped[str] = mapped_column(String(255), nullable=False)

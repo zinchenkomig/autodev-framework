@@ -55,9 +55,7 @@ class ReleaseResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-def _release_to_response(
-    release: Release, merge_results: list[dict] | None = None
-) -> ReleaseResponse:
+def _release_to_response(release: Release, merge_results: list[dict] | None = None) -> ReleaseResponse:
     return ReleaseResponse(
         id=str(release.id),
         version=release.version,
@@ -206,9 +204,7 @@ async def update_release(
     return _release_to_response(release, merge_results)
 
 
-async def _merge_release_prs(
-    release: Release, session: AsyncSession
-) -> list[dict]:
+async def _merge_release_prs(release: Release, session: AsyncSession) -> list[dict]:
     """Merge all PRs associated with release tasks. Returns list of results."""
     results: list[dict] = []
     task_uuids = release.tasks or []
@@ -255,9 +251,7 @@ async def _merge_release_prs(
             )
             continue
 
-        logger.info(
-            "PR #%d in %s merge result: %s", pr_number, repo, "success" if success else "failed"
-        )
+        logger.info("PR #%d in %s merge result: %s", pr_number, repo, "success" if success else "failed")
         results.append(
             {
                 "task_id": str(task.id),
@@ -271,9 +265,7 @@ async def _merge_release_prs(
     return results
 
 
-async def _merge_develop_to_main_for_release(
-    release: Release, session: AsyncSession
-) -> list[dict]:
+async def _merge_develop_to_main_for_release(release: Release, session: AsyncSession) -> list[dict]:
     """Merge develop into main for each unique repo in the release tasks."""
     results: list[dict] = []
     task_uuids = release.tasks or []
@@ -296,9 +288,7 @@ async def _merge_develop_to_main_for_release(
             results.append({"repo": repo, "success": False, "error": str(exc)})
             continue
 
-        logger.info(
-            "develop→main merge for %s: %s", repo, "success" if success else "failed"
-        )
+        logger.info("develop→main merge for %s: %s", repo, "success" if success else "failed")
         results.append({"repo": repo, "success": success})
 
     return results
@@ -472,29 +462,27 @@ async def trigger_release(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict:
     """Manually trigger Release Manager to form a release from ready_to_release tasks."""
-    from autodev.release_worker import check_and_create_release, notify_release
-    from autodev.api.database import SessionLocal
-    from sqlalchemy.ext.asyncio import async_sessionmaker
-    from sqlalchemy.ext.asyncio import create_async_engine
     import os
-    
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from autodev.release_worker import check_and_create_release, notify_release
+
     db_url = os.environ.get("DATABASE_URL", "postgresql+asyncpg://autodev:autodev@localhost:5432/autodev")
     engine = create_async_engine(db_url, echo=False)
     factory = async_sessionmaker(engine, expire_on_commit=False)
-    
+
     try:
         result = await check_and_create_release(factory)
         if result:
             await notify_release(result)
             return {"status": "released", **result}
-        
+
         # Check how many SP are waiting
-        ready = await session.execute(
-            select(Task).where(Task.status == "ready_to_release")
-        )
+        ready = await session.execute(select(Task).where(Task.status == "ready_to_release"))
         tasks = ready.scalars().all()
         total_sp = sum(t.story_points or 1 for t in tasks)
-        
+
         return {
             "status": "not_enough_sp",
             "tasks": len(tasks),
@@ -521,13 +509,13 @@ async def release_feedback(
         uid = uuid.UUID(release_id)
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid release ID")
-    
+
     release = await session.get(Release, uid)
     if not release:
         raise HTTPException(status_code=404, detail="Release not found")
-    
+
     created = []
-    
+
     if body.task_ids:
         # Feedback for specific tasks
         for tid_str in body.task_ids:
@@ -538,12 +526,12 @@ async def release_feedback(
             task = await session.get(Task, tid)
             if not task:
                 continue
-            
+
             followup = Task(
                 id=uuid.uuid4(),
                 title=f"Правки: {task.title[:80]}",
                 description=(
-                    f"Правки к задаче \"{task.title}\" (релиз {release.version}):\n\n"
+                    f'Правки к задаче "{task.title}" (релиз {release.version}):\n\n'
                     f"{body.comment}\n\n---\n"
                     f"Original task: {tid_str}\nRelease: {release.version}\n"
                     f"PR: {task.pr_url or 'N/A'}"
@@ -569,12 +557,12 @@ async def release_feedback(
             repo="",  # will be determined by PM
             story_points=3,
             created_by="user-feedback",
-                task_type="hotfix",
+            task_type="hotfix",
         )
         session.add(followup)
         await session.flush()
         created.append({"id": str(followup.id), "title": followup.title})
-    
+
     return {
         "status": "feedback_received",
         "tasks_created": len(created),
@@ -590,35 +578,36 @@ async def remove_task_from_release(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict:
     """Remove a task from release: revert merge commit on develop, remove from release, reset task."""
-    import os
-    import httpx
-    import tempfile
     import asyncio
-    
+    import os
+    import tempfile
+
+    import httpx
+
     try:
         release_uuid = uuid.UUID(release_id)
         task_uuid = uuid.UUID(task_id)
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid ID format")
-    
+
     release = await session.get(Release, release_uuid)
     if not release:
         raise HTTPException(status_code=404, detail="Release not found")
-    
+
     task = await session.get(Task, task_uuid)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     actions = []
     github_token = os.environ.get("GITHUB_TOKEN", "")
-    
+
     # 1. Revert the merge commit on develop (if PR was merged)
     if task.pr_url and task.repo and github_token:
         try:
             # Get merge commit SHA
             parts = task.pr_url.rstrip("/").split("/")
             pr_number = parts[-1]
-            
+
             async with httpx.AsyncClient() as client:
                 resp = await client.get(
                     f"https://api.github.com/repos/{task.repo}/pulls/{pr_number}",
@@ -629,14 +618,15 @@ async def remove_task_from_release(
                     pr_data = resp.json()
                     merge_sha = pr_data.get("merge_commit_sha")
                     was_merged = pr_data.get("merged", False)
-                    
+
                     if was_merged and merge_sha:
                         # Git revert via clone + push
                         tmpdir = tempfile.mkdtemp(prefix="revert-")
                         clone_url = f"https://x-access-token:{github_token}@github.com/{task.repo}.git"
-                        
+
                         proc = await asyncio.create_subprocess_exec(
-                            "/bin/bash", "-c",
+                            "/bin/bash",
+                            "-c",
                             f"git clone -b develop {clone_url} {tmpdir} && "
                             f"cd {tmpdir} && "
                             f"git revert {merge_sha} --no-edit -m 1 && "
@@ -645,12 +635,12 @@ async def remove_task_from_release(
                             stderr=asyncio.subprocess.PIPE,
                         )
                         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
-                        
+
                         if proc.returncode == 0:
                             actions.append(f"Reverted merge commit {merge_sha[:12]} on develop")
                         else:
                             actions.append(f"Failed to revert: {stderr.decode()[:200]}")
-                        
+
                         await asyncio.create_subprocess_exec("/bin/rm", "-rf", tmpdir)
                     elif not was_merged:
                         # PR not merged — just close it
@@ -663,7 +653,7 @@ async def remove_task_from_release(
                         actions.append(f"Closed unmerged PR #{pr_number}")
         except Exception as e:
             actions.append(f"Revert error: {e}")
-    
+
     # 2. Delete branch
     if task.branch and task.repo and github_token:
         try:
@@ -677,12 +667,12 @@ async def remove_task_from_release(
                     actions.append(f"Deleted branch {task.branch}")
         except Exception:
             pass
-    
+
     # 3. Remove task from release
     if release.tasks and task_uuid in release.tasks:
         release.tasks = [t for t in release.tasks if t != task_uuid]
         actions.append(f"Removed from release {release.version}")
-    
+
     # 4. Reset task
     task.status = "queued"
     task.release_id = None
@@ -691,7 +681,7 @@ async def remove_task_from_release(
     task.pr_url = None
     task.assigned_to = None
     actions.append("Task reset to queued")
-    
+
     return {
         "status": "removed",
         "task": task.title,

@@ -28,9 +28,8 @@ DbQuery, AlertConfig, AlertRule, Check, CheckResult, AlertRun, Alert
 """,
         "current_focus": "Стабилизация алертинга, новые источники данных",
     },
-    
     "zinchenkomig/great_alerter_frontend": {
-        "name": "Great Alerter Frontend", 
+        "name": "Great Alerter Frontend",
         "description": "Next.js dashboard для управления алертами",
         "stack": "TypeScript, Next.js 16, React 19, Chakra UI, Tailwind CSS, TanStack React Query, Orval",
         "features": """
@@ -58,7 +57,6 @@ DbQuery, AlertConfig, AlertRule, Check, CheckResult, AlertRun, Alert
 """,
         "current_focus": "UX улучшения, новые визуализации",
     },
-    
     "zinchenkomig/autodev-framework": {
         "name": "AutoDev Framework",
         "description": "Платформа для автоматизации разработки с AI агентами",
@@ -89,34 +87,36 @@ DbQuery, AlertConfig, AlertRule, Check, CheckResult, AlertRun, Alert
     },
 }
 
+
 def get_project_context(repo: str) -> str:
     """Get context string for a project."""
     project = PROJECTS.get(repo)
     if not project:
         return f"Проект: {repo} (контекст не настроен)"
-    
-    return f"""
-## {project['name']}
-{project['description']}
 
-**Стек:** {project['stack']}
+    return f"""
+## {project["name"]}
+{project["description"]}
+
+**Стек:** {project["stack"]}
 
 **Детали:**
-{project['features']}
+{project["features"]}
 
-**Текущий фокус:** {project['current_focus']}
+**Текущий фокус:** {project["current_focus"]}
 """
+
 
 def get_all_projects_context() -> str:
     """Get context for all projects."""
     contexts = []
     for repo, project in PROJECTS.items():
         contexts.append(f"""
-### {project['name']} (`{repo}`)
-{project['description']}
+### {project["name"]} (`{repo}`)
+{project["description"]}
 
-**Стек:** {project['stack']}
-{project['features']}
-**Фокус:** {project['current_focus']}
+**Стек:** {project["stack"]}
+{project["features"]}
+**Фокус:** {project["current_focus"]}
 """)
     return "\n---\n".join(contexts)

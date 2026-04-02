@@ -6,11 +6,11 @@ import logging
 import os
 from typing import Annotated
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-import httpx
 
 from autodev.api.database import get_session
 from autodev.core.models import Setting
@@ -60,7 +60,7 @@ async def get_telegram_settings(
     chat_id = await get_setting(session, "telegram_owner_chat_id")
     secret = await get_setting(session, "telegram_webhook_secret")
     webhook_url = os.environ.get("AUTODEV_WEBHOOK_URL", "https://autodev.zinchenkomig.com/api/webhooks/telegram")
-    
+
     return TelegramSettings(
         bot_token="*" * 10 if token else "",
         owner_chat_id=chat_id,
@@ -76,10 +76,10 @@ async def update_telegram_settings(
 ) -> dict:
     if settings.bot_token and not settings.bot_token.startswith("*"):
         await set_setting(session, "telegram_bot_token", settings.bot_token)
-    
+
     await set_setting(session, "telegram_owner_chat_id", settings.owner_chat_id)
     await set_setting(session, "telegram_webhook_secret", settings.webhook_secret)
-    
+
     return {"status": "updated"}
 
 
@@ -88,44 +88,50 @@ async def test_telegram(
     request: TelegramTestRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> TelegramTestResult:
-    logger.info(f"Test request: bot_token={request.bot_token[:20] if request.bot_token else None}..., chat_id={request.owner_chat_id}")
-    
+    logger.info(
+        f"Test request: bot_token={request.bot_token[:20] if request.bot_token else None}..., chat_id={request.owner_chat_id}"
+    )
+
     # Use provided token if given and not masked
     use_provided = request.bot_token and not request.bot_token.startswith("*")
     token = request.bot_token if use_provided else await get_setting(session, "telegram_bot_token")
     chat_id = request.owner_chat_id or await get_setting(session, "telegram_owner_chat_id")
-    
+
     logger.info(f"Using token: {token[:20] if token else None}... (provided={use_provided})")
-    
+
     if not token:
         return TelegramTestResult(success=False, message="Введите Bot Token")
-    
+
     if not chat_id:
         return TelegramTestResult(success=False, message="Введите Owner Chat ID")
-    
+
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.get(f"https://api.telegram.org/bot{token}/getMe")
             if resp.status_code != 200:
                 return TelegramTestResult(success=False, message="Неверный токен")
-            
+
             bot_info = resp.json()
             if not bot_info.get("ok"):
                 return TelegramTestResult(success=False, message=bot_info.get("description", "Ошибка"))
-            
+
             bot_username = bot_info.get("result", {}).get("username", "")
-            
+
             resp = await client.post(
                 f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": chat_id, "text": "✅ AutoDev — тест успешен!"}
+                json={"chat_id": chat_id, "text": "✅ AutoDev — тест успешен!"},
             )
-            
+
             if resp.status_code != 200:
                 error = resp.json().get("description", "Unknown error")
-                return TelegramTestResult(success=False, message=f"Не удалось отправить: {error}", bot_username=bot_username)
-            
+                return TelegramTestResult(
+                    success=False,
+                    message=f"Не удалось отправить: {error}",
+                    bot_username=bot_username,
+                )
+
             return TelegramTestResult(success=True, message="Тестовое сообщение отправлено", bot_username=bot_username)
-    
+
     except Exception as e:
         return TelegramTestResult(success=False, message=str(e))
 
@@ -137,21 +143,21 @@ async def setup_telegram_webhook(
     token = await get_setting(session, "telegram_bot_token")
     secret = await get_setting(session, "telegram_webhook_secret")
     webhook_url = os.environ.get("AUTODEV_WEBHOOK_URL", "https://autodev.zinchenkomig.com/api/webhooks/telegram")
-    
+
     if not token:
         raise HTTPException(400, "Сначала сохраните токен")
-    
+
     try:
         async with httpx.AsyncClient() as client:
             payload = {"url": webhook_url}
             if secret:
                 payload["secret_token"] = secret
-            
+
             resp = await client.post(f"https://api.telegram.org/bot{token}/setWebhook", json=payload)
             result = resp.json()
             if not result.get("ok"):
                 raise HTTPException(400, result.get("description", "Failed"))
-            
+
             return {"status": "ok", "webhook_url": webhook_url}
     except HTTPException:
         raise
@@ -166,7 +172,7 @@ async def remove_telegram_webhook(
     token = await get_setting(session, "telegram_bot_token")
     if not token:
         raise HTTPException(400, "Bot token not set")
-    
+
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(f"https://api.telegram.org/bot{token}/deleteWebhook")

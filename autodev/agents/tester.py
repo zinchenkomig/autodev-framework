@@ -49,14 +49,14 @@ scenarios:
 async def call_llm(messages: list[dict]) -> str:
     """Call LLM API."""
     import httpx
-    
+
     api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY")
     if not api_key:
         return "Error: API key not configured"
-    
+
     base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     model = os.environ.get("TESTER_MODEL", "anthropic/claude-sonnet-4-20250514")
-    
+
     async with httpx.AsyncClient() as client:
         response = await client.post(
             f"{base_url}/chat/completions",
@@ -79,7 +79,7 @@ async def call_llm(messages: list[dict]) -> str:
 async def get_pr_diff(repo: str, pr_number: int, token: str) -> str:
     """Get PR diff from GitHub."""
     import httpx
-    
+
     async with httpx.AsyncClient() as client:
         response = await client.get(
             f"https://api.github.com/repos/{repo}/pulls/{pr_number}",
@@ -97,11 +97,11 @@ def parse_test_plan(response: str) -> dict | None:
     """Parse test plan from LLM response."""
     if "---TEST_PLAN---" not in response:
         return None
-    
+
     match = re.search(r"---TEST_PLAN---\s*(.*?)\s*---END---", response, re.DOTALL)
     if not match:
         return None
-    
+
     return {"raw": match.group(1)}
 
 
@@ -109,11 +109,11 @@ def parse_playwright_test(response: str) -> str | None:
     """Extract Playwright test code."""
     if "---PLAYWRIGHT_TEST---" not in response:
         return None
-    
+
     match = re.search(r"---PLAYWRIGHT_TEST---\s*(.*?)\s*---END---", response, re.DOTALL)
     if not match:
         return None
-    
+
     return match.group(1).strip()
 
 
@@ -128,29 +128,33 @@ test.use({{ baseURL: '{base_url}' }});
 
 {test_code}
 """)
-        
+
         # Run playwright test
         proc = await asyncio.create_subprocess_exec(
-            "npx", "playwright", "test", str(test_file), "--reporter=line",
+            "npx",
+            "playwright",
+            "test",
+            str(test_file),
+            "--reporter=line",
             cwd=tmpdir,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
         stdout, _ = await proc.communicate()
-        
+
         output = stdout.decode()
         success = proc.returncode == 0
-        
+
         return success, output
 
 
 class TesterAgent:
     """Tester agent that creates and runs E2E tests."""
-    
+
     def __init__(self, session: AsyncSession):
         self.session = session
         self.github_token = os.environ.get("GITHUB_TOKEN", "")
-    
+
     async def _log(self, task_id, level: str, message: str):
         """Log a message."""
         log = AgentLog(
@@ -163,7 +167,7 @@ class TesterAgent:
         )
         self.session.add(log)
         await self.session.flush()
-    
+
     async def _update_status(self, status: AgentStatus, task_id=None):
         """Update agent status."""
         agent = await self.session.get(Agent, "tester")
@@ -173,13 +177,13 @@ class TesterAgent:
             if status == AgentStatus.IDLE:
                 agent.last_run_at = datetime.now(UTC)
             await self.session.flush()
-    
+
     async def process_task(self, task: Task) -> bool:
         """Process a task in review status."""
         try:
             await self._update_status(AgentStatus.WORKING, task.id)
             await self._log(task.id, "info", f"Starting to test: {task.title}")
-            
+
             # Get PR info if available
             pr_diff = ""
             if task.pr_url:
@@ -192,43 +196,46 @@ class TesterAgent:
                         await self._log(task.id, "info", f"Got PR diff: {len(pr_diff)} chars")
                     except Exception as e:
                         await self._log(task.id, "warning", f"Failed to get PR diff: {e}")
-            
+
             # Call LLM to create test plan
             messages = [
                 {"role": "system", "content": TESTER_SYSTEM_PROMPT},
-                {"role": "user", "content": f"""
+                {
+                    "role": "user",
+                    "content": f"""
 Задача: {task.title}
-Описание: {task.description or 'нет описания'}
+Описание: {task.description or "нет описания"}
 
 PR Diff:
 ```
-{pr_diff[:8000] if pr_diff else 'PR diff недоступен'}
+{pr_diff[:8000] if pr_diff else "PR diff недоступен"}
 ```
 
 Составь план тестирования и напиши Playwright тест.
-"""},
+""",
+                },
             ]
-            
+
             llm_response = await call_llm(messages)
             await self._log(task.id, "info", "Got test plan from LLM")
-            
+
             # Parse test plan
             test_plan = parse_test_plan(llm_response)
             if test_plan:
                 await self._log(task.id, "info", f"Test plan: {test_plan['raw'][:500]}")
-            
+
             # Parse and run Playwright test
             test_code = parse_playwright_test(llm_response)
             if test_code:
                 await self._log(task.id, "info", "Running Playwright test...")
-                
+
                 # Determine base URL based on project
                 base_url = "https://staging.alerter.zinchenkomig.com"
                 if task.project and "autodev" in task.project.name:
                     base_url = "https://autodev.zinchenkomig.com"
-                
+
                 success, output = await run_playwright_test(test_code, base_url)
-                
+
                 if success:
                     await self._log(task.id, "info", "✅ All tests passed!")
                     # Move to ready_to_release
@@ -240,28 +247,28 @@ PR Diff:
                     await self._log(task.id, "info", "Task stays in review - needs fixes")
             else:
                 await self._log(task.id, "warning", "No Playwright test generated, manual review needed")
-            
+
             await self._update_status(AgentStatus.IDLE)
             return True
-            
+
         except Exception as e:
             logger.exception("Tester agent error")
             await self._log(task.id, "error", f"Error: {e}")
             await self._update_status(AgentStatus.FAILED)
             return False
-    
+
     async def run(self):
         """Main loop - process tasks in review status."""
         agent = await self.session.get(Agent, "tester")
         if not agent or not agent.enabled:
             logger.debug("Tester agent is disabled")
             return
-        
+
         # Find tasks in review
         stmt = select(Task).where(Task.status == TaskStatus.REVIEW).order_by(Task.created_at)
         result = await self.session.execute(stmt)
         tasks = result.scalars().all()
-        
+
         for task in tasks:
             await self.process_task(task)
             await asyncio.sleep(1)  # Small delay between tasks

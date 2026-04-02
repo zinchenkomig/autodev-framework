@@ -1,4 +1,5 @@
 """GitHub operations for release management."""
+
 import os
 import re
 import subprocess
@@ -31,9 +32,7 @@ async def merge_develop_to_main(repo: str) -> bool:
     with tempfile.TemporaryDirectory() as tmpdir:
         clone_url = f"https://x-access-token:{GITHUB_TOKEN}@github.com/{GITHUB_ORG}/{repo}.git"
         try:
-            subprocess.run(
-                ["git", "clone", clone_url, tmpdir], check=True, capture_output=True
-            )
+            subprocess.run(["git", "clone", clone_url, tmpdir], check=True, capture_output=True)
             subprocess.run(
                 ["git", "-C", tmpdir, "checkout", "main"],
                 check=True,
@@ -64,7 +63,7 @@ async def merge_develop_to_main(repo: str) -> bool:
 
 async def revert_pr_merge(repo: str, pr_number: int) -> dict:
     """Revert a merged PR on develop branch via GitHub API.
-    
+
     Creates a revert commit on develop that undoes the PR merge.
     Returns {"success": bool, "revert_sha": str | None, "error": str | None}.
     """
@@ -80,8 +79,12 @@ async def revert_pr_merge(repo: str, pr_number: int) -> dict:
             timeout=15.0,
         )
         if resp.status_code != 200:
-            return {"success": False, "revert_sha": None, "error": f"Failed to get PR: {resp.status_code}"}
-        
+            return {
+                "success": False,
+                "revert_sha": None,
+                "error": f"Failed to get PR: {resp.status_code}",
+            }
+
         pr_data = resp.json()
         merge_commit_sha = pr_data.get("merge_commit_sha")
         if not merge_commit_sha:
@@ -95,20 +98,24 @@ async def revert_pr_merge(repo: str, pr_number: int) -> dict:
         try:
             subprocess.run(
                 ["git", "clone", "--branch", "develop", clone_url, tmpdir],
-                check=True, capture_output=True,
+                check=True,
+                capture_output=True,
             )
             subprocess.run(
                 ["git", "-C", tmpdir, "config", "user.email", "autodev@bot"],
-                check=True, capture_output=True,
+                check=True,
+                capture_output=True,
             )
             subprocess.run(
                 ["git", "-C", tmpdir, "config", "user.name", "AutoDev Bot"],
-                check=True, capture_output=True,
+                check=True,
+                capture_output=True,
             )
             # Revert the merge commit (parent 1 = develop, parent 2 = feature branch)
             result = subprocess.run(
                 ["git", "-C", tmpdir, "revert", "-m", "1", "--no-edit", merge_commit_sha],
-                capture_output=True, text=True,
+                capture_output=True,
+                text=True,
             )
             if result.returncode != 0:
                 return {
@@ -119,13 +126,16 @@ async def revert_pr_merge(repo: str, pr_number: int) -> dict:
             # Get the revert commit SHA
             sha_result = subprocess.run(
                 ["git", "-C", tmpdir, "rev-parse", "HEAD"],
-                capture_output=True, text=True, check=True,
+                capture_output=True,
+                text=True,
+                check=True,
             )
             revert_sha = sha_result.stdout.strip()
             # Push
             subprocess.run(
                 ["git", "-C", tmpdir, "push", "origin", "develop"],
-                check=True, capture_output=True,
+                check=True,
+                capture_output=True,
             )
             return {"success": True, "revert_sha": revert_sha, "error": None}
         except subprocess.CalledProcessError as e:

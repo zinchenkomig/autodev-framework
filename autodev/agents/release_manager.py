@@ -276,11 +276,7 @@ class ReleaseManagerAgent:
                 )
 
         success = len(failed) == 0
-        message = (
-            f"Merged {len(merged)} PRs successfully"
-            if success
-            else f"Merged {len(merged)}, failed {len(failed)}"
-        )
+        message = f"Merged {len(merged)} PRs successfully" if success else f"Merged {len(merged)}, failed {len(failed)}"
         return MergeResult(merged=merged, failed=failed, success=success, message=message)
 
     async def create_release_branch(self, version: str) -> dict:
@@ -296,11 +292,7 @@ class ReleaseManagerAgent:
         primary_repo = self._get_primary_repo()
 
         # Under gitflow we branch off develop; otherwise off main.
-        base_branch = (
-            "develop"
-            if self.config.branch_strategy == "gitflow"
-            else "main"
-        )
+        base_branch = "develop" if self.config.branch_strategy == "gitflow" else "main"
 
         try:
             sha = await self.github.get_branch_sha(base_branch, repo=primary_repo)
@@ -318,10 +310,7 @@ class ReleaseManagerAgent:
             title=f"Release {version} — {now_str}",
             head=branch_name,
             base="main",
-            body=(
-                f"Автоматический релизный PR для версии **{version}**.\n\n"
-                f"Создан агентом ReleaseManagerAgent."
-            ),
+            body=(f"Автоматический релизный PR для версии **{version}**.\n\nСоздан агентом ReleaseManagerAgent."),
             repo=primary_repo,
         )
 
@@ -352,16 +341,12 @@ class ReleaseManagerAgent:
 
         for group in groups:
             heading = (
-                "Прочие изменения"
-                if group.issue_number == 0
-                else f"Issue #{group.issue_number}: {group.issue_title}"
+                "Прочие изменения" if group.issue_number == 0 else f"Issue #{group.issue_number}: {group.issue_title}"
             )
             lines.append(f"### {heading}")
             for pr in group.prs:
                 type_label = "бэкенд" if pr.pr_type == "backend" else "фронтенд"
-                lines.append(
-                    f"- [{type_label}] {pr.title} (PR #{pr.pr_number}, автор: @{pr.author})"
-                )
+                lines.append(f"- [{type_label}] {pr.title} (PR #{pr.pr_number}, автор: @{pr.author})")
             lines.append("")
 
         total_prs = sum(len(g.prs) for g in groups)
@@ -392,9 +377,7 @@ class ReleaseManagerAgent:
 
         for i, group in enumerate(groups, 1):
             heading = (
-                "Прочие изменения"
-                if group.issue_number == 0
-                else f"Issue #{group.issue_number}: {group.issue_title}"
+                "Прочие изменения" if group.issue_number == 0 else f"Issue #{group.issue_number}: {group.issue_title}"
             )
             lines.extend(
                 [
@@ -411,9 +394,7 @@ class ReleaseManagerAgent:
             step = 1
             for pr in group.prs:
                 type_label = "бэкенд" if pr.pr_type == "backend" else "фронтенд"
-                lines.append(
-                    f"{step}. Проверить изменения PR #{pr.pr_number} ({type_label}): {pr.title}"
-                )
+                lines.append(f"{step}. Проверить изменения PR #{pr.pr_number} ({type_label}): {pr.title}")
                 step += 1
 
             lines.extend(
@@ -605,8 +586,7 @@ class ReleaseManagerAgent:
             if not suites:
                 return True  # No checks configured — treat as passing
             return all(
-                suite.get("conclusion") in ("success", "skipped", None)
-                and suite.get("status") == "completed"
+                suite.get("conclusion") in ("success", "skipped", None) and suite.get("status") == "completed"
                 for suite in suites
             )
         except Exception as exc:
