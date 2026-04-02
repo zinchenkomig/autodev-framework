@@ -26,39 +26,26 @@ async def merge_pr(repo: str, pr_number: int) -> bool:
         return resp.status_code == 200
 
 
-async def merge_develop_to_main(repo: str) -> bool:
-    """Merge develop branch into main."""
-    # Use git directly for branch merge
+async def merge_stage_to_main(repo: str) -> bool:
+    """Merge stage branch into main for production deploy."""
     with tempfile.TemporaryDirectory() as tmpdir:
         clone_url = f"https://x-access-token:{GITHUB_TOKEN}@github.com/{GITHUB_ORG}/{repo}.git"
         try:
             subprocess.run(["git", "clone", clone_url, tmpdir], check=True, capture_output=True)
+            subprocess.run(["git", "-C", tmpdir, "checkout", "main"], check=True, capture_output=True)
             subprocess.run(
-                ["git", "-C", tmpdir, "checkout", "main"],
+                ["git", "-C", tmpdir, "merge", "origin/stage", "-m", "Release: merge stage into main"],
                 check=True,
                 capture_output=True,
             )
-            subprocess.run(
-                [
-                    "git",
-                    "-C",
-                    tmpdir,
-                    "merge",
-                    "origin/develop",
-                    "-m",
-                    "Release: merge develop into main",
-                ],
-                check=True,
-                capture_output=True,
-            )
-            subprocess.run(
-                ["git", "-C", tmpdir, "push", "origin", "main"],
-                check=True,
-                capture_output=True,
-            )
+            subprocess.run(["git", "-C", tmpdir, "push", "origin", "main"], check=True, capture_output=True)
             return True
         except subprocess.CalledProcessError:
             return False
+
+
+# Backward compat alias
+merge_develop_to_main = merge_stage_to_main
 
 
 async def revert_pr_merge(repo: str, pr_number: int) -> dict:
@@ -97,7 +84,7 @@ async def revert_pr_merge(repo: str, pr_number: int) -> dict:
         clone_url = f"https://x-access-token:{GITHUB_TOKEN}@github.com/{GITHUB_ORG}/{repo}.git"
         try:
             subprocess.run(
-                ["git", "clone", "--branch", "develop", clone_url, tmpdir],
+                ["git", "clone", "--branch", "stage", clone_url, tmpdir],
                 check=True,
                 capture_output=True,
             )
@@ -133,7 +120,7 @@ async def revert_pr_merge(repo: str, pr_number: int) -> dict:
             revert_sha = sha_result.stdout.strip()
             # Push
             subprocess.run(
-                ["git", "-C", tmpdir, "push", "origin", "develop"],
+                ["git", "-C", tmpdir, "push", "origin", "stage"],
                 check=True,
                 capture_output=True,
             )

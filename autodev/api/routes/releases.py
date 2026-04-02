@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from autodev.api.database import get_session
-from autodev.core.github_ops import extract_pr_info, merge_develop_to_main, merge_pr
+from autodev.core.github_ops import extract_pr_info, merge_pr, merge_stage_to_main
 from autodev.core.models import Release, ReleaseStatus, Task
 
 logger = logging.getLogger(__name__)
@@ -197,7 +197,7 @@ async def update_release(
         elif body.status == ReleaseStatus.DEPLOYED:
             release.production_deployed_at = datetime.now(UTC)
             # Merge develop to main for all repos
-            merge_results = await _merge_develop_to_main_for_release(release, session)
+            merge_results = await _merge_stage_to_main_for_release(release, session)
 
     await session.flush()
     await session.refresh(release)
@@ -265,7 +265,7 @@ async def _merge_release_prs(release: Release, session: AsyncSession) -> list[di
     return results
 
 
-async def _merge_develop_to_main_for_release(release: Release, session: AsyncSession) -> list[dict]:
+async def _merge_stage_to_main_for_release(release: Release, session: AsyncSession) -> list[dict]:
     """Merge develop into main for each unique repo in the release tasks."""
     results: list[dict] = []
     task_uuids = release.tasks or []
@@ -279,16 +279,16 @@ async def _merge_develop_to_main_for_release(release: Release, session: AsyncSes
             repos.add(task.repo)
 
     for repo in repos:
-        logger.info("Merging develop→main for repo %s", repo)
+        logger.info("Merging stage→main for repo %s", repo)
         try:
-            success = await merge_develop_to_main(repo)
+            success = await merge_stage_to_main(repo)
         except Exception as exc:
-            logger.error("Error merging develop→main for %s: %s", repo, exc)
+            logger.error("Error merging stage→main for %s: %s", repo, exc)
             success = False
             results.append({"repo": repo, "success": False, "error": str(exc)})
             continue
 
-        logger.info("develop→main merge for %s: %s", repo, "success" if success else "failed")
+        logger.info("stage→main merge for %s: %s", repo, "success" if success else "failed")
         results.append({"repo": repo, "success": success})
 
     return results

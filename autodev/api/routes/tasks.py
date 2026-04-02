@@ -347,7 +347,7 @@ async def restart_staging_task(
     body: RestartStagingBody,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict:
-    """Restart a staging task: revert the merged PR on develop, remove from release, requeue as hotfix.
+    """Restart a staging task: revert the merged PR on stage, remove from release, requeue as hotfix.
 
     The task goes back to queued with task_type=hotfix so it bypasses release manager
     and goes straight to staging after autoreview.
@@ -374,15 +374,13 @@ async def restart_staging_task(
     actions = []
     github_token = os.environ.get("GITHUB_TOKEN", "")
 
-    # 1. Revert the merged PR on develop
+    # 1. Revert the merged PR on stage
     if task.pr_number and task.repo:
         # Extract repo name from full path (e.g., "zinchenkomig/great_alerter_backend" -> "great_alerter_backend")
         repo_name = task.repo.split("/")[-1] if "/" in task.repo else task.repo
         revert_result = await revert_pr_merge(repo_name, task.pr_number)
         if revert_result["success"]:
-            actions.append(
-                f"✅ Reverted PR #{task.pr_number} merge on develop (sha: {revert_result['revert_sha'][:8]})"
-            )
+            actions.append(f"✅ Reverted PR #{task.pr_number} merge on stage (sha: {revert_result['revert_sha'][:8]})")
         else:
             actions.append(f"⚠️ Revert failed: {revert_result['error']}")
 

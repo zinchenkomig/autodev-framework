@@ -291,8 +291,8 @@ class ReleaseManagerAgent:
         branch_name = f"release/{version}"
         primary_repo = self._get_primary_repo()
 
-        # Under gitflow we branch off develop; otherwise off main.
-        base_branch = "develop" if self.config.branch_strategy == "gitflow" else "main"
+        # Branch off stage for releases.
+        base_branch = "stage"
 
         try:
             sha = await self.github.get_branch_sha(base_branch, repo=primary_repo)

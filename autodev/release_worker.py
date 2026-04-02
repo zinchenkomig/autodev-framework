@@ -157,7 +157,7 @@ async def check_and_create_release(session_factory: async_sessionmaker) -> dict 
         session.add(release)
         await session.flush()
 
-        # 7. Merge PRs into develop
+        # 7. Merge PRs into stage
         merge_results = []
         merged_count = 0
         failed_count = 0
@@ -200,11 +200,11 @@ async def check_and_create_release(session_factory: async_sessionmaker) -> dict 
                         id=uuid4(),
                         title=f"Resolve merge conflict: {task.title[:60]}",
                         description=(
-                            f"PR #{pr_number} не удалось замержить в develop (конфликт).\n\n"
+                            f"PR #{pr_number} не удалось замержить в stage (конфликт).\n\n"
                             f"Оригинальная задача: {task.title}\n"
                             f"PR: {task.pr_url}\n"
                             f"Repo: {repo}\n\n"
-                            f"Нужно обновить ветку из develop и разрешить конфликты."
+                            f"Нужно обновить ветку из stage и разрешить конфликты."
                         ),
                         status=TaskStatus.QUEUED,
                         priority="high",
@@ -398,7 +398,7 @@ async def check_stuck_autoreview(session_factory: async_sessionmaker) -> None:
                             title=f"Resolve conflict: {task.title[:60]}",
                             description=(
                                 f"PR {task.pr_url} имеет конфликт с develop.\n\n"
-                                f"Нужно обновить ветку из develop и разрешить конфликты."
+                                f"Нужно обновить ветку из stage и разрешить конфликты."
                             ),
                             status=TaskStatus.QUEUED,
                             priority="high",

@@ -367,7 +367,7 @@ class Orchestrator:
                 )
                 await self._log("developer", task_id, "info", f"Cloning repo {repo_name}...")
                 await self._run_shell(
-                    f"git clone -b develop {clone_url} {workdir} || git clone {clone_url} {workdir}",
+                    f"git clone -b stage {clone_url} {workdir} || git clone {clone_url} {workdir}",
                     timeout=120,
                 )
             else:
@@ -376,7 +376,7 @@ class Orchestrator:
             # 3. Create or checkout branch
             if repo_name:
                 if existing_branch:
-                    # Conflict resolution: checkout existing branch and merge develop
+                    # Conflict resolution: checkout existing branch and merge stage
                     await self._log(
                         "developer",
                         task_id,
@@ -386,14 +386,14 @@ class Orchestrator:
                     await self._run_shell(f"git -C {workdir} fetch origin {existing_branch}", timeout=30)
                     await self._run_shell(f"git -C {workdir} checkout {existing_branch}", timeout=30)
 
-                    # Merge develop — this will create conflict markers
+                    # Merge stage — this will create conflict markers
                     try:
-                        await self._run_shell(f"git -C {workdir} merge origin/develop --no-edit", timeout=30)
+                        await self._run_shell(f"git -C {workdir} merge origin/stage --no-edit", timeout=30)
                         await self._log(
                             "developer",
                             task_id,
                             "info",
-                            "Merge from develop succeeded (no conflicts)",
+                            "Merge from stage succeeded (no conflicts)",
                         )
                     except Exception:
                         await self._log(
@@ -425,7 +425,7 @@ class Orchestrator:
 
                     # Determine backend branch: from dependency task or develop
                     backend_repo = repo_name.replace("frontend", "backend")
-                    backend_branch = "develop"
+                    backend_branch = "stage"
 
                     if task.depends_on:
                         async with self._session_factory() as dep_session:
@@ -444,7 +444,7 @@ class Orchestrator:
                     await self._run_shell(f"rm -rf {backend_tmpdir}", timeout=10)
                     await self._run_shell(
                         f"git clone -b {backend_branch} --depth 1 {backend_clone_url} {backend_tmpdir} "
-                        f"|| git clone -b develop --depth 1 {backend_clone_url} {backend_tmpdir}",
+                        f"|| git clone -b stage --depth 1 {backend_clone_url} {backend_tmpdir}",
                         timeout=60,
                     )
 
@@ -954,7 +954,7 @@ Write ONLY the summary. No headers, no markdown formatting. Just 2-3 sentences i
                 title=title,
                 body=body,
                 head=branch,
-                base="develop",
+                base="stage",
             )
             pr_number = pr.get("number")
             logger.info("PR created: #%s for %s", pr_number, repo)
