@@ -224,6 +224,41 @@ async def check_and_create_release(session_factory: async_sessionmaker) -> dict 
                 logger.error(f"Error merging PR #{pr_number}: {e}")
                 merge_results.append({"task": task.title, "pr": task.pr_url, "success": False, "error": str(e)})
 
+        # 7b. Create release PR (stage → main) for visibility
+        release_pr_urls = {}
+        try:
+            from autodev.integrations.github import GitHubClient
+
+            github_token = os.environ.get("GITHUB_TOKEN", "")
+            if github_token:
+                repos_in_release = set()
+                for task in selected:
+                    if task.repo:
+                        repos_in_release.add(task.repo)
+
+                for repo in repos_in_release:
+                    full_repo = repo if "/" in repo else f"zinchenkomig/{repo}"
+                    client = GitHubClient(token=github_token, default_repo=full_repo)
+                    try:
+                        pr_body = (
+                            f"## Release {version}\n\n{release_notes}\n\n---\n*Created by AutoDev Release Manager*"
+                        )
+                        pr = await client.create_pr(
+                            title=f"Release {version}",
+                            body=pr_body,
+                            head="stage",
+                            base="main",
+                        )
+                        pr_url = pr.get("html_url", "")
+                        pr_num = pr.get("number")
+                        release_pr_urls[repo] = pr_url
+                        logger.info(f"Created release PR #{pr_num} for {repo}: {pr_url}")
+                    except Exception as e:
+                        # PR may already exist if stage has diverged from main before
+                        logger.warning(f"Failed to create release PR for {repo}: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to create release PRs: {e}")
+
         # 8. Deploy to staging server
         logger.info("Deploying to staging server...")
         deploy_results = {}
@@ -275,6 +310,7 @@ async def check_and_create_release(session_factory: async_sessionmaker) -> dict 
             "failed": failed_count,
             "remaining": remaining,
             "deploy": deploy_results,
+            "release_prs": release_pr_urls,
         }
 
 
@@ -318,6 +354,13 @@ async def notify_release(release_info: dict) -> None:
                 text += "\nhttps://staging.alerter.zinchenkomig.com"
             else:
                 text += "\n\n⚠️ Деплой на staging частично не удался"
+
+        release_prs = release_info.get("release_prs", {})
+        if release_prs:
+            text += "\n\n🔗 <b>Release PRs (stage → main):</b>"
+            for repo, pr_url in release_prs.items():
+                repo_short = repo.split("/")[-1] if "/" in repo else repo
+                text += f'\n• {repo_short}: <a href="{pr_url}">PR</a>'
 
         text += "\n\n📋 Посмотри staging и дай фидбек через /feedback"
 
