@@ -66,12 +66,19 @@ export interface MergeResult {
   error?: string
 }
 
+export interface ReleaseRepoPR {
+  repo: string
+  pr_number: number
+  pr_url: string
+}
+
 export interface Release {
   id: string
   version: string
   status: ReleaseStatus
   tasks: string[]
   prs: ReleasePR[]
+  release_prs: ReleaseRepoPR[]
   release_notes: string
   testing_plan: string
   ba_report: string | null

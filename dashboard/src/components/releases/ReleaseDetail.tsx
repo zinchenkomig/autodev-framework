@@ -346,6 +346,46 @@ export default function ReleaseDetail({ release, allTasks, onUpdated }: Props) {
         </div>
       </div>
 
+      {/* Release PRs (stage → main) */}
+      {release.release_prs && release.release_prs.length > 0 && (
+        <div>
+          <h2 className="text-xs uppercase tracking-wider font-medium mb-3" style={{ color: '#808080' }}>
+            Release PRs (stage → main)
+          </h2>
+          <div
+            className="p-4 space-y-2"
+            style={{ background: '#3C3F41', border: '1px solid #515151', borderRadius: '4px' }}
+          >
+            {release.release_prs.map((rp, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <GitPullRequest className="w-4 h-4 shrink-0" style={{ color: '#3592C4' }} />
+                <span
+                  className="text-xs px-1.5 py-0.5 font-mono shrink-0"
+                  style={{
+                    background: 'rgba(81,81,81,0.4)',
+                    border: '1px solid #515151',
+                    borderRadius: '3px',
+                    color: '#A9B7C6',
+                  }}
+                >
+                  {rp.repo}
+                </span>
+                <a
+                  href={rp.pr_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-sm"
+                  style={{ color: '#3592C4' }}
+                >
+                  #{rp.pr_number}
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Test plan */}
       <div>
         <h2 className="text-xs uppercase tracking-wider font-medium mb-3" style={{ color: '#808080' }}>

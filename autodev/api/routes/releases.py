@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from autodev.api.database import get_session
-from autodev.core.github_ops import extract_pr_info, merge_pr, merge_stage_to_main
+from autodev.core.github_ops import extract_pr_info, merge_pr, merge_release_pr
 from autodev.core.models import Release, ReleaseStatus, Task
 
 logger = logging.getLogger(__name__)
@@ -42,6 +42,7 @@ class ReleaseResponse(BaseModel):
     status: str
     tasks: list[str]
     release_notes: str | None
+    release_prs: list[dict] = []
     staging_deployed_at: datetime | None
     production_deployed_at: datetime | None
     approved_by: str | None
@@ -62,6 +63,7 @@ def _release_to_response(release: Release, merge_results: list[dict] | None = No
         status=release.status,
         tasks=[str(t) for t in (release.tasks or [])],
         release_notes=release.release_notes,
+        release_prs=release.release_prs or [],
         staging_deployed_at=release.staging_deployed_at,
         production_deployed_at=release.production_deployed_at,
         approved_by=release.approved_by,
@@ -197,7 +199,7 @@ async def update_release(
         elif body.status == ReleaseStatus.DEPLOYED:
             release.production_deployed_at = datetime.now(UTC)
             # Merge develop to main for all repos
-            merge_results = await _merge_stage_to_main_for_release(release, session)
+            merge_results = await _merge_release_prs_to_main(release, session)
 
     await session.flush()
     await session.refresh(release)
@@ -265,31 +267,34 @@ async def _merge_release_prs(release: Release, session: AsyncSession) -> list[di
     return results
 
 
-async def _merge_stage_to_main_for_release(release: Release, session: AsyncSession) -> list[dict]:
-    """Merge develop into main for each unique repo in the release tasks."""
+async def _merge_release_prs_to_main(release: Release, session: AsyncSession) -> list[dict]:
+    """Merge release PRs (stage → main) that were created during release formation."""
     results: list[dict] = []
-    task_uuids = release.tasks or []
-    if not task_uuids:
+    release_prs = release.release_prs or []
+
+    if not release_prs:
+        logger.warning("No release PRs found for release %s", release.version)
         return results
 
-    repos: set[str] = set()
-    for task_uuid in task_uuids:
-        task = await session.get(Task, task_uuid)
-        if task and task.repo:
-            repos.add(task.repo)
+    for rp in release_prs:
+        repo = rp.get("repo", "")
+        pr_number = rp.get("pr_number")
+        pr_url = rp.get("pr_url", "")
 
-    for repo in repos:
-        logger.info("Merging stage→main for repo %s", repo)
-        try:
-            success = await merge_stage_to_main(repo)
-        except Exception as exc:
-            logger.error("Error merging stage→main for %s: %s", repo, exc)
-            success = False
-            results.append({"repo": repo, "success": False, "error": str(exc)})
+        if not repo or not pr_number:
             continue
 
-        logger.info("stage→main merge for %s: %s", repo, "success" if success else "failed")
-        results.append({"repo": repo, "success": success})
+        logger.info("Merging release PR #%d stage→main for repo %s", pr_number, repo)
+        try:
+            success = await merge_release_pr(repo, pr_number)
+        except Exception as exc:
+            logger.error("Error merging release PR #%d for %s: %s", pr_number, repo, exc)
+            success = False
+            results.append({"repo": repo, "pr_number": pr_number, "pr_url": pr_url, "success": False, "error": str(exc)})
+            continue
+
+        logger.info("Release PR #%d for %s: %s", pr_number, repo, "success" if success else "failed")
+        results.append({"repo": repo, "pr_number": pr_number, "pr_url": pr_url, "success": success})
 
     return results
 

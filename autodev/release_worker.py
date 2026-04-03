@@ -162,7 +162,7 @@ async def check_and_create_release(session_factory: async_sessionmaker) -> dict 
         merged_count = 0
         failed_count = 0
 
-        from autodev.core.github_ops import extract_pr_info, merge_pr
+        from autodev.core.github_ops import extract_pr_info, merge_pr, create_stage_to_main_pr
 
         for task in selected:
             if not task.pr_url:
@@ -224,40 +224,26 @@ async def check_and_create_release(session_factory: async_sessionmaker) -> dict 
                 logger.error(f"Error merging PR #{pr_number}: {e}")
                 merge_results.append({"task": task.title, "pr": task.pr_url, "success": False, "error": str(e)})
 
-        # 7b. Create release PR (stage → main) for visibility
-        release_pr_urls = {}
-        try:
-            from autodev.integrations.github import GitHubClient
+        # 7b. Create release PRs (stage → main) for each repo
+        release_prs = []
+        repos_in_release = set()
+        for task in selected:
+            if task.repo:
+                repos_in_release.add(task.repo)
 
-            github_token = os.environ.get("GITHUB_TOKEN", "")
-            if github_token:
-                repos_in_release = set()
-                for task in selected:
-                    if task.repo:
-                        repos_in_release.add(task.repo)
+        for repo in repos_in_release:
+            try:
+                pr_info = await create_stage_to_main_pr(repo, version)
+                if pr_info:
+                    release_prs.append(pr_info)
+                    logger.info(f"Created release PR stage→main for {repo}: #{pr_info['pr_number']}")
+                else:
+                    logger.warning(f"Failed to create release PR for {repo}")
+            except Exception as e:
+                logger.error(f"Error creating release PR for {repo}: {e}")
 
-                for repo in repos_in_release:
-                    full_repo = repo if "/" in repo else f"zinchenkomig/{repo}"
-                    client = GitHubClient(token=github_token, default_repo=full_repo)
-                    try:
-                        pr_body = (
-                            f"## Release {version}\n\n{release_notes}\n\n---\n*Created by AutoDev Release Manager*"
-                        )
-                        pr = await client.create_pr(
-                            title=f"Release {version}",
-                            body=pr_body,
-                            head="stage",
-                            base="main",
-                        )
-                        pr_url = pr.get("html_url", "")
-                        pr_num = pr.get("number")
-                        release_pr_urls[repo] = pr_url
-                        logger.info(f"Created release PR #{pr_num} for {repo}: {pr_url}")
-                    except Exception as e:
-                        # PR may already exist if stage has diverged from main before
-                        logger.warning(f"Failed to create release PR for {repo}: {e}")
-        except Exception as e:
-            logger.warning(f"Failed to create release PRs: {e}")
+        # Save release PRs to the release record
+        release.release_prs = release_prs
 
         # 8. Deploy to staging server
         logger.info("Deploying to staging server...")
@@ -310,7 +296,7 @@ async def check_and_create_release(session_factory: async_sessionmaker) -> dict 
             "failed": failed_count,
             "remaining": remaining,
             "deploy": deploy_results,
-            "release_prs": release_pr_urls,
+            "release_prs": release_prs,
         }
 
 
@@ -355,12 +341,15 @@ async def notify_release(release_info: dict) -> None:
             else:
                 text += "\n\n⚠️ Деплой на staging частично не удался"
 
-        release_prs = release_info.get("release_prs", {})
+        release_prs = release_info.get("release_prs", [])
         if release_prs:
             text += "\n\n🔗 <b>Release PRs (stage → main):</b>"
-            for repo, pr_url in release_prs.items():
+            for rp in release_prs:
+                repo = rp.get("repo", "")
                 repo_short = repo.split("/")[-1] if "/" in repo else repo
-                text += f'\n• {repo_short}: <a href="{pr_url}">PR</a>'
+                pr_num = rp.get("pr_number", "")
+                pr_url = rp.get("pr_url", "")
+                text += f'\n• {repo_short}: <a href="{pr_url}">PR #{pr_num}</a>'
 
         text += "\n\n📋 Посмотри staging и дай фидбек через /feedback"
 

@@ -26,26 +26,44 @@ async def merge_pr(repo: str, pr_number: int) -> bool:
         return resp.status_code == 200
 
 
-async def merge_stage_to_main(repo: str) -> bool:
-    """Merge stage branch into main for production deploy."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        clone_url = f"https://x-access-token:{GITHUB_TOKEN}@github.com/{GITHUB_ORG}/{repo}.git"
-        try:
-            subprocess.run(["git", "clone", clone_url, tmpdir], check=True, capture_output=True)
-            subprocess.run(["git", "-C", tmpdir, "checkout", "main"], check=True, capture_output=True)
-            subprocess.run(
-                ["git", "-C", tmpdir, "merge", "origin/stage", "-m", "Release: merge stage into main"],
-                check=True,
-                capture_output=True,
-            )
-            subprocess.run(["git", "-C", tmpdir, "push", "origin", "main"], check=True, capture_output=True)
-            return True
-        except subprocess.CalledProcessError:
-            return False
+async def create_stage_to_main_pr(repo: str, version: str) -> dict | None:
+    """Create a PR from stage to main for a release.
+
+    Returns ``{"repo": ..., "pr_number": ..., "pr_url": ...}`` on success,
+    or ``None`` if the PR could not be created.
+    """
+    url = f"https://api.github.com/repos/{GITHUB_ORG}/{repo}/pulls"
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            url,
+            headers={
+                "Authorization": f"token {GITHUB_TOKEN}",
+                "Accept": "application/vnd.github.v3+json",
+            },
+            json={
+                "title": f"Release {version}: stage → main",
+                "head": "stage",
+                "base": "main",
+                "body": (
+                    f"Автоматический релизный PR для версии **{version}**.\n\n"
+                    f"Создан autodev-framework Release Manager."
+                ),
+            },
+            timeout=30.0,
+        )
+        if resp.status_code in (200, 201):
+            data = resp.json()
+            return {
+                "repo": repo,
+                "pr_number": data["number"],
+                "pr_url": data["html_url"],
+            }
+        return None
 
 
-# Backward compat alias
-merge_develop_to_main = merge_stage_to_main
+async def merge_release_pr(repo: str, pr_number: int) -> bool:
+    """Merge a release PR (stage→main) for production deploy."""
+    return await merge_pr(repo, pr_number)
 
 
 async def revert_pr_merge(repo: str, pr_number: int) -> dict:
