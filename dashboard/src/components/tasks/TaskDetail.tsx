@@ -105,6 +105,10 @@ export function TaskDetail({ task, onClose, onStatusChange }: TaskDetailProps) {
   useEffect(() => {
     if (task) {
       setCurrentStatus(null)
+      // Pre-fill description for staging restart
+      if (task.status === 'staging') {
+        setChangesComment(task.description || '')
+      }
       loadLogs()
     }
   }, [task?.id])
@@ -251,12 +255,15 @@ export function TaskDetail({ task, onClose, onStatusChange }: TaskDetailProps) {
           {effectiveStatus === 'staging' && (
             <div>
               <p className="text-xs uppercase tracking-wider mb-2" style={{ color: '#808080' }}>Restart from Staging</p>
+              <p className="text-xs mb-2" style={{ color: '#808080' }}>
+                Отредактируйте описание задачи перед перезапуском:
+              </p>
               <textarea
                 value={changesComment}
                 onChange={e => setChangesComment(e.target.value)}
-                placeholder="Что сделано некорректно? (опционально)"
+                placeholder="Описание задачи..."
                 className="w-full px-3 py-2 rounded text-xs resize-none outline-none"
-                rows={3}
+                rows={6}
                 style={{ background: '#1E1F22', border: '1px solid #515151', color: '#BABABA' }}
               />
               <button
@@ -284,7 +291,7 @@ export function TaskDetail({ task, onClose, onStatusChange }: TaskDetailProps) {
                 Restart (Revert & Requeue as Hotfix)
               </button>
               <p className="text-xs mt-1" style={{ color: '#515151' }}>
-                Reverts merge on develop, removes from release, requeues as hotfix
+                Reverts merge on stage, removes from release, requeues as hotfix
               </p>
               {restartResult && (
                 <div className="mt-2 p-2 rounded text-xs" style={{ background: '#1E1F22', border: '1px solid #515151' }}>

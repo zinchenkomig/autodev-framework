@@ -400,11 +400,11 @@ export interface RestartStagingResult {
   actions: string[]
 }
 
-export async function restartStagingTask(taskId: string, comment: string = ''): Promise<RestartStagingResult> {
+export async function restartStagingTask(taskId: string, description: string = ''): Promise<RestartStagingResult> {
   const res = await fetch(`${BASE_URL}/api/tasks/${taskId}/restart-staging`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ comment })
+    body: JSON.stringify({ description })
   })
   if (!res.ok) throw new Error(`Failed: ${res.status}`)
   return res.json()

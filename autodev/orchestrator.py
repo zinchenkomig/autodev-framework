@@ -334,15 +334,7 @@ class Orchestrator:
         branch = f"autodev-{task_id}"
         logger.info("Processing task %s: %s (repo=%s)", task_id, task.title, repo_name)
 
-        # Extract restart feedback from description (if task was restarted from staging)
-        restart_feedback = ""
         description = task.description or ""
-        if "⚠️ **Restart feedback:**" in description:
-            parts = description.split("⚠️ **Restart feedback:**", 1)
-            feedback_text = parts[1].split("(Restarted from staging")[0].strip()
-            restart_feedback = feedback_text
-            # Clean description = original part only
-            description = parts[0].rstrip().rstrip("-").rstrip()
 
         final_status = TaskStatus.FAILED
         pr_number: int | None = None
@@ -499,14 +491,6 @@ class Orchestrator:
             # ========== PHASE 1: PLANNING ==========
             await self._log("developer", task_id, "info", "Phase 1: Creating implementation plan...")
 
-            feedback_block = ""
-            if restart_feedback:
-                feedback_block = (
-                    f"\n🚨 CRITICAL — USER FEEDBACK (this task was rejected from staging and must address this):\n"
-                    f"{restart_feedback}\n"
-                    f"The previous implementation FAILED to satisfy the user. Your plan MUST specifically address this feedback.\n"
-                )
-
             # ========== PHASE 1-2: PLANNING DISCUSSION (developer ↔ critic) ==========
             MAX_PLAN_ITERATIONS = 3
             plan = ""
@@ -522,7 +506,7 @@ class Orchestrator:
 
 TASK: {task.title}
 DESCRIPTION: {description}
-{feedback_block}
+
 {f"--- Project Context ---{chr(10)}{context}" if context else ""}
 
 {dep_context}
@@ -542,7 +526,7 @@ DO NOT write any code yet. Just the plan in markdown format."""
 
 TASK: {task.title}
 DESCRIPTION: {description}
-{feedback_block}
+
 
 {discussion_history}
 
@@ -571,7 +555,7 @@ DO NOT write any code yet. Just the revised plan in markdown format."""
 
 TASK: {task.title}
 DESCRIPTION: {description}
-{feedback_block}
+
 
 {"DISCUSSION SO FAR:" + chr(10) + discussion_history if discussion_history else ""}
 
@@ -583,7 +567,6 @@ Review for:
 2. Potential bugs or edge cases not addressed
 3. Better approaches if any
 4. Security concerns
-{"5. Does the plan specifically address the user's rejection feedback?" if restart_feedback else ""}
 
 If the plan is good and ready for implementation, respond with: APPROVED
 
@@ -617,7 +600,7 @@ FEEDBACK:
 
 TASK: {task.title}
 DESCRIPTION: {description}
-{feedback_block}
+
 FINAL PLAN:
 {plan}
 
@@ -677,19 +660,11 @@ Now implement the solution. Create/modify files as needed."""
                     break
 
                 # Critic reviews code
-                feedback_review_note = ""
-                if restart_feedback:
-                    feedback_review_note = (
-                        f"\n🚨 USER FEEDBACK (task was rejected from staging — this MUST be addressed):\n"
-                        f"{restart_feedback}\n"
-                        f"If the diff does NOT address this feedback, it is a MUST_FIX.\n"
-                    )
 
                 review_prompt = f"""You are a senior code reviewer. Review this code change.
 
 TASK: {task.title}
 TASK DESCRIPTION: {description}
-{feedback_review_note}
 CODE DIFF:
 ```diff
 {diff_output[:15000]}
@@ -701,7 +676,6 @@ Review for:
 3. **Integration** — If it's a frontend change, does it call the backend API correctly? If backend, does the endpoint exist?
 4. **Bugs or logic errors**
 5. **Missing error handling**
-{"6. **User feedback compliance** — Does the change specifically address the user's rejection feedback above?" if restart_feedback else ""}
 
 CRITICAL: If the code adds UI controls that don't actually do anything, or leaves functionality commented out with "TODO" — this is a MUST_FIX.
 

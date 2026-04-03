@@ -335,7 +335,7 @@ async def restart_task(
 
 
 class RestartStagingBody(BaseModel):
-    comment: str = ""
+    description: str = ""
 
 
 @router.post(
@@ -423,15 +423,10 @@ async def restart_staging_task(
             actions.append(f"Removed from release {release.version}")
         task.release_id = None
 
-    # 5. Reset task as hotfix
-    original_description = task.description or ""
-    if body.comment.strip():
-        task.description = (
-            f"{original_description}\n\n"
-            f"---\n⚠️ **Restart feedback:**\n{body.comment}\n"
-            f"(Restarted from staging at {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')})"
-        )
-        actions.append("Added restart feedback to description")
+    # 5. Update description if provided
+    if body.description.strip():
+        task.description = body.description.strip()
+        actions.append("Updated task description")
 
     task.status = "queued"
     task.task_type = "hotfix"
@@ -459,7 +454,7 @@ async def restart_staging_task(
         agent_id="user",
         task_id=tid,
         level="warning",
-        message="Task restarted from staging" + (f": {body.comment}" if body.comment.strip() else ""),
+        message="Task restarted from staging",
         details="\n".join(actions),
     )
     session.add(log)
