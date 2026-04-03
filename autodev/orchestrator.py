@@ -507,7 +507,18 @@ class Orchestrator:
                     f"The previous implementation FAILED to satisfy the user. Your plan MUST specifically address this feedback.\n"
                 )
 
-            plan_prompt = f"""You are a senior developer. Analyze this task and create a detailed implementation plan.
+            # ========== PHASE 1-2: PLANNING DISCUSSION (developer ↔ critic) ==========
+            MAX_PLAN_ITERATIONS = 3
+            plan = ""
+            plan_feedback = ""
+            plan_approved = False
+            discussion_history = ""
+
+            for plan_iter in range(MAX_PLAN_ITERATIONS):
+                # --- Developer creates/revises plan ---
+                if plan_iter == 0:
+                    await self._log("developer", task_id, "info", "Phase 1: Creating implementation plan...")
+                    plan_prompt = f"""You are a senior developer. Analyze this task and create a detailed implementation plan.
 
 TASK: {task.title}
 DESCRIPTION: {description}
@@ -523,63 +534,94 @@ Create a plan that includes:
 4. Testing approach
 
 DO NOT write any code yet. Just the plan in markdown format."""
-
-            plan_result = await runner.run(plan_prompt, context={"workdir": workdir})
-            plan = plan_result.output
-            await self._log(
-                "developer",
-                task_id,
-                "info",
-                f"📋 Plan created ({len(plan)} chars, {plan_result.duration_seconds:.1f}s)",
-                details=f"=== IMPLEMENTATION PLAN ===\n\n{plan}",
-            )
-
-            # ========== PHASE 2: CRITIC REVIEWS PLAN ==========
-            await self._log("developer", task_id, "info", "Phase 2: Critic reviewing plan...")
-
-            critic_plan_prompt = f"""You are a senior code reviewer and architect. Review this implementation plan.
+                else:
+                    await self._log(
+                        "developer", task_id, "info", f"Phase 1: Revising plan (iteration {plan_iter + 1})..."
+                    )
+                    plan_prompt = f"""You are a senior developer. Revise your implementation plan based on the critic's feedback.
 
 TASK: {task.title}
+DESCRIPTION: {description}
+{feedback_block}
 
-PROPOSED PLAN:
+{discussion_history}
+
+CRITIC'S LATEST FEEDBACK:
+{plan_feedback}
+
+Revise the plan to address the feedback. Keep what's good, fix what was criticized.
+DO NOT write any code yet. Just the revised plan in markdown format."""
+
+                plan_result = await runner.run(plan_prompt, context={"workdir": workdir})
+                plan = plan_result.output
+                await self._log(
+                    "developer",
+                    task_id,
+                    "info",
+                    f"📋 Plan {'created' if plan_iter == 0 else 'revised'} ({len(plan)} chars, {plan_result.duration_seconds:.1f}s)",
+                    details=f"=== PLAN v{plan_iter + 1} ===\n\n{plan}",
+                )
+
+                # --- Critic reviews plan ---
+                await self._log(
+                    "developer", task_id, "info", f"Phase 2: Critic reviewing plan (iteration {plan_iter + 1})..."
+                )
+
+                critic_plan_prompt = f"""You are a senior code reviewer and architect. Review this implementation plan.
+
+TASK: {task.title}
+DESCRIPTION: {description}
+{feedback_block}
+
+{"DISCUSSION SO FAR:" + chr(10) + discussion_history if discussion_history else ""}
+
+PROPOSED PLAN (v{plan_iter + 1}):
 {plan}
 
 Review for:
 1. Missing considerations
-2. Potential bugs or edge cases not addressed  
+2. Potential bugs or edge cases not addressed
 3. Better approaches if any
 4. Security concerns
+{"5. Does the plan specifically address the user's rejection feedback?" if restart_feedback else ""}
 
-If the plan is good, respond with: APPROVED
+If the plan is good and ready for implementation, respond with: APPROVED
 
 If there are issues, respond with:
 FEEDBACK:
 - [your feedback points]"""
 
-            critic_result = await runner.run(critic_plan_prompt, context={"workdir": workdir})
-            plan_feedback = critic_result.output
-            plan_approved = "APPROVED" in plan_feedback.upper() and "FEEDBACK:" not in plan_feedback.upper()
+                critic_result = await runner.run(critic_plan_prompt, context={"workdir": workdir})
+                plan_feedback = critic_result.output
+                plan_approved = "APPROVED" in plan_feedback.upper() and "FEEDBACK:" not in plan_feedback.upper()
 
-            await self._log(
-                "developer",
-                task_id,
-                "info" if plan_approved else "warning",
-                f"🔍 Plan review: {'✅ Approved' if plan_approved else '⚠️ Feedback received'} ({critic_result.duration_seconds:.1f}s)",
-                details=f"=== CRITIC PLAN REVIEW ===\n\n{plan_feedback}",
-            )
+                await self._log(
+                    "developer",
+                    task_id,
+                    "info" if plan_approved else "warning",
+                    f"🔍 Plan review #{plan_iter + 1}: {'✅ Approved' if plan_approved else '⚠️ Feedback received'} ({critic_result.duration_seconds:.1f}s)",
+                    details=f"=== CRITIC REVIEW v{plan_iter + 1} ===\n\n{plan_feedback}",
+                )
+
+                # Build discussion history for next iteration
+                discussion_history += f"\n--- Plan v{plan_iter + 1} (summary) ---\n{plan[:2000]}\n"
+                discussion_history += f"\n--- Critic feedback #{plan_iter + 1} ---\n{plan_feedback[:2000]}\n"
+
+                if plan_approved:
+                    break
 
             # ========== PHASE 3: IMPLEMENTATION ==========
             await self._log("developer", task_id, "info", "Phase 3: Implementing solution...")
 
-            impl_prompt = f"""You are a senior developer. Implement the solution based on this plan.
+            impl_prompt = f"""You are a senior developer. Implement the solution based on the approved plan.
 
 TASK: {task.title}
 DESCRIPTION: {description}
 {feedback_block}
-PLAN:
+FINAL PLAN:
 {plan}
 
-{f"REVIEWER FEEDBACK:{chr(10)}{plan_feedback}" if not plan_approved else ""}
+{f"NOTE: Plan was approved after {plan_iter + 1} revision(s). Key discussion points:{chr(10)}{discussion_history[-3000:]}" if plan_iter > 0 else ""}
 
 {f"--- Project Context ---{chr(10)}{context}" if context else ""}
 
