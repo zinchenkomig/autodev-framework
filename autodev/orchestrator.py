@@ -634,7 +634,7 @@ Now implement the solution. Create/modify files as needed."""
                 raise RuntimeError(f"Implementation failed: {impl_result.output}")
 
             # ========== PHASE 4: CODE REVIEW LOOP ==========
-            MAX_REVIEW_ITERATIONS = 3
+            MAX_REVIEW_ITERATIONS = 5
             code_approved = False
 
             for iteration in range(MAX_REVIEW_ITERATIONS):
@@ -808,15 +808,33 @@ Write ONLY the summary. No headers, no markdown formatting. Just 2-3 sentences i
                     await self._log("developer", task_id, "warning", "No changes to commit")
 
             # Final status
-            if code_approved or (not code_approved and iteration >= MAX_REVIEW_ITERATIONS - 1 and has_changes):
+            if code_approved:
                 final_status = TaskStatus.AUTOREVIEW
-                if not code_approved:
-                    await self._log(
-                        "developer",
+            elif has_changes and iteration >= MAX_REVIEW_ITERATIONS - 1:
+                # Critic still has unresolved issues after max iterations
+                # Mark as FAILED and notify PM about the deadlock
+                final_status = TaskStatus.FAILED
+                deadlock_msg = (
+                    f"Задача «{task.title}» не прошла код ревью после {MAX_REVIEW_ITERATIONS} итераций.\n\n"
+                    f"Критик и разработчик не смогли договориться.\n\n"
+                    f"Последний отзыв критика:\n{review_feedback[:2000] if review_feedback else 'N/A'}"
+                )
+                await self._log(
+                    "developer",
+                    task_id,
+                    "error",
+                    f"❌ Code review deadlock after {MAX_REVIEW_ITERATIONS} iterations — task failed",
+                    details=deadlock_msg,
+                )
+                try:
+                    await notify_task_status(
                         task_id,
-                        "warning",
-                        "Max iterations reached - sending to human review",
+                        task.title,
+                        "failed",
+                        error=deadlock_msg,
                     )
+                except Exception as notify_err:
+                    logger.warning(f"Failed to send deadlock notification: {notify_err}")
             else:
                 final_status = TaskStatus.FAILED
 
