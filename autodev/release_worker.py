@@ -162,7 +162,7 @@ async def check_and_create_release(session_factory: async_sessionmaker) -> dict 
         merged_count = 0
         failed_count = 0
 
-        from autodev.core.github_ops import extract_pr_info, merge_pr, create_stage_to_main_pr
+        from autodev.core.github_ops import create_stage_to_main_pr, extract_pr_info, merge_pr
 
         for task in selected:
             if not task.pr_url:
