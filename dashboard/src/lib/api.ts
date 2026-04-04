@@ -7,6 +7,7 @@ export type ReleaseStatus = 'draft' | 'staging' | 'testing' | 'pending_approval'
 
 export interface Task {
   id: string
+  ticket_number: number | null
   title: string
   description: string
   source: string

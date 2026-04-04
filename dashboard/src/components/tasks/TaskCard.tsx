@@ -173,6 +173,9 @@ export function TaskCard({ task, onClick, onDelete, onRequeue }: TaskCardProps) 
 
         <div className="flex-1 min-w-0 pr-10">
           <p className="text-sm leading-snug line-clamp-2 mb-2" style={{ color: '#FFFFFF' }}>
+            {task.ticket_number && (
+              <span className="font-mono mr-1.5" style={{ color: '#808080', fontSize: '11px' }}>#{task.ticket_number}</span>
+            )}
             {task.title}
           </p>
 

@@ -240,7 +240,12 @@ export function TaskDetail({ task, onClose, onStatusChange }: TaskDetailProps) {
                 {effectiveStatus}
               </span>
             </div>
-            <p className="text-sm leading-snug" style={{ color: '#FFFFFF' }}>{task.title}</p>
+            <p className="text-sm leading-snug" style={{ color: '#FFFFFF' }}>
+              {task.ticket_number && (
+                <span className="font-mono mr-1.5" style={{ color: '#808080' }}>#{task.ticket_number}</span>
+              )}
+              {task.title}
+            </p>
           </div>
           <button
             onClick={onClose}

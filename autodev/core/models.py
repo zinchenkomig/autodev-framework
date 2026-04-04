@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, Sequence, String, Text, func
 from sqlalchemy import types as sa_types
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB  # used in TypeDecorators below
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -204,6 +204,14 @@ class Task(Base):
     __tablename__ = "tasks"
 
     id: Mapped[uuid.UUID] = mapped_column(_UUID(), primary_key=True, default=uuid.uuid4)
+    ticket_number: Mapped[int] = mapped_column(
+        Integer,
+        Sequence("task_ticket_seq"),
+        unique=True,
+        nullable=False,
+        index=True,
+        server_default=sa_types.text("nextval('task_ticket_seq')"),
+    )
     title: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     source: Mapped[str] = mapped_column(String(50), nullable=False, default=TaskSource.MANUAL)

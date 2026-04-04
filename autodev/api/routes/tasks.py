@@ -53,6 +53,7 @@ class TaskUpdate(BaseModel):
 
 class TaskResponse(BaseModel):
     id: str
+    ticket_number: int | None = None
     title: str
     description: str | None
     source: str
@@ -77,6 +78,7 @@ class TaskResponse(BaseModel):
 def _task_to_response(task: Task) -> TaskResponse:
     return TaskResponse(
         id=str(task.id),
+        ticket_number=task.ticket_number,
         title=task.title,
         description=task.description,
         source=task.source,
