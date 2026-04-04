@@ -922,6 +922,8 @@ Write ONLY the summary. No headers, no markdown formatting. Just 2-3 sentences i
         branch: str | None = None,
     ) -> None:
         import uuid as _uuid
+        from datetime import UTC as _UTC
+        from datetime import datetime as _datetime
 
         async with self._session_factory() as session:
             try:
@@ -933,7 +935,7 @@ Write ONLY the summary. No headers, no markdown formatting. Just 2-3 sentences i
                 old_status = task.status
                 task.status = status
                 if old_status != status:
-                    task.status_changed_at = datetime.now(UTC)
+                    task.status_changed_at = _datetime.now(_UTC)
                 if pr_number is not None:
                     task.pr_number = pr_number
                 if pr_url is not None:
