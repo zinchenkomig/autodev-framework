@@ -452,7 +452,8 @@ class Orchestrator:
 
                     # Generate OpenAPI spec (needs dummy postgres env to satisfy Settings)
                     await self._run_shell(
-                        f"cd {backend_tmpdir} && uv sync --frozen 2>&1 | tail -1 && "
+                        f"cd {backend_tmpdir} && unset VIRTUAL_ENV && "
+                        f"uv sync --frozen 2>&1 | tail -1 && "
                         f"mkdir -p {workdir}/openapi && "
                         f"POSTGRES__HOST=localhost POSTGRES__PORT=5432 POSTGRES__USER=x POSTGRES__PASSWORD=x POSTGRES__DB=x "
                         f'uv run python -c "'
