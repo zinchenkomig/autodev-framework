@@ -210,7 +210,7 @@ class Task(Base):
         unique=True,
         nullable=False,
         index=True,
-        server_default=sa_types.text("nextval('task_ticket_seq')"),
+        server_default=func.nextval("task_ticket_seq"),
     )
     title: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
