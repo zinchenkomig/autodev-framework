@@ -50,11 +50,11 @@ class Orchestrator:
         self,
         config_path: str = "autodev.yaml",
         host: str = "0.0.0.0",
-        port: int = 8000,
+        port: int | None = None,
     ) -> None:
         self.config_path = config_path
         self.host = host
-        self.port = port
+        self.port = port or int(os.environ.get("AUTODEV_PORT", "8000"))
         self.config = _safe_load_config(config_path)
         self.db_url = os.environ.get(
             "DATABASE_URL",
