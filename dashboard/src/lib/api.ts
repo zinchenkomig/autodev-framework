@@ -22,6 +22,7 @@ export interface Task {
   depends_on: string[] | null
   created_by: string
   created_at: string
+  status_changed_at: string | null
   updated_at: string
 }
 

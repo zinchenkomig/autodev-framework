@@ -932,6 +932,8 @@ Write ONLY the summary. No headers, no markdown formatting. Just 2-3 sentences i
             if task:
                 old_status = task.status
                 task.status = status
+                if old_status != status:
+                    task.status_changed_at = datetime.now(UTC)
                 if pr_number is not None:
                     task.pr_number = pr_number
                 if pr_url is not None:

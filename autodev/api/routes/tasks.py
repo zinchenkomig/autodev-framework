@@ -68,6 +68,7 @@ class TaskResponse(BaseModel):
     depends_on: list[str] | None
     created_by: str | None
     created_at: datetime
+    status_changed_at: datetime | None = None
     updated_at: datetime
 
     model_config = {"from_attributes": True}
@@ -91,6 +92,7 @@ def _task_to_response(task: Task) -> TaskResponse:
         depends_on=[str(d) for d in task.depends_on] if task.depends_on else None,
         created_by=task.created_by,
         created_at=task.created_at,
+        status_changed_at=task.status_changed_at,
         updated_at=task.updated_at,
     )
 
@@ -357,6 +359,7 @@ async def restart_task(
     # 3. Reset task
     old_status = task.status
     task.status = "queued"
+    task.status_changed_at = datetime.now(UTC)
     task.assigned_to = None
     task.branch = None
     task.pr_number = None
@@ -492,6 +495,7 @@ async def restart_staging_task(
         actions.append("Updated task description")
 
     task.status = "queued"
+    task.status_changed_at = datetime.now(UTC)
     task.task_type = "hotfix"
     task.assigned_to = None
     task.branch = None

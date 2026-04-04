@@ -74,6 +74,14 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
     for (const task of filteredTasks) {
       map[task.status].push(task)
     }
+    // Sort each column by status_changed_at desc (most recent transition first)
+    for (const status of Object.keys(map) as TaskStatus[]) {
+      map[status].sort((a, b) => {
+        const aTime = a.status_changed_at || a.updated_at
+        const bTime = b.status_changed_at || b.updated_at
+        return new Date(bTime).getTime() - new Date(aTime).getTime()
+      })
+    }
     return map
   }, [filteredTasks])
 
