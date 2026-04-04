@@ -333,7 +333,7 @@ async def restart_task(
     log_transition = AgentLog(
         agent_id="orchestrator",
         task_id=tid,
-        level="info",
+        level="transition",
         message=f"📌 Status: {old_status} → queued (full restart)",
     )
     session.add(log_transition)
@@ -464,7 +464,7 @@ async def restart_staging_task(
     log_transition = AgentLog(
         agent_id="orchestrator",
         task_id=tid,
-        level="info",
+        level="transition",
         message=f"📌 Status: {old_status} → queued (restart from staging)",
     )
     session.add(log_transition)

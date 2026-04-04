@@ -35,16 +35,18 @@ const STATUS_DOT: Record<TaskStatus, string> = {
   failed:      '#CC4E4E',
 }
 
-const levelConfig: Record<string, { color: string; label: string }> = {
-  info:    { color: '#9E9E9E', label: 'INFO' },
-  warning: { color: '#CC7832', label: 'WARN' },
-  error:   { color: '#CC4E4E', label: 'ERR' },
+const levelConfig: Record<string, { color: string; label: string; bg?: string }> = {
+  info:       { color: '#9E9E9E', label: 'INFO' },
+  warning:    { color: '#CC7832', label: 'WARN' },
+  error:      { color: '#CC4E4E', label: 'ERR' },
+  transition: { color: '#3592C4', label: '→', bg: 'rgba(53,146,196,0.08)' },
 }
 
 function formatLogTime(dateStr: string): string {
   try {
     const d = new Date(dateStr)
-    return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) + ' ' +
+      d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   } catch {
     return ''
   }
@@ -55,19 +57,21 @@ function LogEntry({ log }: { log: TaskLog }) {
   const cfg = levelConfig[log.level] || levelConfig.info
   const hasDetails = log.details && log.details.length > 0
   
+  const isTransition = log.level === 'transition'
+  
   return (
     <div style={{ borderBottom: '1px solid #3C3F41' }}>
       <div
         className={`flex items-start gap-2 px-2 py-1.5 ${hasDetails ? 'cursor-pointer hover:bg-[#3C3F41]' : ''}`}
         onClick={() => hasDetails && setExpanded(!expanded)}
-        style={{ fontSize: '11px' }}
+        style={{ fontSize: '11px', background: cfg.bg || 'transparent' }}
       >
         <span style={{ color: '#515151', width: '12px', marginTop: '2px' }}>
           {hasDetails ? (expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />) : null}
         </span>
         <span className="font-mono shrink-0" style={{ color: '#616161', fontSize: '10px' }}>{formatLogTime(log.created_at)}</span>
         <span className="px-1 rounded font-bold" style={{ color: cfg.color, fontSize: '10px' }}>{cfg.label}</span>
-        <span className="flex-1" style={{ color: '#BABABA', wordBreak: 'break-word' }}>{log.message}</span>
+        <span className="flex-1" style={{ color: isTransition ? '#3592C4' : '#BABABA', fontWeight: isTransition ? 600 : 'normal', wordBreak: 'break-word' }}>{log.message}</span>
       </div>
       {expanded && log.details && (
         <div 

@@ -181,7 +181,7 @@ class Orchestrator:
                 await self._log(
                     "orchestrator",
                     str(task.id),
-                    "warning",
+                    "transition",
                     "📌 Status: in_progress → queued (cleanup after restart)",
                 )
 
@@ -930,7 +930,7 @@ Write ONLY the summary. No headers, no markdown formatting. Just 2-3 sentences i
                     await self._log(
                         "orchestrator",
                         task_id,
-                        "info",
+                        "transition",
                         f"📌 Status: {old_status} → {status}",
                     )
 

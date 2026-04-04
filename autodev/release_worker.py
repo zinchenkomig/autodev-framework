@@ -286,7 +286,7 @@ async def check_and_create_release(session_factory: async_sessionmaker) -> dict 
                 AgentLog(
                     agent_id="release_manager",
                     task_id=task.id,
-                    level="info",
+                    level="transition",
                     message=f"📌 Status: {old_status} → staging (release {version})",
                 )
             )
