@@ -250,6 +250,48 @@ async def get_task_logs(
     ]
 
 
+class TransitionResponse(BaseModel):
+    id: str
+    from_status: str
+    to_status: str
+    reason: str | None
+    triggered_by: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+@router.get("/{task_id}/transitions", summary="Get status transition history")
+async def get_task_transitions(
+    task_id: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> list[TransitionResponse]:
+    """Get full status transition history for a task."""
+    from autodev.core.models import TaskTransition
+
+    try:
+        tid = uuid.UUID(task_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid task ID format")
+
+    result = await session.execute(
+        select(TaskTransition).where(TaskTransition.task_id == tid).order_by(TaskTransition.created_at.asc())
+    )
+    transitions = result.scalars().all()
+
+    return [
+        TransitionResponse(
+            id=str(t.id),
+            from_status=t.from_status,
+            to_status=t.to_status,
+            reason=t.reason,
+            triggered_by=t.triggered_by,
+            created_at=t.created_at,
+        )
+        for t in transitions
+    ]
+
+
 @router.post("/{task_id}/restart", summary="Full restart task - delete branch, close PR, requeue")
 async def restart_task(
     task_id: str,
@@ -329,7 +371,18 @@ async def restart_task(
         dev_agent.current_task_id = None
         results["actions"].append("Reset developer agent")
 
-    # 5. Log status transition
+    # 5. Record status transition
+    from autodev.core.models import TaskTransition
+
+    session.add(
+        TaskTransition(
+            task_id=tid,
+            from_status=old_status,
+            to_status="queued",
+            reason="full restart",
+            triggered_by="user",
+        )
+    )
     log_transition = AgentLog(
         agent_id="orchestrator",
         task_id=tid,
@@ -461,6 +514,17 @@ async def restart_staging_task(
     from autodev.core.models import AgentLog
 
     old_status = "staging"
+    from autodev.core.models import TaskTransition
+
+    session.add(
+        TaskTransition(
+            task_id=tid,
+            from_status="staging",
+            to_status="queued",
+            reason="restart from staging",
+            triggered_by="user",
+        )
+    )
     log_transition = AgentLog(
         agent_id="orchestrator",
         task_id=tid,

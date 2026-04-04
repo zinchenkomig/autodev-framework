@@ -344,6 +344,27 @@ class AgentLog(Base):
         return f"<AgentLog id={self.id} agent_id={self.agent_id!r} level={self.level!r}>"
 
 
+class TaskTransition(Base):
+    """Records every status transition for a task."""
+
+    __tablename__ = "task_transitions"
+
+    id: Mapped[uuid.UUID] = mapped_column(_UUID(), primary_key=True, default=uuid.uuid4)
+    task_id: Mapped[uuid.UUID] = mapped_column(
+        _UUID(), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    from_status: Mapped[str] = mapped_column(String(30), nullable=False)
+    to_status: Mapped[str] = mapped_column(String(30), nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    triggered_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<TaskTransition {self.from_status} → {self.to_status} task={self.task_id}>"
+
+
 class Release(Base):
     """A software release artifact."""
 

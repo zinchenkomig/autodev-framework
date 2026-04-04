@@ -176,7 +176,22 @@ class Orchestrator:
 
             await session.commit()
 
-            # Log status transitions for stuck tasks
+            # Record transitions for stuck tasks
+            from autodev.core.models import TaskTransition
+
+            async with self._session_factory() as ts_session:
+                for task in stuck_tasks:
+                    ts_session.add(
+                        TaskTransition(
+                            task_id=task.id,
+                            from_status="in_progress",
+                            to_status="queued",
+                            reason="cleanup after restart",
+                            triggered_by="orchestrator",
+                        )
+                    )
+                await ts_session.commit()
+
             for task in stuck_tasks:
                 await self._log(
                     "orchestrator",
@@ -925,8 +940,21 @@ Write ONLY the summary. No headers, no markdown formatting. Just 2-3 sentences i
                     task.branch = branch
                 await session.commit()
 
-                # Log status transition
+                # Record status transition
                 if old_status != status:
+                    from autodev.core.models import TaskTransition
+
+                    async with self._session_factory() as ts_session:
+                        ts_session.add(
+                            TaskTransition(
+                                task_id=pk,
+                                from_status=old_status,
+                                to_status=status,
+                                triggered_by="orchestrator",
+                            )
+                        )
+                        await ts_session.commit()
+
                     await self._log(
                         "orchestrator",
                         task_id,
