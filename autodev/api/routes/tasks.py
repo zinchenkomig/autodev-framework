@@ -313,6 +313,7 @@ async def restart_task(
             results["actions"].append(f"Error deleting branch: {e}")
 
     # 3. Reset task
+    old_status = task.status
     task.status = "queued"
     task.assigned_to = None
     task.branch = None
@@ -320,13 +321,22 @@ async def restart_task(
     task.pr_url = None
 
     # 4. Reset developer agent if it was working on this task
-    from autodev.core.models import Agent
+    from autodev.core.models import Agent, AgentLog
 
     dev_agent = await session.get(Agent, "developer")
     if dev_agent and str(dev_agent.current_task_id) == task_id:
         dev_agent.status = "idle"
         dev_agent.current_task_id = None
         results["actions"].append("Reset developer agent")
+
+    # 5. Log status transition
+    log_transition = AgentLog(
+        agent_id="orchestrator",
+        task_id=tid,
+        level="info",
+        message=f"📌 Status: {old_status} → queued (full restart)",
+    )
+    session.add(log_transition)
 
     results["actions"].append("Task reset to queued")
     results["status"] = "restarted"
@@ -447,8 +457,17 @@ async def restart_staging_task(
         dev_agent.current_task_id = None
         actions.append("Reset developer agent")
 
-    # 7. Log the restart
+    # 7. Log the restart with status transition
     from autodev.core.models import AgentLog
+
+    old_status = "staging"
+    log_transition = AgentLog(
+        agent_id="orchestrator",
+        task_id=tid,
+        level="info",
+        message=f"📌 Status: {old_status} → queued (restart from staging)",
+    )
+    session.add(log_transition)
 
     log = AgentLog(
         agent_id="user",

@@ -176,6 +176,15 @@ class Orchestrator:
 
             await session.commit()
 
+            # Log status transitions for stuck tasks
+            for task in stuck_tasks:
+                await self._log(
+                    "orchestrator",
+                    str(task.id),
+                    "warning",
+                    "📌 Status: in_progress → queued (cleanup after restart)",
+                )
+
             if working_agents or stuck_tasks:
                 logger.info("Cleanup: reset %d agents, %d tasks", len(working_agents), len(stuck_tasks))
 
@@ -906,6 +915,7 @@ Write ONLY the summary. No headers, no markdown formatting. Just 2-3 sentences i
                 pk = task_id  # type: ignore[assignment]
             task = await session.get(Task, pk)
             if task:
+                old_status = task.status
                 task.status = status
                 if pr_number is not None:
                     task.pr_number = pr_number
@@ -914,6 +924,15 @@ Write ONLY the summary. No headers, no markdown formatting. Just 2-3 sentences i
                 if branch is not None:
                     task.branch = branch
                 await session.commit()
+
+                # Log status transition
+                if old_status != status:
+                    await self._log(
+                        "orchestrator",
+                        task_id,
+                        "info",
+                        f"📌 Status: {old_status} → {status}",
+                    )
 
     async def _update_agent_status(
         self,

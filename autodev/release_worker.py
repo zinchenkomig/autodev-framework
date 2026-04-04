@@ -276,9 +276,20 @@ async def check_and_create_release(session_factory: async_sessionmaker) -> dict 
         release.staging_deployed_at = datetime.now(UTC)
 
         # 10. Move selected tasks to staging
+        from autodev.core.models import AgentLog
+
         for task in selected:
+            old_status = task.status
             task.status = TaskStatus.STAGING
             task.release_id = release.id
+            session.add(
+                AgentLog(
+                    agent_id="release_manager",
+                    task_id=task.id,
+                    level="info",
+                    message=f"📌 Status: {old_status} → staging (release {version})",
+                )
+            )
 
         await session.commit()
 
