@@ -57,21 +57,19 @@ function LogEntry({ log }: { log: TaskLog }) {
   const cfg = levelConfig[log.level] || levelConfig.info
   const hasDetails = log.details && log.details.length > 0
   
-  const isTransition = log.level === 'transition'
-  
   return (
     <div style={{ borderBottom: '1px solid #3C3F41' }}>
       <div
         className={`flex items-start gap-2 px-2 py-1.5 ${hasDetails ? 'cursor-pointer hover:bg-[#3C3F41]' : ''}`}
         onClick={() => hasDetails && setExpanded(!expanded)}
-        style={{ fontSize: '11px', background: cfg.bg || 'transparent' }}
+        style={{ fontSize: '11px' }}
       >
         <span style={{ color: '#515151', width: '12px', marginTop: '2px' }}>
           {hasDetails ? (expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />) : null}
         </span>
         <span className="font-mono shrink-0" style={{ color: '#616161', fontSize: '10px' }}>{formatLogTime(log.created_at)}</span>
         <span className="px-1 rounded font-bold" style={{ color: cfg.color, fontSize: '10px' }}>{cfg.label}</span>
-        <span className="flex-1" style={{ color: isTransition ? '#3592C4' : '#BABABA', fontWeight: isTransition ? 600 : 'normal', wordBreak: 'break-word' }}>{log.message}</span>
+        <span className="flex-1" style={{ color: '#BABABA', wordBreak: 'break-word' }}>{log.message}</span>
       </div>
       {expanded && log.details && (
         <div 
@@ -88,6 +86,79 @@ function LogEntry({ log }: { log: TaskLog }) {
           {log.details}
         </div>
       )}
+    </div>
+  )
+}
+
+const STATUS_COLORS: Record<string, string> = {
+  queued: '#808080',
+  in_progress: '#CC7832',
+  autoreview: '#3592C4',
+  qa_testing: '#E5C07B',
+  ready_to_release: '#9876AA',
+  staging: '#E5C07B',
+  released: '#6A8759',
+  failed: '#CC4E4E',
+}
+
+interface LogBlock {
+  status: string
+  reason: string
+  timestamp: string
+  logs: TaskLog[]
+}
+
+function groupLogsByStatus(logs: TaskLog[]): LogBlock[] {
+  const blocks: LogBlock[] = []
+  let currentBlock: LogBlock | null = null
+
+  // Logs come sorted desc — reverse to process chronologically
+  const sorted = [...logs].reverse()
+
+  for (const log of sorted) {
+    if (log.level === 'transition') {
+      // Extract status from message like "📌 Status: X → Y (reason)"
+      const match = log.message.match(/→\s*(\S+)(?:\s*\((.+)\))?/)
+      const toStatus = match?.[1] || 'unknown'
+      const reason = match?.[2] || ''
+      currentBlock = { status: toStatus, reason, timestamp: log.created_at, logs: [] }
+      blocks.push(currentBlock)
+    } else {
+      if (!currentBlock) {
+        // Logs before any transition — group under "initial"
+        currentBlock = { status: '', reason: '', timestamp: log.created_at, logs: [] }
+        blocks.push(currentBlock)
+      }
+      currentBlock.logs.push(log)
+    }
+  }
+
+  // Reverse so newest block is first
+  return blocks.reverse()
+}
+
+function StatusDivider({ block }: { block: LogBlock }) {
+  const color = STATUS_COLORS[block.status] || '#808080'
+  return (
+    <div
+      className="flex items-center gap-3 px-3 py-2"
+      style={{ background: `${color}15`, borderBottom: `2px solid ${color}40` }}
+    >
+      <span
+        className="w-2 h-2 rounded-full shrink-0"
+        style={{ background: color }}
+      />
+      <span className="text-xs font-bold uppercase tracking-wider" style={{ color }}>
+        {block.status || 'initial'}
+      </span>
+      {block.reason && (
+        <span className="text-xs" style={{ color: '#808080' }}>
+          {block.reason}
+        </span>
+      )}
+      <span className="ml-auto text-xs font-mono" style={{ color: '#616161' }}>
+        {formatLogTime(block.timestamp)}
+      </span>
     </div>
   )
 }
@@ -431,7 +502,19 @@ export function TaskDetail({ task, onClose, onStatusChange }: TaskDetailProps) {
                     {logsLoading ? 'Loading...' : 'No logs yet'}
                   </p>
                 ) : (
-                  logs.map(log => <LogEntry key={log.id} log={log} />)
+                  (() => {
+                    const blocks = groupLogsByStatus(logs)
+                    // If no transitions exist, render logs flat
+                    if (blocks.length <= 1 && blocks[0]?.status === '') {
+                      return logs.map(log => <LogEntry key={log.id} log={log} />)
+                    }
+                    return blocks.map((block, i) => (
+                      <div key={i}>
+                        {block.status && <StatusDivider block={block} />}
+                        {block.logs.map(log => <LogEntry key={log.id} log={log} />)}
+                      </div>
+                    ))
+                  })()
                 )}
               </div>
             )}
