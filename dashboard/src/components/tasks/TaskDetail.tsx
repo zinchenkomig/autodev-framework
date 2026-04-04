@@ -242,7 +242,12 @@ export function TaskDetail({ task, onClose, onStatusChange }: TaskDetailProps) {
             </div>
             <p className="text-sm leading-snug" style={{ color: '#FFFFFF' }}>
               {task.ticket_number && (
-                <span className="font-mono mr-1.5" style={{ color: '#808080' }}>#{task.ticket_number}</span>
+                <span
+                  className="font-mono mr-1.5 cursor-pointer hover:underline"
+                  style={{ color: '#808080' }}
+                  title="Click to copy"
+                  onClick={() => navigator.clipboard.writeText(`#${task.ticket_number}`)}
+                >#{task.ticket_number}</span>
               )}
               {task.title}
             </p>
