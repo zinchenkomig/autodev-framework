@@ -489,15 +489,10 @@ async def restart_staging_task(
             actions.append(f"Removed from release {release.version}")
         task.release_id = None
 
-    # 5. Append restart feedback to description if provided
+    # 5. Replace description if provided
     if body.description.strip():
-        feedback = body.description.strip()
-        restart_note = (
-            f"\n\n---\n⚠️ **Restart feedback:**\n{feedback}\n"
-            f"(Restarted from staging at {datetime.now(UTC).strftime('%Y-%m-%d %H:%M')} UTC)"
-        )
-        task.description = (task.description or "") + restart_note
-        actions.append("Appended restart feedback to description")
+        task.description = body.description.strip()
+        actions.append(f"Updated task description ({len(task.description)} chars)")
 
     task.status = "queued"
     task.status_changed_at = datetime.now(UTC)

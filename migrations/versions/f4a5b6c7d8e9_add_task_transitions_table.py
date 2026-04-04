@@ -5,6 +5,7 @@ Revises: e3f4a5b6c7d8
 Create Date: 2026-04-04 09:58:00.000000
 
 """
+
 from __future__ import annotations
 
 import sqlalchemy as sa
@@ -22,7 +23,9 @@ def upgrade() -> None:
     op.create_table(
         "task_transitions",
         sa.Column("id", UUID(as_uuid=True), primary_key=True),
-        sa.Column("task_id", UUID(as_uuid=True), sa.ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True),
+        sa.Column(
+            "task_id", UUID(as_uuid=True), sa.ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True
+        ),
         sa.Column("from_status", sa.String(30), nullable=False),
         sa.Column("to_status", sa.String(30), nullable=False),
         sa.Column("reason", sa.Text, nullable=True),
