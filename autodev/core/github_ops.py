@@ -45,8 +45,7 @@ async def create_stage_to_main_pr(repo: str, version: str) -> dict | None:
                 "head": "stage",
                 "base": "main",
                 "body": (
-                    f"Автоматический релизный PR для версии **{version}**.\n\n"
-                    f"Создан autodev-framework Release Manager."
+                    f"Автоматический релизный PR для версии **{version}**.\n\nСоздан autodev-framework Release Manager."
                 ),
             },
             timeout=30.0,

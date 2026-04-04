@@ -361,9 +361,7 @@ class Release(Base):
     reverted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reverted_by: Mapped[str | None] = mapped_column(String, nullable=True)
     previous_status: Mapped[str | None] = mapped_column(String, nullable=True)
-    release_prs: Mapped[list[dict] | None] = mapped_column(
-        _JSONEncodedDict(), nullable=True, default=list
-    )
+    release_prs: Mapped[list[dict] | None] = mapped_column(_JSONEncodedDict(), nullable=True, default=list)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )

@@ -290,7 +290,9 @@ async def _merge_release_prs_to_main(release: Release, session: AsyncSession) ->
         except Exception as exc:
             logger.error("Error merging release PR #%d for %s: %s", pr_number, repo, exc)
             success = False
-            results.append({"repo": repo, "pr_number": pr_number, "pr_url": pr_url, "success": False, "error": str(exc)})
+            results.append(
+                {"repo": repo, "pr_number": pr_number, "pr_url": pr_url, "success": False, "error": str(exc)}
+            )
             continue
 
         logger.info("Release PR #%d for %s: %s", pr_number, repo, "success" if success else "failed")
