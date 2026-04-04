@@ -334,7 +334,7 @@ export async function cancelDeveloperTask(): Promise<{ status: string; message: 
 export interface TaskLog {
   id: string
   agent_id: string
-  level: 'info' | 'warning' | 'error'
+  level: 'info' | 'warning' | 'error' | 'transition'
   message: string
   details: string | null
   created_at: string
