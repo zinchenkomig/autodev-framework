@@ -164,6 +164,13 @@ async def approve_release(
         release.status = ReleaseStatus.DEPLOYED
         release.production_deployed_at = datetime.now(UTC)
         logger.info("Release %s: release PRs merged to main", release.version)
+
+        # Move tasks to released
+        for task_uuid in release.tasks or []:
+            task = await session.get(Task, task_uuid)
+            if task:
+                task.status = "released"
+                task.release_id = release.id
     elif not merge_ok:
         logger.error("Release %s: some PRs failed to merge: %s", release.version, merge_results)
 
