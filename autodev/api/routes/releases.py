@@ -239,9 +239,33 @@ async def update_release(
             merge_results = await _merge_release_prs(release, session)
 
         elif body.status == ReleaseStatus.DEPLOYED:
-            release.production_deployed_at = datetime.now(UTC)
-            # Merge develop to main for all repos
+            # Merge release PRs (stage → main), creating if needed
             merge_results = await _merge_release_prs_to_main(release, session)
+
+            # Deploy to production
+            try:
+                from autodev.deploy import deploy_production
+
+                repos_to_deploy: set[str] = set()
+                for task_uuid in release.tasks or []:
+                    task = await session.get(Task, task_uuid)
+                    if task and task.repo:
+                        repos_to_deploy.add(task.repo)
+
+                deploy_results = await deploy_production(
+                    repos=list(repos_to_deploy) if repos_to_deploy else None,
+                    release_version=release.version,
+                )
+                deploy_ok = all(r.get("success") for r in deploy_results.values())
+            except Exception as e:
+                logger.error("Production deploy failed for release %s: %s", release.version, e)
+                deploy_ok = False
+
+            if deploy_ok:
+                release.production_deployed_at = datetime.now(UTC)
+            else:
+                logger.warning("Release %s deploy had issues", release.version)
+                release.production_deployed_at = datetime.now(UTC)
 
     await session.flush()
     await session.refresh(release)
@@ -309,10 +333,43 @@ async def _merge_release_prs(release: Release, session: AsyncSession) -> list[di
     return results
 
 
+async def _ensure_release_prs(release: Release, session: AsyncSession) -> list[dict]:
+    """Create release PRs (stage → main) if they don't exist yet."""
+    if release.release_prs:
+        return release.release_prs
+
+    from autodev.core.github_ops import create_stage_to_main_pr
+
+    repos_in_release: set[str] = set()
+    for task_uuid in release.tasks or []:
+        task = await session.get(Task, task_uuid)
+        if task and task.repo:
+            repos_in_release.add(task.repo)
+
+    if not repos_in_release:
+        return []
+
+    created: list[dict] = []
+    for repo in repos_in_release:
+        try:
+            pr_info = await create_stage_to_main_pr(repo, release.version)
+            if pr_info:
+                created.append(pr_info)
+                logger.info("Created release PR stage→main for %s: #%s", repo, pr_info["pr_number"])
+            else:
+                logger.warning("Failed to create release PR for %s", repo)
+        except Exception as e:
+            logger.error("Error creating release PR for %s: %s", repo, e)
+
+    release.release_prs = created
+    await session.flush()
+    return created
+
+
 async def _merge_release_prs_to_main(release: Release, session: AsyncSession) -> list[dict]:
-    """Merge release PRs (stage → main) that were created during release formation."""
+    """Merge release PRs (stage → main), creating them first if needed."""
     results: list[dict] = []
-    release_prs = release.release_prs or []
+    release_prs = await _ensure_release_prs(release, session)
 
     if not release_prs:
         logger.warning("No release PRs found for release %s", release.version)
