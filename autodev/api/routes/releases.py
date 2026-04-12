@@ -138,7 +138,7 @@ async def approve_release(
     body: ApproveRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> ReleaseResponse:
-    """Approve a release: merge release PRs (stage→main) and deploy to production."""
+    """Approve a release: merge release PRs (stage→main) to trigger production deploy."""
     try:
         uid = uuid.UUID(release_id)
     except ValueError:
@@ -156,43 +156,16 @@ async def approve_release(
     release.approved_at = datetime.now(UTC)
     await session.flush()
 
-    # 1. Merge release PRs (stage → main)
+    # Merge release PRs (stage → main), creating them if needed
     merge_results = await _merge_release_prs_to_main(release, session)
     merge_ok = all(r.get("success") for r in merge_results) if merge_results else True
 
-    if not merge_ok:
-        logger.error("Some release PRs failed to merge for release %s: %s", release.version, merge_results)
-        # Still proceed — partial merge is better than no deploy
-        # Failed PRs will need manual intervention
-
-    # 2. Deploy to production
-    deploy_results: dict = {}
-    try:
-        from autodev.deploy import deploy_production
-
-        repos_to_deploy: set[str] = set()
-        for task_uuid in release.tasks or []:
-            task = await session.get(Task, task_uuid)
-            if task and task.repo:
-                repos_to_deploy.add(task.repo)
-
-        deploy_results = await deploy_production(
-            repos=list(repos_to_deploy) if repos_to_deploy else None,
-            release_version=release.version,
-        )
-        deploy_ok = all(r.get("success") for r in deploy_results.values())
-    except Exception as e:
-        logger.error("Production deploy failed for release %s: %s", release.version, e)
-        deploy_results = {"error": str(e)}
-        deploy_ok = False
-
-    # 3. Update status based on results
-    if deploy_ok:
+    if merge_ok and merge_results:
         release.status = ReleaseStatus.DEPLOYED
         release.production_deployed_at = datetime.now(UTC)
-        logger.info("Release %s deployed to production", release.version)
-    else:
-        logger.warning("Release %s approved but deploy had issues: %s", release.version, deploy_results)
+        logger.info("Release %s: release PRs merged to main", release.version)
+    elif not merge_ok:
+        logger.error("Release %s: some PRs failed to merge: %s", release.version, merge_results)
 
     await session.flush()
     await session.refresh(release)
@@ -242,30 +215,7 @@ async def update_release(
             # Merge release PRs (stage → main), creating if needed
             merge_results = await _merge_release_prs_to_main(release, session)
 
-            # Deploy to production
-            try:
-                from autodev.deploy import deploy_production
-
-                repos_to_deploy: set[str] = set()
-                for task_uuid in release.tasks or []:
-                    task = await session.get(Task, task_uuid)
-                    if task and task.repo:
-                        repos_to_deploy.add(task.repo)
-
-                deploy_results = await deploy_production(
-                    repos=list(repos_to_deploy) if repos_to_deploy else None,
-                    release_version=release.version,
-                )
-                deploy_ok = all(r.get("success") for r in deploy_results.values())
-            except Exception as e:
-                logger.error("Production deploy failed for release %s: %s", release.version, e)
-                deploy_ok = False
-
-            if deploy_ok:
-                release.production_deployed_at = datetime.now(UTC)
-            else:
-                logger.warning("Release %s deploy had issues", release.version)
-                release.production_deployed_at = datetime.now(UTC)
+            release.production_deployed_at = datetime.now(UTC)
 
     await session.flush()
     await session.refresh(release)

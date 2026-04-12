@@ -64,6 +64,28 @@ async def create_stage_to_main_pr(repo: str, version: str) -> dict | None:
                 "pr_number": data["number"],
                 "pr_url": data["html_url"],
             }
+
+        # 422 usually means PR already exists — find the existing one
+        if resp.status_code == 422:
+            existing = await client.get(
+                url,
+                headers={
+                    "Authorization": f"token {GITHUB_TOKEN}",
+                    "Accept": "application/vnd.github.v3+json",
+                },
+                params={"state": "open", "head": f"{GITHUB_ORG}:stage", "base": "main"},
+                timeout=15.0,
+            )
+            if existing.status_code == 200:
+                prs = existing.json()
+                if prs:
+                    pr = prs[0]
+                    return {
+                        "repo": repo,
+                        "pr_number": pr["number"],
+                        "pr_url": pr["html_url"],
+                    }
+
         return None
 
 
