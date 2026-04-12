@@ -449,7 +449,7 @@ class Orchestrator:
                         "Regenerating API client from backend OpenAPI spec...",
                     )
 
-                    # Determine backend branch: from dependency task or develop
+                    # Determine backend branch: from dependency task or stage
                     backend_repo = repo_name.replace("frontend", "backend")
                     backend_branch = "stage"
 

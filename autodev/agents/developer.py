@@ -87,7 +87,7 @@ class DeveloperAgent:
 
         self._max_iterations: int = config.get("max_iterations", 3)
         self._agent_id: str = config.get("agent_id", "developer-agent")
-        self._base_branch: str = config.get("base_branch", "main")
+        self._base_branch: str = config.get("base_branch", "stage")
         self._sleep_interval: float = float(config.get("sleep_interval", 2.0))
         self._running = False
 
@@ -297,6 +297,8 @@ class DeveloperAgent:
         proc = await asyncio.create_subprocess_exec(
             "git",
             "clone",
+            "-b",
+            self._base_branch,
             repo_url,
             work_dir,
             stdout=asyncio.subprocess.PIPE,
@@ -306,7 +308,7 @@ class DeveloperAgent:
         if proc.returncode != 0:
             err = stderr.decode(errors="replace").strip()
             raise RuntimeError(f"git clone failed (exit {proc.returncode}): {err}")
-        logger.debug("[%s] Cloned %s → %s", self._agent_id, repo_url, work_dir)
+        logger.debug("[%s] Cloned %s (%s) → %s", self._agent_id, repo_url, self._base_branch, work_dir)
         return Path(work_dir)
 
     async def _create_branch(self, work_dir: Path, branch_name: str) -> None:

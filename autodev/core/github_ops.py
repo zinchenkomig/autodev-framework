@@ -95,9 +95,9 @@ async def merge_release_pr(repo: str, pr_number: int) -> bool:
 
 
 async def revert_pr_merge(repo: str, pr_number: int) -> dict:
-    """Revert a merged PR on develop branch via GitHub API.
+    """Revert a merged PR on stage branch via GitHub API.
 
-    Creates a revert commit on develop that undoes the PR merge.
+    Creates a revert commit on stage that undoes the PR merge.
     Returns {"success": bool, "revert_sha": str | None, "error": str | None}.
     """
     repo = _repo_name(repo)
@@ -145,7 +145,7 @@ async def revert_pr_merge(repo: str, pr_number: int) -> dict:
                 check=True,
                 capture_output=True,
             )
-            # Revert the merge commit (parent 1 = develop, parent 2 = feature branch)
+            # Revert the merge commit (parent 1 = stage, parent 2 = feature branch)
             result = subprocess.run(
                 ["git", "-C", tmpdir, "revert", "-m", "1", "--no-edit", merge_commit_sha],
                 capture_output=True,

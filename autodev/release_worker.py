@@ -449,7 +449,7 @@ async def check_stuck_autoreview(session_factory: async_sessionmaker) -> None:
                             id=uuid4(),
                             title=f"Resolve conflict: {task.title[:60]}",
                             description=(
-                                f"PR {task.pr_url} имеет конфликт с develop.\n\n"
+                                f"PR {task.pr_url} имеет конфликт с stage.\n\n"
                                 f"Нужно обновить ветку из stage и разрешить конфликты."
                             ),
                             status=TaskStatus.QUEUED,
