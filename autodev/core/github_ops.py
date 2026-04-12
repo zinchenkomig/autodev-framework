@@ -11,8 +11,14 @@ GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_ORG = "zinchenkomig"
 
 
+def _repo_name(repo: str) -> str:
+    """Extract bare repo name, stripping org prefix if present."""
+    return repo.split("/")[-1] if "/" in repo else repo
+
+
 async def merge_pr(repo: str, pr_number: int) -> bool:
     """Merge a PR via GitHub API."""
+    repo = _repo_name(repo)
     url = f"https://api.github.com/repos/{GITHUB_ORG}/{repo}/pulls/{pr_number}/merge"
     async with httpx.AsyncClient() as client:
         resp = await client.put(
@@ -32,6 +38,7 @@ async def create_stage_to_main_pr(repo: str, version: str) -> dict | None:
     Returns ``{"repo": ..., "pr_number": ..., "pr_url": ...}`` on success,
     or ``None`` if the PR could not be created.
     """
+    repo = _repo_name(repo)
     url = f"https://api.github.com/repos/{GITHUB_ORG}/{repo}/pulls"
     async with httpx.AsyncClient() as client:
         resp = await client.post(
@@ -62,7 +69,7 @@ async def create_stage_to_main_pr(repo: str, version: str) -> dict | None:
 
 async def merge_release_pr(repo: str, pr_number: int) -> bool:
     """Merge a release PR (stage→main) for production deploy."""
-    return await merge_pr(repo, pr_number)
+    return await merge_pr(_repo_name(repo), pr_number)
 
 
 async def revert_pr_merge(repo: str, pr_number: int) -> dict:
@@ -71,6 +78,7 @@ async def revert_pr_merge(repo: str, pr_number: int) -> dict:
     Creates a revert commit on develop that undoes the PR merge.
     Returns {"success": bool, "revert_sha": str | None, "error": str | None}.
     """
+    repo = _repo_name(repo)
     # First, get the merge commit SHA from the PR
     async with httpx.AsyncClient() as client:
         # Get PR details to find merge commit
