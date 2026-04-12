@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from autodev.api.database import get_session
 from autodev.core.github_ops import extract_pr_info, merge_pr, merge_release_pr
-from autodev.core.models import Release, ReleaseStatus, Task
+from autodev.core.models import AgentLog, Release, ReleaseStatus, Task, TaskTransition
 
 logger = logging.getLogger(__name__)
 
@@ -169,8 +169,26 @@ async def approve_release(
         for task_uuid in release.tasks or []:
             task = await session.get(Task, task_uuid)
             if task:
+                old_status = task.status
                 task.status = "released"
                 task.release_id = release.id
+                session.add(
+                    TaskTransition(
+                        task_id=task.id,
+                        from_status=old_status,
+                        to_status="released",
+                        reason=f"release {release.version} deployed",
+                        triggered_by="release_manager",
+                    )
+                )
+                session.add(
+                    AgentLog(
+                        agent_id="release_manager",
+                        task_id=task.id,
+                        level="transition",
+                        message=f"📌 Status: {old_status} → released (release {release.version})",
+                    )
+                )
     elif not merge_ok:
         logger.error("Release %s: some PRs failed to merge: %s", release.version, merge_results)
 
