@@ -301,7 +301,7 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
       </DndContext>
 
       {selectedTask && (
-        <TaskDetail task={selectedTask} onClose={() => setSelectedTask(null)} onStatusChange={handleStatusChange} />
+        <TaskDetail task={selectedTask} allTasks={tasks} onClose={() => setSelectedTask(null)} onStatusChange={handleStatusChange} />
       )}
       {showAddModal && (
         <AddTaskModal onClose={() => setShowAddModal(false)} onAdd={handleAddTask} />

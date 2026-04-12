@@ -176,6 +176,10 @@ export async function getTasks(): Promise<Task[]> {
   return (await apiFetch<Task[]>('/api/tasks/')) ?? []
 }
 
+export async function getTask(id: string): Promise<Task | null> {
+  return apiFetch<Task>(`/api/tasks/${id}`)
+}
+
 export async function getAgents(): Promise<Agent[]> {
   return (await apiFetch<Agent[]>('/api/agents/')) ?? []
 }

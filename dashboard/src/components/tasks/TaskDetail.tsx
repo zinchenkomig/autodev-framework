@@ -3,11 +3,13 @@
 import { useState, useEffect } from 'react'
 import { type Task, type TaskStatus, type TaskLog, updateTask, getTaskLogs, restartTask, requestChanges, restartStagingTask } from '@/lib/api'
 import { formatDistanceToNow } from '@/lib/utils'
-import { X, GitPullRequest, GitBranch, ChevronDown, ChevronRight, RefreshCw, FileText, RotateCcw, Loader2 } from 'lucide-react'
+import { X, GitPullRequest, GitBranch, ChevronDown, ChevronRight, RefreshCw, FileText, RotateCcw, Loader2, ExternalLink } from 'lucide-react'
 import { PriorityBadge } from '@/components/Badge'
+import Link from 'next/link'
 
 interface TaskDetailProps {
   task: Task | null
+  allTasks?: Task[]
   onClose: () => void
   onStatusChange?: (taskId: string, newStatus: TaskStatus) => void
 }
@@ -163,7 +165,7 @@ function StatusDivider({ block }: { block: LogBlock }) {
   )
 }
 
-export function TaskDetail({ task, onClose, onStatusChange }: TaskDetailProps) {
+export function TaskDetail({ task, allTasks = [], onClose, onStatusChange }: TaskDetailProps) {
   const [currentStatus, setCurrentStatus] = useState<TaskStatus | null>(null)
   const [saving, setSaving] = useState(false)
   const [logs, setLogs] = useState<TaskLog[]>([])
@@ -252,15 +254,27 @@ export function TaskDetail({ task, onClose, onStatusChange }: TaskDetailProps) {
               {task.title}
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="transition-colors shrink-0"
-            style={{ color: '#515151' }}
-            onMouseEnter={e => (e.currentTarget.style.color = '#808080')}
-            onMouseLeave={e => (e.currentTarget.style.color = '#515151')}
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <Link
+              href={`/tasks/${task.id}`}
+              className="transition-colors"
+              style={{ color: '#515151' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#808080' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#515151' }}
+              title="Open full page"
+            >
+              <ExternalLink className="w-4 h-4" />
+            </Link>
+            <button
+              onClick={onClose}
+              className="transition-colors"
+              style={{ color: '#515151' }}
+              onMouseEnter={e => (e.currentTarget.style.color = '#808080')}
+              onMouseLeave={e => (e.currentTarget.style.color = '#515151')}
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Content */}
@@ -452,9 +466,24 @@ export function TaskDetail({ task, onClose, onStatusChange }: TaskDetailProps) {
               ))}
 
               {task.depends_on && task.depends_on.length > 0 && (
-                <div className="flex items-center justify-between pt-1" style={{ borderTop: '1px solid #515151' }}>
+                <div className="pt-1 space-y-1" style={{ borderTop: '1px solid #515151' }}>
                   <span className="text-xs" style={{ color: '#515151' }}>Depends on</span>
-                  <span className="text-xs font-mono" style={{ color: '#CC7832' }}>{task.depends_on.length} task(s)</span>
+                  {task.depends_on.map(depId => {
+                    const dep = allTasks.find(t => t.id === depId)
+                    const depColor = dep ? (STATUS_DOT[dep.status] || '#808080') : '#515151'
+                    return (
+                      <Link key={depId} href={`/tasks/${depId}`}
+                        className="flex items-center gap-2 px-2 py-1 rounded text-xs transition-colors"
+                        style={{ background: '#2B2B2B', border: '1px solid #515151' }}
+                        onClick={onClose}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: depColor }} />
+                        <span className="flex-1 truncate" style={{ color: '#BABABA' }}>
+                          {dep ? (<>{dep.ticket_number && <span className="font-mono mr-1" style={{ color: '#808080' }}>#{dep.ticket_number}</span>}{dep.title}</>) : depId.slice(0, 8) + '...'}
+                        </span>
+                      </Link>
+                    )
+                  })}
                 </div>
               )}
 
