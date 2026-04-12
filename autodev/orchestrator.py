@@ -879,7 +879,10 @@ Write ONLY the summary. No headers, no markdown formatting. Just 2-3 sentences i
 
         except Exception as exc:
             logger.exception("Task %s failed with exception", task_id)
-            await self._log("developer", task_id, "error", f"Task failed: {exc}")
+            error_str = str(exc)
+            # Put short summary in message, full error in details
+            first_line = error_str.split('\n')[0][:200]
+            await self._log("developer", task_id, "error", f"Task failed: {first_line}", details=error_str)
             await self._update_task_status(task_id, TaskStatus.FAILED)
             await self._emit_event("task.failed", {"task_id": task_id, "error": str(exc)})
             final_status = TaskStatus.FAILED
