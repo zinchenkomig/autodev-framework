@@ -138,7 +138,7 @@ async def approve_release(
     body: ApproveRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> ReleaseResponse:
-    """Approve a release (transitions to approved status)."""
+    """Approve a release: merge release PRs (stage→main) and deploy to production."""
     try:
         uid = uuid.UUID(release_id)
     except ValueError:
@@ -148,13 +148,55 @@ async def approve_release(
         raise HTTPException(status_code=404, detail="Release not found")
     if release.status == ReleaseStatus.APPROVED:
         raise HTTPException(status_code=409, detail="Release already approved")
+    if release.status == ReleaseStatus.DEPLOYED:
+        raise HTTPException(status_code=409, detail="Release already deployed")
 
     release.status = ReleaseStatus.APPROVED
     release.approved_by = body.approved_by
     release.approved_at = datetime.now(UTC)
     await session.flush()
+
+    # 1. Merge release PRs (stage → main)
+    merge_results = await _merge_release_prs_to_main(release, session)
+    merge_ok = all(r.get("success") for r in merge_results) if merge_results else True
+
+    if not merge_ok:
+        logger.error("Some release PRs failed to merge for release %s: %s", release.version, merge_results)
+        # Still proceed — partial merge is better than no deploy
+        # Failed PRs will need manual intervention
+
+    # 2. Deploy to production
+    deploy_results: dict = {}
+    try:
+        from autodev.deploy import deploy_production
+
+        repos_to_deploy: set[str] = set()
+        for task_uuid in release.tasks or []:
+            task = await session.get(Task, task_uuid)
+            if task and task.repo:
+                repos_to_deploy.add(task.repo)
+
+        deploy_results = await deploy_production(
+            repos=list(repos_to_deploy) if repos_to_deploy else None,
+            release_version=release.version,
+        )
+        deploy_ok = all(r.get("success") for r in deploy_results.values())
+    except Exception as e:
+        logger.error("Production deploy failed for release %s: %s", release.version, e)
+        deploy_results = {"error": str(e)}
+        deploy_ok = False
+
+    # 3. Update status based on results
+    if deploy_ok:
+        release.status = ReleaseStatus.DEPLOYED
+        release.production_deployed_at = datetime.now(UTC)
+        logger.info("Release %s deployed to production", release.version)
+    else:
+        logger.warning("Release %s approved but deploy had issues: %s", release.version, deploy_results)
+
+    await session.flush()
     await session.refresh(release)
-    return _release_to_response(release)
+    return _release_to_response(release, merge_results)
 
 
 class ReleaseUpdate(BaseModel):
