@@ -10,6 +10,7 @@ import asyncio
 import logging
 import os
 import shutil
+from datetime import UTC, datetime
 from pathlib import Path
 
 import uvicorn
@@ -65,6 +66,7 @@ class Orchestrator:
         self.github_token = os.environ.get("GITHUB_TOKEN", "")
         self._current_runner: ClaudeCodeRunner | None = None
         self._current_task_id: str | None = None
+        self._rate_limit_until: datetime | None = None
 
     # ------------------------------------------------------------------
     # Startup
@@ -212,6 +214,17 @@ class Orchestrator:
         logger.info("Worker loop started — polling every 30s")
         while True:
             try:
+                # Check rate limit pause
+                if self._rate_limit_until and datetime.now(UTC) < self._rate_limit_until:
+                    remaining = (self._rate_limit_until - datetime.now(UTC)).total_seconds()
+                    logger.info("Rate limited — sleeping %.0f more seconds", remaining)
+                    await asyncio.sleep(min(remaining, 300))  # check every 5 min
+                    continue
+
+                if self._rate_limit_until and datetime.now(UTC) >= self._rate_limit_until:
+                    logger.info("Rate limit expired — resuming worker")
+                    self._rate_limit_until = None
+
                 task = await self.get_next_task()
                 if task:
                     await self.process_task(task)
@@ -878,20 +891,62 @@ Write ONLY the summary. No headers, no markdown formatting. Just 2-3 sentences i
                 await self._emit_event("pr.created", {"task_id": task_id, "pr_number": pr_number, "repo": repo_name})
 
         except Exception as exc:
-            logger.exception("Task %s failed with exception", task_id)
             error_str = str(exc)
-            # Put short summary in message, full error in details
-            first_line = error_str.split('\n')[0][:200]
-            await self._log("developer", task_id, "error", f"Task failed: {first_line}", details=error_str)
-            await self._update_task_status(task_id, TaskStatus.FAILED)
-            await self._emit_event("task.failed", {"task_id": task_id, "error": str(exc)})
-            final_status = TaskStatus.FAILED
 
-            # Notify about failure
-            try:
-                await notify_task_status(task_id, task.title, "failed", error=str(exc))
-            except Exception as notify_err:
-                logger.warning(f"Failed to send failure notification: {notify_err}")
+            # Check if this is a rate limit error — requeue instead of failing
+            rate_limit_patterns = [
+                "hit your limit",
+                "rate limit",
+                "rate_limit",
+                "429",
+                "too many requests",
+                "overloaded",
+            ]
+            is_rate_limit = any(p in error_str.lower() for p in rate_limit_patterns)
+
+            if is_rate_limit:
+                logger.warning("Task %s hit rate limit — requeuing and pausing worker", task_id)
+                await self._log(
+                    "developer", task_id, "warning",
+                    f"⏸️ Rate limit hit — task requeued, worker paused until reset",
+                    details=error_str,
+                )
+                await self._update_task_status(task_id, TaskStatus.QUEUED)
+
+                # Parse reset time from error (e.g. "resets 3am (UTC)")
+                import re
+                reset_match = re.search(r"resets?\s+(\d{1,2})(am|pm)\s*\(?UTC\)?", error_str, re.IGNORECASE)
+                if reset_match:
+                    from datetime import UTC, datetime, timedelta
+                    now = datetime.now(UTC)
+                    reset_hour = int(reset_match.group(1))
+                    if reset_match.group(2).lower() == "pm" and reset_hour != 12:
+                        reset_hour += 12
+                    reset_time = now.replace(hour=reset_hour, minute=5, second=0, microsecond=0)
+                    if reset_time <= now:
+                        reset_time += timedelta(days=1)
+                    wait_seconds = (reset_time - now).total_seconds()
+                    logger.info("Rate limit resets at %s UTC — sleeping %.0f seconds", reset_time, wait_seconds)
+                    await self._log("developer", task_id, "info", f"⏸️ Sleeping until {reset_time.strftime('%H:%M')} UTC ({int(wait_seconds // 60)} min)")
+                else:
+                    wait_seconds = 3600  # default: 1 hour
+                    logger.info("Could not parse reset time — sleeping %d seconds", wait_seconds)
+                    await self._log("developer", task_id, "info", "⏸️ Sleeping 1 hour (could not parse reset time)")
+
+                self._rate_limit_until = datetime.now(UTC) + timedelta(seconds=wait_seconds)
+            else:
+                logger.exception("Task %s failed with exception", task_id)
+                first_line = error_str.split('\n')[0][:200]
+                await self._log("developer", task_id, "error", f"Task failed: {first_line}", details=error_str)
+                await self._update_task_status(task_id, TaskStatus.FAILED)
+                await self._emit_event("task.failed", {"task_id": task_id, "error": error_str})
+                final_status = TaskStatus.FAILED
+
+                # Notify about failure
+                try:
+                    await notify_task_status(task_id, task.title, "failed", error=error_str)
+                except Exception as notify_err:
+                    logger.warning(f"Failed to send failure notification: {notify_err}")
 
         else:
             # Notify about success (only if no exception)
