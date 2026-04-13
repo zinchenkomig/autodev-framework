@@ -770,7 +770,7 @@ Address the MUST_FIX issues. Make the necessary changes."""
                     await self._log("developer", task_id, "info", "Committing and pushing changes...")
 
                     await self._run_shell(
-                        f'git -C {workdir} commit -m "{commit_msg}" && git -C {workdir} push -u origin {branch}',
+                        f'git -C {workdir} commit -m "{commit_msg}" && git -C {workdir} push --force-with-lease -u origin {branch}',
                         timeout=60,
                     )
 
