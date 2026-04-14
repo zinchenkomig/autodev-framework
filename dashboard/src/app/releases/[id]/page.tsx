@@ -134,8 +134,36 @@ export default function ReleaseDetailPage({ params }: { params: Promise<{ id: st
         </div>
       </div>
 
+      {/* Links */}
+      <div className="flex items-center gap-4 text-xs border-t border-[#1F1F23] pt-4">
+        {release.staging_deployed_at && (
+          <a
+            href="https://staging.alerter.zinchenkomig.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-[#F59E0B] hover:text-[#FBBF24] transition-colors"
+          >
+            <ExternalLink className="w-3 h-3" />
+            Staging
+          </a>
+        )}
+        {release.release_prs && release.release_prs.length > 0 && release.release_prs.map((rp, i) => (
+          <a
+            key={i}
+            href={rp.pr_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-[#A78BFA] hover:text-[#C4B5FD] transition-colors"
+          >
+            <GitPullRequest className="w-3 h-3" />
+            Release PR #{rp.pr_number}
+            {release.release_prs.length > 1 && <span className="text-[#3F3F46]">({rp.repo})</span>}
+          </a>
+        ))}
+      </div>
+
       {/* Meta row */}
-      <div className="flex items-center gap-6 text-xs text-[#3F3F46] border-t border-[#1F1F23] pt-4">
+      <div className="flex items-center gap-6 text-xs text-[#3F3F46]">
         <span><span className="font-mono text-[#71717A]">{release.prs.length}</span> PRs</span>
         <span><span className="font-mono text-[#71717A]">{release.tasks.length}</span> tasks</span>
         {release.approved_by && <span>approved by <span className="text-[#71717A]">{release.approved_by}</span></span>}
