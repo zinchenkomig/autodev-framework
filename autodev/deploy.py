@@ -104,9 +104,12 @@ async def deploy_staging(repos: list[str] | None = None, release_version: str = 
 
             image = f"ghcr.io/{repo}:{env}"
 
+            # Display label: "v2025-04-13-1530 (a1b2c3d)" or just commit hash
+            display_version = f"{release_version} ({commit})" if release_version else commit
+
             build_args = f"--build-arg GIT_COMMIT={commit}"
             if is_frontend:
-                build_args += f" --build-arg NEXT_PUBLIC_API_URL={api_url} --build-arg NEXT_PUBLIC_GIT_COMMIT={commit}"
+                build_args += f" --build-arg NEXT_PUBLIC_API_URL={api_url} --build-arg NEXT_PUBLIC_GIT_COMMIT={display_version}"
                 if release_version:
                     build_args += f" --build-arg NEXT_PUBLIC_RELEASE_VERSION={release_version}"
 
@@ -226,9 +229,12 @@ async def deploy_production(repos: list[str] | None = None, release_version: str
 
             image = f"ghcr.io/{repo}:{env}"
 
+            # Display label: "v2025-04-13-1530 (a1b2c3d)" or just commit hash
+            display_version = f"{release_version} ({commit})" if release_version else commit
+
             build_args = f"--build-arg GIT_COMMIT={commit}"
             if is_frontend:
-                build_args += f" --build-arg NEXT_PUBLIC_API_URL={api_url} --build-arg NEXT_PUBLIC_GIT_COMMIT={commit}"
+                build_args += f" --build-arg NEXT_PUBLIC_API_URL={api_url} --build-arg NEXT_PUBLIC_GIT_COMMIT={display_version}"
                 if release_version:
                     build_args += f" --build-arg NEXT_PUBLIC_RELEASE_VERSION={release_version}"
 
