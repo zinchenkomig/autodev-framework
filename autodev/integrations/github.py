@@ -330,6 +330,19 @@ class GitHubClient:
         response.raise_for_status()
         return response.json()
 
+    async def get_check_runs(self, ref: str, repo: str | None = None) -> list[dict]:
+        """Return individual check-runs for a git ref.
+
+        Each run includes ``name``, ``status``, ``conclusion``, ``html_url``,
+        ``started_at`` and ``completed_at`` fields.
+        """
+        resolved = self._resolve_repo(repo)
+        response = await self._client.get(
+            f"/repos/{resolved}/commits/{ref}/check-runs",
+        )
+        response.raise_for_status()
+        return response.json().get("check_runs", [])
+
     # ------------------------------------------------------------------
     # Releases (kept from original stub)
     # ------------------------------------------------------------------

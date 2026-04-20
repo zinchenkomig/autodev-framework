@@ -196,6 +196,36 @@ export async function getRelease(id: string): Promise<Release | null> {
   return apiFetch<Release>(`/api/releases/${id}`)
 }
 
+export type CheckRunStatus = 'queued' | 'in_progress' | 'completed'
+export type CheckRunConclusion =
+  | 'success' | 'failure' | 'neutral' | 'cancelled'
+  | 'skipped' | 'timed_out' | 'action_required' | 'stale'
+  | null
+
+export interface CheckRun {
+  name: string
+  status: CheckRunStatus
+  conclusion: CheckRunConclusion
+  url: string | null
+  started_at: string | null
+  completed_at: string | null
+}
+
+export interface ReleasePRChecks {
+  source: 'release_pr' | 'task_pr'
+  repo: string
+  pr_number: number
+  pr_url: string
+  task_id: string | null
+  task_title: string | null
+  head_sha: string | null
+  checks: CheckRun[]
+}
+
+export async function getReleaseChecks(id: string): Promise<ReleasePRChecks[]> {
+  return (await apiFetch<ReleasePRChecks[]>(`/api/releases/${id}/checks`)) ?? []
+}
+
 export async function getStats(): Promise<DashboardStats | null> {
   return apiFetch<DashboardStats>('/api/stats')
 }

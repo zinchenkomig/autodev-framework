@@ -6,6 +6,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ExternalLink, ArrowLeft, GitPullRequest, Loader2 } from 'lucide-react'
 import { use } from 'react'
+import ReleaseChecks from '@/components/releases/ReleaseChecks'
 
 const statusColor: Record<ReleaseStatus, string> = {
   draft:            'text-[#3F3F46]',
@@ -183,23 +184,10 @@ export default function ReleaseDetailPage({ params }: { params: Promise<{ id: st
         <MarkdownBlock content={release.testing_plan} />
       </div>
 
-      {/* Reports */}
-      {(release.ba_report || release.tester_report) && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 border-t border-[#1F1F23] pt-6">
-          {release.ba_report && (
-            <div>
-              <p className="text-xs text-[#71717A] uppercase tracking-wider mb-4">BA Report</p>
-              <MarkdownBlock content={release.ba_report} />
-            </div>
-          )}
-          {release.tester_report && (
-            <div>
-              <p className="text-xs text-[#71717A] uppercase tracking-wider mb-4">QA Report</p>
-              <MarkdownBlock content={release.tester_report} />
-            </div>
-          )}
-        </div>
-      )}
+      {/* CI Checks */}
+      <div className="border-t border-[#1F1F23] pt-6">
+        <ReleaseChecks releaseId={release.id} />
+      </div>
 
       {/* PRs */}
       <div className="border-t border-[#1F1F23] pt-6">

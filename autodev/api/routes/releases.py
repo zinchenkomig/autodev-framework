@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
+import re
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated
@@ -15,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from autodev.api.database import get_session
 from autodev.core.github_ops import extract_pr_info, merge_pr, merge_release_pr
 from autodev.core.models import AgentLog, Release, ReleaseStatus, Task, TaskTransition
+from autodev.integrations.github import GitHubClient
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +134,120 @@ async def get_release(
     if release is None:
         raise HTTPException(status_code=404, detail="Release not found")
     return _release_to_response(release)
+
+
+_DEFAULT_OWNER = os.environ.get("GITHUB_OWNER", "zinchenkomig")
+_PR_URL_RE = re.compile(r"https://github\.com/([^/]+)/([^/]+)/pull/(\d+)")
+
+
+def _normalize_repo(repo: str, pr_url: str | None = None) -> str:
+    """Return ``owner/name``. Prefers owner parsed from ``pr_url`` over the default."""
+    if repo and "/" in repo:
+        return repo
+    if pr_url:
+        m = _PR_URL_RE.match(pr_url)
+        if m:
+            return f"{m.group(1)}/{m.group(2)}"
+    return f"{_DEFAULT_OWNER}/{repo}" if repo else ""
+
+
+async def _fetch_pr_checks(
+    token: str,
+    full_repo: str,
+    pr_number: int,
+) -> tuple[str | None, list[dict]]:
+    """Return ``(head_sha, check_runs)`` for a PR, or ``(None, [])`` on failure."""
+    try:
+        async with GitHubClient(token=token, default_repo=full_repo) as client:
+            pr = await client.get_pr(pr_number)
+            head_sha = pr.get("head", {}).get("sha")
+            if not head_sha:
+                return None, []
+            runs = await client.get_check_runs(head_sha)
+            checks = [
+                {
+                    "name": r.get("name"),
+                    "status": r.get("status"),
+                    "conclusion": r.get("conclusion"),
+                    "url": r.get("html_url"),
+                    "started_at": r.get("started_at"),
+                    "completed_at": r.get("completed_at"),
+                }
+                for r in runs
+            ]
+            return head_sha, checks
+    except Exception as exc:
+        logger.warning("Failed to fetch checks for %s#%d: %s", full_repo, pr_number, exc)
+        return None, []
+
+
+@router.get("/{release_id}/checks", summary="Get CI check status for all PRs in a release")
+async def get_release_checks(
+    release_id: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> list[dict]:
+    """Return CI check-run status for every release PR and task PR in a release."""
+    try:
+        uid = uuid.UUID(release_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid release ID format")
+    release = await session.get(Release, uid)
+    if release is None:
+        raise HTTPException(status_code=404, detail="Release not found")
+
+    token = os.environ.get("GITHUB_TOKEN")
+    if not token:
+        raise HTTPException(status_code=503, detail="GITHUB_TOKEN not configured")
+
+    targets: list[dict] = []
+
+    for rp in release.release_prs or []:
+        pr_url = rp.get("pr_url") or ""
+        pr_number = rp.get("pr_number")
+        repo = rp.get("repo") or ""
+        if not pr_number:
+            continue
+        full_repo = _normalize_repo(repo, pr_url)
+        targets.append(
+            {
+                "source": "release_pr",
+                "repo": full_repo,
+                "pr_number": int(pr_number),
+                "pr_url": pr_url,
+                "task_id": None,
+                "task_title": None,
+            }
+        )
+
+    for task_uuid in release.tasks or []:
+        task = await session.get(Task, task_uuid)
+        if task is None or not task.pr_url or not task.pr_number:
+            continue
+        m = _PR_URL_RE.match(task.pr_url)
+        full_repo = f"{m.group(1)}/{m.group(2)}" if m else _normalize_repo(task.repo or "", task.pr_url)
+        targets.append(
+            {
+                "source": "task_pr",
+                "repo": full_repo,
+                "pr_number": int(task.pr_number),
+                "pr_url": task.pr_url,
+                "task_id": str(task.id),
+                "task_title": task.title,
+            }
+        )
+
+    if not targets:
+        return []
+
+    fetched = await asyncio.gather(
+        *(_fetch_pr_checks(token, t["repo"], t["pr_number"]) for t in targets),
+        return_exceptions=False,
+    )
+
+    results: list[dict] = []
+    for target, (head_sha, checks) in zip(targets, fetched, strict=True):
+        results.append({**target, "head_sha": head_sha, "checks": checks})
+    return results
 
 
 @router.post("/{release_id}/approve", summary="Approve a release")

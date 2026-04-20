@@ -1,8 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { updateRelease, approveRelease, unapproveRelease, rollbackRelease, cancelRelease, revertRelease, type Release, type Task, type ReleaseStatus, type MergeResult } from '@/lib/api'
 import { CheckSquare, Square, GitPullRequest, ExternalLink, Loader2, CheckCircle, XCircle, AlertTriangle } from 'lucide-react'
+import ReleaseChecks from './ReleaseChecks'
 
 interface Props {
   release: Release
@@ -208,9 +210,19 @@ export default function ReleaseDetail({ release, allTasks, onUpdated }: Props) {
                 {cfg.label}
               </span>
             </div>
-            <p className="text-xs" style={{ color: '#808080' }}>
-              Создан {formatDate(release.created_at)}
-            </p>
+            <div className="flex items-center gap-4 text-xs" style={{ color: '#808080' }}>
+              <span>Создан {formatDate(release.created_at)}</span>
+              <a
+                href="https://staging.alerter.zinchenkomig.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1"
+                style={{ color: '#CC7832' }}
+              >
+                <ExternalLink className="w-3 h-3" />
+                Staging
+              </a>
+            </div>
 
             {/* Status pipeline */}
             <div className="flex items-center gap-1 mt-3">
@@ -276,12 +288,11 @@ export default function ReleaseDetail({ release, allTasks, onUpdated }: Props) {
             releaseTasks.map((task, idx) => (
               <div
                 key={task.id}
-                className="flex items-center gap-3 px-4 py-3 cursor-pointer"
+                className="flex items-center gap-3 px-4 py-3"
                 style={{
                   background: checked.has(task.id) ? 'rgba(106,135,89,0.08)' : '#3C3F41',
                   borderBottom: idx < releaseTasks.length - 1 ? '1px solid #515151' : 'none',
                 }}
-                onClick={() => toggleChecked(task.id)}
                 onMouseEnter={(e) => {
                   if (!checked.has(task.id))
                     (e.currentTarget as HTMLDivElement).style.background = '#414345'
@@ -291,48 +302,61 @@ export default function ReleaseDetail({ release, allTasks, onUpdated }: Props) {
                     ? 'rgba(106,135,89,0.08)' : '#3C3F41'
                 }}
               >
-                {checked.has(task.id) ? (
-                  <CheckSquare className="w-4 h-4 shrink-0" style={{ color: '#6A8759' }} />
-                ) : (
-                  <Square className="w-4 h-4 shrink-0" style={{ color: '#515151' }} />
-                )}
-                <span
-                  className="text-sm flex-1 truncate"
-                  style={{
-                    color: checked.has(task.id) ? '#6A8759' : '#A9B7C6',
-                    textDecoration: checked.has(task.id) ? 'line-through' : 'none',
-                  }}
+                <button
+                  type="button"
+                  onClick={() => toggleChecked(task.id)}
+                  className="shrink-0 cursor-pointer"
+                  aria-label={checked.has(task.id) ? 'Снять отметку' : 'Отметить'}
                 >
-                  {task.title}
-                </span>
-                {task.repo && (
+                  {checked.has(task.id) ? (
+                    <CheckSquare className="w-4 h-4" style={{ color: '#6A8759' }} />
+                  ) : (
+                    <Square className="w-4 h-4" style={{ color: '#515151' }} />
+                  )}
+                </button>
+                <Link
+                  href={`/tasks/${task.id}`}
+                  className="flex items-center gap-3 flex-1 min-w-0"
+                >
+                  <span
+                    className="text-sm flex-1 truncate hover:underline"
+                    style={{
+                      color: checked.has(task.id) ? '#6A8759' : '#A9B7C6',
+                      textDecoration: checked.has(task.id) ? 'line-through' : 'none',
+                    }}
+                  >
+                    {task.title}
+                  </span>
+                  {task.repo && (
+                    <span
+                      className="text-xs px-1.5 py-0.5 font-mono shrink-0"
+                      style={{
+                        background: 'rgba(81,81,81,0.4)',
+                        border: '1px solid #515151',
+                        borderRadius: '3px',
+                        color: '#808080',
+                      }}
+                    >
+                      {task.repo}
+                    </span>
+                  )}
                   <span
                     className="text-xs px-1.5 py-0.5 font-mono shrink-0"
                     style={{
-                      background: 'rgba(81,81,81,0.4)',
-                      border: '1px solid #515151',
+                      background: `${priorityColor(task.priority)}22`,
+                      border: `1px solid ${priorityColor(task.priority)}44`,
                       borderRadius: '3px',
-                      color: '#808080',
+                      color: priorityColor(task.priority),
                     }}
                   >
-                    {task.repo}
+                    {task.priority}
                   </span>
-                )}
-                <span
-                  className="text-xs px-1.5 py-0.5 font-mono shrink-0"
-                  style={{
-                    background: `${priorityColor(task.priority)}22`,
-                    border: `1px solid ${priorityColor(task.priority)}44`,
-                    borderRadius: '3px',
-                    color: priorityColor(task.priority),
-                  }}
-                >
-                  {task.priority}
-                </span>
-                {task.pr_number && (
+                </Link>
+                {task.pr_number && task.pr_url && (
                   <a
-                    href={`#pr-${task.pr_number}`}
-                    onClick={(e) => e.stopPropagation()}
+                    href={task.pr_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="flex items-center gap-1 text-xs shrink-0"
                     style={{ color: '#3592C4' }}
                   >
@@ -386,6 +410,9 @@ export default function ReleaseDetail({ release, allTasks, onUpdated }: Props) {
         </div>
       )}
 
+      {/* CI Checks */}
+      <ReleaseChecks releaseId={release.id} />
+
       {/* Test plan */}
       <div>
         <h2 className="text-xs uppercase tracking-wider font-medium mb-3" style={{ color: '#808080' }}>
@@ -403,33 +430,6 @@ export default function ReleaseDetail({ release, allTasks, onUpdated }: Props) {
               <span className="text-sm" style={{ color: '#A9B7C6' }}>{item}</span>
             </div>
           ))}
-        </div>
-      </div>
-
-      {/* Reports */}
-      <div>
-        <h2 className="text-xs uppercase tracking-wider font-medium mb-3" style={{ color: '#808080' }}>
-          Отчёты
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div
-            className="p-4"
-            style={{ background: '#3C3F41', border: '1px solid #515151', borderRadius: '4px' }}
-          >
-            <p className="text-xs font-medium mb-2" style={{ color: '#FFC66D' }}>BA Report</p>
-            <p className="text-xs" style={{ color: '#515151', fontStyle: 'italic' }}>
-              — будет заполняться
-            </p>
-          </div>
-          <div
-            className="p-4"
-            style={{ background: '#3C3F41', border: '1px solid #515151', borderRadius: '4px' }}
-          >
-            <p className="text-xs font-medium mb-2" style={{ color: '#FFC66D' }}>QA Report</p>
-            <p className="text-xs" style={{ color: '#515151', fontStyle: 'italic' }}>
-              — будет заполняться
-            </p>
-          </div>
         </div>
       </div>
 
