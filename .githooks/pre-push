@@ -1,0 +1,21 @@
+#!/bin/bash
+# Pre-push checks — must mirror what .github/workflows/ci.yml runs (minus tests)
+# so failures are caught locally before burning a CI run.
+#
+# Skip with `git push --no-verify` only when intentionally bypassing.
+
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+echo "→ ruff check"
+uv run ruff check .
+
+echo "→ ruff format --check"
+uv run ruff format --check .
+
+echo "→ dashboard tsc --noEmit"
+(cd dashboard && npx --no-install tsc --noEmit)
+
+echo "✓ pre-push checks passed"
