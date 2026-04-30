@@ -5,9 +5,10 @@ import { getReleases, getTasks, type Release, type Task } from '@/lib/api'
 import { Loader2 } from 'lucide-react'
 import ReleaseCreate from '@/components/releases/ReleaseCreate'
 import ReleaseDetail from '@/components/releases/ReleaseDetail'
+import ReleaseHistory from '@/components/releases/ReleaseHistory'
 
 function isActive(r: Release): boolean {
-  return r.status !== 'deployed' && r.status !== 'failed'
+  return r.status !== 'deployed' && r.status !== 'failed' && r.status !== 'cancelled' && r.status !== 'reverted'
 }
 
 export default function ReleasesPage() {
@@ -35,29 +36,34 @@ export default function ReleasesPage() {
   }
 
   const activeRelease = releases.find(isActive) ?? null
+  const pastReleases = releases.filter((r) => !isActive(r))
   const readyTasks = tasks.filter((t) => t.status === 'ready_to_release')
 
-  if (activeRelease) {
-    return (
-      <ReleaseDetail
-        release={activeRelease}
-        allTasks={tasks}
-        onUpdated={(updated) => {
-          setReleases((prev) =>
-            prev.map((r) => (r.id === updated.id ? updated : r))
-          )
-        }}
-      />
-    )
-  }
-
   return (
-    <ReleaseCreate
-      readyTasks={readyTasks}
-      onCreated={() => {
-        setLoading(true)
-        load()
-      }}
-    />
+    <div className="space-y-10">
+      {activeRelease ? (
+        <ReleaseDetail
+          release={activeRelease}
+          allTasks={tasks}
+          onUpdated={(updated) => {
+            setReleases((prev) =>
+              prev.map((r) => (r.id === updated.id ? updated : r))
+            )
+          }}
+        />
+      ) : (
+        <ReleaseCreate
+          readyTasks={readyTasks}
+          onCreated={() => {
+            setLoading(true)
+            load()
+          }}
+        />
+      )}
+
+      <div className="max-w-4xl">
+        <ReleaseHistory releases={pastReleases} />
+      </div>
+    </div>
   )
 }
