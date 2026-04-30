@@ -70,7 +70,7 @@
 git config core.hooksPath .githooks
 ```
 
-`pre-push` прогонит `ruff check`, `ruff format --check` и `tsc --noEmit` для дашборда — те же проверки, что и CI, чтобы не ловить падения деплоя.
+`pre-push` прогонит `ruff check`, `ruff format --check`, `pytest` и `tsc --noEmit` для дашборда — те же проверки, что и CI, чтобы не ловить падения деплоя.
 
 ## Статус
 

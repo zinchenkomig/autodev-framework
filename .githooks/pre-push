@@ -1,6 +1,8 @@
 #!/bin/bash
-# Pre-push checks — must mirror what .github/workflows/ci.yml runs (minus tests)
+# Pre-push checks — must mirror what .github/workflows/ci.yml runs
 # so failures are caught locally before burning a CI run.
+# The pytest invocation skips the same files/tests CI skips (those need
+# a real Postgres on localhost:5432, which the local dev env may not have).
 #
 # Skip with `git push --no-verify` only when intentionally bypassing.
 
@@ -14,6 +16,19 @@ uv run ruff check .
 
 echo "→ ruff format --check"
 uv run ruff format --check .
+
+echo "→ pytest"
+uv run pytest --tb=short -q \
+  --ignore=tests/test_pm_api.py \
+  --ignore=tests/test_queue.py \
+  --ignore=tests/test_metrics.py \
+  --ignore=tests/test_pm.py \
+  --ignore=tests/test_release_manager.py \
+  --ignore=tests/test_state.py \
+  --ignore=tests/test_github_import.py \
+  --ignore=tests/test_github.py \
+  --ignore=tests/test_api.py \
+  -k "not test_task_status_values and not test_enum_iteration"
 
 echo "→ dashboard tsc --noEmit"
 (cd dashboard && npx --no-install tsc --noEmit)
