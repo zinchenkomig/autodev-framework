@@ -62,6 +62,16 @@
 - **Playwright** — браузерное тестирование
 - **Docker** — деплой
 
+## Разработка
+
+После клона репозитория один раз включите git-хуки:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+`pre-push` прогонит `ruff check`, `ruff format --check` и `tsc --noEmit` для дашборда — те же проверки, что и CI, чтобы не ловить падения деплоя.
+
 ## Статус
 
 🚧 В разработке. Прототип работает на базе OpenClaw cron jobs.
