@@ -907,17 +907,21 @@ Write ONLY the summary. No headers, no markdown formatting. Just 2-3 sentences i
             if is_rate_limit:
                 logger.warning("Task %s hit rate limit — requeuing and pausing worker", task_id)
                 await self._log(
-                    "developer", task_id, "warning",
-                    f"⏸️ Rate limit hit — task requeued, worker paused until reset",
+                    "developer",
+                    task_id,
+                    "warning",
+                    "⏸️ Rate limit hit — task requeued, worker paused until reset",
                     details=error_str,
                 )
                 await self._update_task_status(task_id, TaskStatus.QUEUED)
 
                 # Parse reset time from error (e.g. "resets 3am (UTC)")
                 import re
+
                 reset_match = re.search(r"resets?\s+(\d{1,2})(am|pm)\s*\(?UTC\)?", error_str, re.IGNORECASE)
                 if reset_match:
                     from datetime import UTC, datetime, timedelta
+
                     now = datetime.now(UTC)
                     reset_hour = int(reset_match.group(1))
                     if reset_match.group(2).lower() == "pm" and reset_hour != 12:
@@ -927,7 +931,12 @@ Write ONLY the summary. No headers, no markdown formatting. Just 2-3 sentences i
                         reset_time += timedelta(days=1)
                     wait_seconds = (reset_time - now).total_seconds()
                     logger.info("Rate limit resets at %s UTC — sleeping %.0f seconds", reset_time, wait_seconds)
-                    await self._log("developer", task_id, "info", f"⏸️ Sleeping until {reset_time.strftime('%H:%M')} UTC ({int(wait_seconds // 60)} min)")
+                    await self._log(
+                        "developer",
+                        task_id,
+                        "info",
+                        f"⏸️ Sleeping until {reset_time.strftime('%H:%M')} UTC ({int(wait_seconds // 60)} min)",
+                    )
                 else:
                     wait_seconds = 3600  # default: 1 hour
                     logger.info("Could not parse reset time — sleeping %d seconds", wait_seconds)
@@ -936,7 +945,7 @@ Write ONLY the summary. No headers, no markdown formatting. Just 2-3 sentences i
                 self._rate_limit_until = datetime.now(UTC) + timedelta(seconds=wait_seconds)
             else:
                 logger.exception("Task %s failed with exception", task_id)
-                first_line = error_str.split('\n')[0][:200]
+                first_line = error_str.split("\n")[0][:200]
                 await self._log("developer", task_id, "error", f"Task failed: {first_line}", details=error_str)
                 await self._update_task_status(task_id, TaskStatus.FAILED)
                 await self._emit_event("task.failed", {"task_id": task_id, "error": error_str})

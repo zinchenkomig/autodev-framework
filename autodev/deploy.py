@@ -109,7 +109,9 @@ async def deploy_staging(repos: list[str] | None = None, release_version: str = 
 
             build_args = f"--build-arg GIT_COMMIT={commit}"
             if is_frontend:
-                build_args += f" --build-arg NEXT_PUBLIC_API_URL={api_url} --build-arg NEXT_PUBLIC_GIT_COMMIT={display_version}"
+                build_args += (
+                    f" --build-arg NEXT_PUBLIC_API_URL={api_url} --build-arg NEXT_PUBLIC_GIT_COMMIT={display_version}"
+                )
                 if release_version:
                     build_args += f" --build-arg NEXT_PUBLIC_RELEASE_VERSION={release_version}"
 
@@ -234,7 +236,9 @@ async def deploy_production(repos: list[str] | None = None, release_version: str
 
             build_args = f"--build-arg GIT_COMMIT={commit}"
             if is_frontend:
-                build_args += f" --build-arg NEXT_PUBLIC_API_URL={api_url} --build-arg NEXT_PUBLIC_GIT_COMMIT={display_version}"
+                build_args += (
+                    f" --build-arg NEXT_PUBLIC_API_URL={api_url} --build-arg NEXT_PUBLIC_GIT_COMMIT={display_version}"
+                )
                 if release_version:
                     build_args += f" --build-arg NEXT_PUBLIC_RELEASE_VERSION={release_version}"
 
