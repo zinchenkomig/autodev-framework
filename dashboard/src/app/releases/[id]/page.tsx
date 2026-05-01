@@ -165,8 +165,8 @@ export default function ReleaseDetailPage({ params }: { params: Promise<{ id: st
 
       {/* Meta row */}
       <div className="flex items-center gap-6 text-xs text-[#3F3F46]">
-        <span><span className="font-mono text-[#71717A]">{release.prs.length}</span> PRs</span>
         <span><span className="font-mono text-[#71717A]">{release.tasks.length}</span> tasks</span>
+        <span><span className="font-mono text-[#71717A]">{release.release_prs.length}</span> release PRs</span>
         {release.approved_by && <span>approved by <span className="text-[#71717A]">{release.approved_by}</span></span>}
         {release.staging_deployed_at && <span>staging {formatDate(release.staging_deployed_at)}</span>}
         {release.production_deployed_at && <span className="text-[#22C55E]">prod {formatDate(release.production_deployed_at)}</span>}
@@ -175,47 +175,12 @@ export default function ReleaseDetailPage({ params }: { params: Promise<{ id: st
       {/* Release notes */}
       <div>
         <p className="text-xs text-[#71717A] uppercase tracking-wider mb-4">Release Notes</p>
-        <MarkdownBlock content={release.release_notes} />
-      </div>
-
-      {/* Testing plan */}
-      <div className="border-t border-[#1F1F23] pt-6">
-        <p className="text-xs text-[#71717A] uppercase tracking-wider mb-4">Testing Plan</p>
-        <MarkdownBlock content={release.testing_plan} />
+        <MarkdownBlock content={release.release_notes ?? ''} />
       </div>
 
       {/* CI Checks */}
       <div className="border-t border-[#1F1F23] pt-6">
         <ReleaseChecks releaseId={release.id} />
-      </div>
-
-      {/* PRs */}
-      <div className="border-t border-[#1F1F23] pt-6">
-        <p className="text-xs text-[#71717A] uppercase tracking-wider mb-4">Pull Requests</p>
-        {release.prs.length === 0 ? (
-          <p className="text-xs text-[#3F3F46]">No PRs</p>
-        ) : (
-          <div className="divide-y divide-[#1F1F23]">
-            {release.prs.map(pr => (
-              <a
-                key={pr.number}
-                href={pr.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-3 py-2.5 hover:bg-white/[0.02] transition-colors group"
-              >
-                <span className={`text-xs ${pr.merged_at ? 'text-[#A78BFA]' : 'text-[#22C55E]'}`}>
-                  <GitPullRequest className="w-3.5 h-3.5" />
-                </span>
-                <span className="text-xs text-[#71717A] flex-1 truncate group-hover:text-[#FAFAFA] transition-colors">
-                  #{pr.number} {pr.title}
-                </span>
-                <span className="text-xs text-[#3F3F46]">{pr.author}</span>
-                <ExternalLink className="w-3 h-3 text-[#3F3F46] group-hover:text-[#71717A] shrink-0 transition-colors" />
-              </a>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   )

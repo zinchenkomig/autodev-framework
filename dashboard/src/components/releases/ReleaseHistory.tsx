@@ -101,7 +101,7 @@ export default function ReleaseHistory({ releases }: Props) {
                     {r.tasks.length === 1 ? 'task' : 'tasks'}
                   </span>
                   <span>
-                    <span className="font-mono" style={{ color: '#A9B7C6' }}>{r.prs.length}</span>{' '}
+                    <span className="font-mono" style={{ color: '#A9B7C6' }}>{r.release_prs.length}</span>{' '}
                     PRs
                   </span>
                   {deployedAt ? (

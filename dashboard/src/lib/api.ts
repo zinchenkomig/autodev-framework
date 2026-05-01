@@ -50,14 +50,6 @@ export interface Event {
   related_type?: 'task' | 'release' | 'pr'
 }
 
-export interface ReleasePR {
-  number: number
-  title: string
-  author: string
-  url: string
-  merged_at: string | null
-}
-
 export interface MergeResult {
   task_id?: string
   pr_url?: string
@@ -79,12 +71,8 @@ export interface Release {
   version: string
   status: ReleaseStatus
   tasks: string[]
-  prs: ReleasePR[]
   release_prs: ReleaseRepoPR[]
-  release_notes: string
-  testing_plan: string
-  ba_report: string | null
-  tester_report: string | null
+  release_notes: string | null
   staging_deployed_at: string | null
   production_deployed_at: string | null
   approved_by: string | null
