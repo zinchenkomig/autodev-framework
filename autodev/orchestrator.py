@@ -1187,7 +1187,7 @@ async def notify_task_status(task_id: str, title: str, status: str, error: str =
     except Exception as e:
         logger.warning(f"Failed to send Telegram notification: {e}")
 
-    # 2. Create alert for failed tasks (will notify OpenClaw/Brian)
+    # 2. Create alert for failed tasks
     if status == "failed":
         try:
             await create_alert(
@@ -1202,12 +1202,9 @@ async def notify_task_status(task_id: str, title: str, status: str, error: str =
 
 
 async def create_alert(alert_type: str, severity: str, title: str, message: str = "", source: str = "") -> None:
-    """Create an alert and notify OpenClaw."""
-    import os
+    """Create an alert and notify the owner via Telegram."""
     from datetime import UTC, datetime
     from uuid import uuid4
-
-    import httpx
 
     try:
         from autodev.api.database import SessionLocal
@@ -1229,35 +1226,10 @@ async def create_alert(alert_type: str, severity: str, title: str, message: str 
             await session.commit()
             await session.refresh(alert)
 
-            # Notify OpenClaw
-            openclaw_url = os.environ.get("OPENCLAW_URL", "http://localhost:3033")
-            chat_id = os.environ.get("OPENCLAW_CHAT_ID", "861853668")
+            from autodev.api.routes.alerts import notify_alert
 
-            severity_emoji = {"critical": "🚨", "high": "🔴", "medium": "🟡", "low": "🟢"}
-            emoji = severity_emoji.get(severity, "⚠️")
-
-            notify_msg = (
-                f"{emoji} **AutoDev Alert** [{severity.upper()}]\n\n**Type:** {alert_type}\n**Title:** {title}\n"
-            )
-            if message:
-                notify_msg += f"\n**Details:**\n```\n{message[:1000]}\n```\n"
-            if source:
-                notify_msg += f"\n**Source:** {source}"
-
-            async with httpx.AsyncClient() as client:
-                resp = await client.post(
-                    f"{openclaw_url}/api/send",
-                    json={
-                        "channel": "telegram",
-                        "account": "default",
-                        "chatId": chat_id,
-                        "message": notify_msg,
-                    },
-                    timeout=10.0,
-                )
-                if resp.status_code == 200:
-                    alert.notified = True
-                    await session.commit()
+            alert.notified = await notify_alert(alert)
+            await session.commit()
 
     except Exception as e:
         logger.warning(f"Failed to create alert: {e}")

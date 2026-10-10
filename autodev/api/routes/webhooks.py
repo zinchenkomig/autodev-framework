@@ -11,17 +11,10 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from autodev.api.database import get_session
-from autodev.core.events import EventBus
 from autodev.integrations.github import verify_webhook_signature
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-_default_bus: EventBus = EventBus()
-
-
-def get_event_bus(request: Request) -> EventBus:
-    return getattr(getattr(request.app, "state", None), "event_bus", _default_bus) or _default_bus
 
 
 @router.post("/github", summary="Receive GitHub webhook")
@@ -29,7 +22,6 @@ async def github_webhook(
     request: Request,
     x_github_event: str = Header(default=""),
     x_hub_signature_256: str = Header(default=""),
-    event_bus: EventBus = Depends(get_event_bus),
 ) -> dict[str, str]:
     """Receive GitHub webhook."""
     body = await request.body()
@@ -39,7 +31,7 @@ async def github_webhook(
     if secret:
         if not x_hub_signature_256:
             raise HTTPException(400, "Missing signature")
-        if not verify_webhook_signature(body, x_hub_signature_256, secret):
+        if not verify_webhook_signature(body, secret, x_hub_signature_256):
             raise HTTPException(400, "Invalid signature")
 
     try:
@@ -47,7 +39,7 @@ async def github_webhook(
     except json.JSONDecodeError as e:
         raise HTTPException(400, f"Invalid JSON: {e}") from e
 
-    await event_bus.publish(f"github.{x_github_event}", payload)
+    logger.debug("GitHub webhook payload keys: %s", list(payload))
     return {"status": "ok", "event": x_github_event}
 
 

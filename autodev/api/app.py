@@ -1,7 +1,7 @@
 """FastAPI application factory for the AutoDev Framework API.
 
 This module creates and configures the main FastAPI application, including:
-- API routers for tasks, agents, events, releases, webhooks, metrics, PM, tester
+- API routers for tasks, agents, events, releases, webhooks, PM
 - WebSocket router for real-time updates
 - Database setup via lifespan context manager
 - Health check endpoint
@@ -20,9 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from autodev.api.database import SessionLocal, engine
 from autodev.api.middleware import ErrorAlertMiddleware
 from autodev.api.routes import agents, events, releases, tasks, webhooks
-from autodev.api.routes import metrics as metrics_router
 from autodev.api.routes import pm as pm_router
-from autodev.api.routes import tester as tester_router
 from autodev.api.websocket import router as ws_router
 from autodev.core.models import Base
 
@@ -123,9 +121,7 @@ def create_app() -> FastAPI:
     app.include_router(events.router, prefix="/api/events", tags=["events"])
     app.include_router(releases.router, prefix="/api/releases", tags=["releases"])
     app.include_router(webhooks.router, prefix="/api/webhooks", tags=["webhooks"])
-    app.include_router(metrics_router.router, prefix="/api/metrics", tags=["metrics"])
     app.include_router(pm_router.router, prefix="/api/pm", tags=["pm"])
-    app.include_router(tester_router.router, prefix="/api/tester", tags=["tester"])
 
     from autodev.api.routes import alerts as alerts_router
     from autodev.api.routes import settings as settings_router

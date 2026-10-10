@@ -46,7 +46,7 @@ class ErrorAlertMiddleware(BaseHTTPMiddleware):
         """Create an alert for API errors."""
         try:
             from autodev.api.database import SessionLocal
-            from autodev.api.routes.alerts import notify_openclaw
+            from autodev.api.routes.alerts import notify_alert
             from autodev.core.models import Alert
 
             message = f"Endpoint: {request.method} {request.url.path}\n"
@@ -69,9 +69,7 @@ class ErrorAlertMiddleware(BaseHTTPMiddleware):
                 session.add(alert)
                 await session.commit()
 
-                # Notify OpenClaw
-                await notify_openclaw(alert)
-                alert.notified = True
+                alert.notified = await notify_alert(alert)
                 await session.commit()
 
         except Exception as e:

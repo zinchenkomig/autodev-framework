@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import os
+import html
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import desc, select
@@ -18,8 +18,7 @@ from autodev.core.models import Alert
 
 router = APIRouter(tags=["alerts"])
 
-OPENCLAW_URL = os.environ.get("OPENCLAW_URL", "http://localhost:3033")
-OPENCLAW_CHAT_ID = os.environ.get("OPENCLAW_CHAT_ID", "861853668")
+logger = logging.getLogger(__name__)
 
 
 class AlertCreate(BaseModel):
@@ -54,35 +53,23 @@ class AlertStats(BaseModel):
     by_type: dict[str, int]
 
 
-async def notify_openclaw(alert: Alert) -> bool:
-    """Send alert to OpenClaw for Brian to handle."""
+async def notify_alert(alert: Alert) -> bool:
+    """Send an alert to the owner's Telegram chat."""
+    from autodev.integrations.telegram_pm import notify_owner
+
     severity_emoji = {"critical": "🚨", "high": "🔴", "medium": "🟡", "low": "🟢"}
     emoji = severity_emoji.get(alert.severity, "⚠️")
 
-    message = (
-        f"{emoji} **AutoDev Alert** [{alert.severity.upper()}]\n\n**Type:** {alert.type}\n**Title:** {alert.title}\n"
-    )
+    text = f"{emoji} <b>AutoDev alert</b> [{alert.severity.upper()}]\n\n<b>{html.escape(alert.title)}</b>\n"
     if alert.message:
-        message += f"\n**Details:**\n```\n{alert.message[:1000]}\n```\n"
+        text += f"\n<pre>{html.escape(alert.message[:1000])}</pre>\n"
     if alert.source:
-        message += f"\n**Source:** {alert.source}"
-    message += f"\n\n**Alert ID:** `{alert.id}`"
+        text += f"\nSource: <code>{html.escape(alert.source)}</code>"
 
     try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                f"{OPENCLAW_URL}/api/send",
-                json={
-                    "channel": "telegram",
-                    "account": "default",
-                    "chatId": OPENCLAW_CHAT_ID,
-                    "message": message,
-                },
-                timeout=10.0,
-            )
-            return resp.status_code == 200
+        return await notify_owner(text)
     except Exception as e:
-        print(f"Failed to notify OpenClaw: {e}")
+        logger.warning("Failed to send alert notification: %s", e)
         return False
 
 
@@ -90,7 +77,7 @@ async def notify_openclaw(alert: Alert) -> bool:
 async def create_alert(
     alert_data: AlertCreate,
     session: Annotated[AsyncSession, Depends(get_session)],
-    notify: bool = Query(True, description="Send notification to OpenClaw"),
+    notify: bool = Query(True, description="Send a Telegram notification"),
 ) -> AlertResponse:
     """Create a new system alert."""
     alert = Alert(
@@ -107,9 +94,8 @@ async def create_alert(
     session.add(alert)
     await session.flush()
 
-    # Notify OpenClaw
     if notify:
-        notified = await notify_openclaw(alert)
+        notified = await notify_alert(alert)
         alert.notified = notified
 
     return AlertResponse(

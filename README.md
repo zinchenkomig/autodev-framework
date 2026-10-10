@@ -74,7 +74,7 @@ git config core.hooksPath .githooks
 
 ## Статус
 
-🚧 В разработке. Прототип работает на базе OpenClaw cron jobs.
+🚧 В разработке: идёт переработка в v2 (канбан с телефона → Claude Code → общий stage).
 
 ## Предыстория
 
