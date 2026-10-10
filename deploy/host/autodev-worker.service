@@ -1,0 +1,20 @@
+[Unit]
+Description=AutoDev worker (developer slots + delivery)
+After=network-online.target k3s.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/autodev
+EnvironmentFile=/etc/autodev/worker.env
+Environment=HOME=/root
+Environment=PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/root/.local/bin/uv run --frozen --no-dev python -m autodev
+Restart=always
+RestartSec=10
+# Claude sessions get SIGTERM with the service; in-progress tasks are requeued on start.
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
