@@ -1,22 +1,39 @@
-"""Telegram PM Bot — chat with PM agent via Telegram."""
+"""Telegram bot: owner notifications plus a tiny task inbox.
+
+- any text message → new task in the current project
+- /project [slug] — show or switch the current project
+- /tasks — active tasks, /stage — what is on stage, /release — ship to prod
+"""
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 from typing import Any
 
 import httpx
+from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
 TELEGRAM_API = "https://api.telegram.org"
+CURRENT_PROJECT_KEY = "telegram_current_project"
+
+STATUS_EMOJI = {
+    "queued": "⏳",
+    "in_progress": "🛠",
+    "ci": "🧪",
+    "deploying": "🚚",
+    "on_stage": "✅",
+    "released": "🚀",
+    "failed": "❌",
+    "cancelled": "⏹",
+}
 
 
 async def get_telegram_settings() -> dict:
     """Get Telegram settings from database."""
-    from sqlalchemy import select
-
     from autodev.api.database import SessionLocal
     from autodev.core.models import Setting
 
@@ -28,23 +45,27 @@ async def get_telegram_settings() -> dict:
         "token": settings.get("telegram_bot_token", ""),
         "chat_id": settings.get("telegram_owner_chat_id", ""),
         "secret": settings.get("telegram_webhook_secret", ""),
+        "project": settings.get(CURRENT_PROJECT_KEY, ""),
     }
 
 
-class TelegramPMBot:
-    """Telegram bot for PM agent interaction."""
+def _esc(text: str) -> str:
+    return html.escape(text or "")
 
-    def __init__(self, token: str = "", owner_chat_id: str = "") -> None:
+
+class TelegramPMBot:
+    """Telegram bot bound to the owner's chat."""
+
+    def __init__(self, token: str = "", owner_chat_id: str = "", current_project: str = "") -> None:
         self.token = token
         self.owner_chat_id = owner_chat_id
-        self.pm_api_url = "http://localhost:8000/api/pm"
+        self.current_project = current_project
         self._client: httpx.AsyncClient | None = None
 
     @classmethod
     async def from_settings(cls) -> TelegramPMBot:
-        """Create bot from database settings."""
         settings = await get_telegram_settings()
-        return cls(token=settings["token"], owner_chat_id=settings["chat_id"])
+        return cls(token=settings["token"], owner_chat_id=settings["chat_id"], current_project=settings["project"])
 
     @property
     def client(self) -> httpx.AsyncClient:
@@ -59,415 +80,244 @@ class TelegramPMBot:
         parse_mode: str = "HTML",
         reply_markup: dict | None = None,
     ) -> dict:
-        """Send message to Telegram."""
         payload: dict[str, Any] = {
             "chat_id": chat_id,
-            "text": text,
+            "text": text[:4000],
             "parse_mode": parse_mode,
+            "disable_web_page_preview": True,
         }
         if reply_markup:
             payload["reply_markup"] = json.dumps(reply_markup)
-
         try:
             resp = await self.client.post("/sendMessage", data=payload)
             resp.raise_for_status()
             return resp.json()
         except Exception as e:
-            logger.error(f"Failed to send message: {e}")
+            logger.error("Telegram sendMessage failed: %s", e)
             return {}
 
-    async def answer_callback_query(
-        self,
-        callback_query_id: str,
-        text: str = "",
-        show_alert: bool = False,
-    ) -> dict:
-        """Answer inline button callback."""
-        payload = {
-            "callback_query_id": callback_query_id,
-            "text": text,
-            "show_alert": show_alert,
-        }
+    async def answer_callback_query(self, callback_id: str, text: str = "") -> None:
         try:
-            resp = await self.client.post("/answerCallbackQuery", data=payload)
-            return resp.json()
+            await self.client.post("/answerCallbackQuery", data={"callback_query_id": callback_id, "text": text})
         except Exception as e:
-            logger.error(f"Failed to answer callback: {e}")
-            return {}
+            logger.error("Telegram answerCallbackQuery failed: %s", e)
 
-    async def edit_message_text(
-        self,
-        chat_id: str,
-        message_id: int,
-        text: str,
-        parse_mode: str = "HTML",
-        reply_markup: dict | None = None,
-    ) -> dict:
-        """Edit existing message."""
-        payload: dict[str, Any] = {
-            "chat_id": chat_id,
-            "message_id": message_id,
-            "text": text,
-            "parse_mode": parse_mode,
-        }
-        if reply_markup:
-            payload["reply_markup"] = json.dumps(reply_markup)
-
+    async def edit_message_text(self, chat_id: str, message_id: int, text: str) -> None:
         try:
-            resp = await self.client.post("/editMessageText", data=payload)
-            return resp.json()
+            await self.client.post(
+                "/editMessageText",
+                data={"chat_id": chat_id, "message_id": message_id, "text": text[:4000], "parse_mode": "HTML"},
+            )
         except Exception as e:
-            logger.error(f"Failed to edit message: {e}")
-            return {}
+            logger.error("Telegram editMessageText failed: %s", e)
+
+    # ------------------------------------------------------------------
+    # Incoming updates
+    # ------------------------------------------------------------------
 
     async def handle_update(self, update: dict) -> None:
-        """Process incoming Telegram update."""
         if "callback_query" in update:
             await self._handle_callback(update["callback_query"])
             return
 
         message = update.get("message", {})
         chat_id = str(message.get("chat", {}).get("id", ""))
-        text = message.get("text", "")
-
+        text = (message.get("text") or "").strip()
         if not chat_id or not text:
             return
-
         if chat_id != self.owner_chat_id:
             await self.send_message(chat_id, "⛔ Доступ только для владельца")
             return
 
         if text.startswith("/"):
             await self._handle_command(chat_id, text)
-            return
-
-        await self._chat_with_pm(chat_id, text)
+        else:
+            await self._create_task(chat_id, text)
 
     async def _handle_command(self, chat_id: str, text: str) -> None:
-        """Handle bot commands."""
-        cmd = text.split()[0].lower()
-
-        if cmd == "/start":
+        cmd, _, arg = text.partition(" ")
+        cmd = cmd.lower().split("@")[0]
+        arg = arg.strip()
+        if cmd in ("/start", "/help"):
             await self.send_message(
                 chat_id,
-                "👋 <b>PM Agent</b>\n\n"
-                "Просто напиши описание фичи — я создам задачи.\n\n"
-                "<b>Команды:</b>\n"
-                "/tasks — список задач\n"
-                "/status — статус системы\n"
-                "/staging — задачи на staging\n"
-                "/feedback <i>текст</i> — обсудить правки с PM\n"
-                "/hotfix <i>текст</i> — срочный фикс (сразу задача)",
+                "👋 <b>AutoDev</b>\n\n"
+                "Напиши задачу обычным сообщением — она уйдёт в работу в текущем проекте.\n"
+                "Первая строка станет заголовком.\n\n"
+                "/project — текущий проект (/project <i>slug</i> — переключить)\n"
+                "/tasks — задачи в работе\n"
+                "/stage — что уже на stage\n"
+                "/release — выкатить stage в прод",
             )
+        elif cmd == "/project":
+            await self._project(chat_id, arg)
         elif cmd == "/tasks":
             await self._show_tasks(chat_id)
-        elif cmd == "/status":
-            await self._show_status(chat_id)
-        elif cmd == "/staging":
-            await self._show_staging(chat_id)
-        elif cmd.startswith("/feedback"):
-            comment = text[len("/feedback") :].strip()
-            if comment:
-                await self._feedback_to_pm(chat_id, comment)
-            else:
-                await self.send_message(chat_id, "Напиши: /feedback <i>описание правок</i>")
-        elif cmd.startswith("/hotfix"):
-            comment = text[len("/hotfix") :].strip()
-            if comment:
-                await self._create_hotfix(chat_id, comment)
-            else:
-                await self.send_message(chat_id, "Напиши: /hotfix <i>описание проблемы</i>")
+        elif cmd == "/stage":
+            await self._show_stage(chat_id)
+        elif cmd == "/release":
+            await self._ask_release(chat_id)
         else:
-            await self.send_message(chat_id, f"❓ Неизвестная команда: {cmd}")
+            await self.send_message(chat_id, f"❓ Неизвестная команда {_esc(cmd)}. /help")
 
-    async def _chat_with_pm(self, chat_id: str, message: str) -> None:
-        """Send message to PM agent and show response."""
-        await self.send_message(chat_id, "🤔 Думаю...")
+    async def _resolve_project(self, session):
+        from autodev.core.models import Project
 
-        try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                resp = await client.post(f"{self.pm_api_url}/chat", json={"message": message})
-                data = resp.json()
-        except Exception as e:
-            await self.send_message(chat_id, f"❌ Ошибка: {e}")
+        projects = list(
+            (await session.execute(select(Project).where(Project.enabled).order_by(Project.name))).scalars()
+        )
+        current = next((p for p in projects if p.id == self.current_project), None)
+        if current is None and len(projects) == 1:
+            current = projects[0]
+        return current, projects
+
+    async def _project(self, chat_id: str, slug: str) -> None:
+        from autodev.api.database import SessionLocal
+        from autodev.core.models import Setting
+
+        async with SessionLocal() as session:
+            current, projects = await self._resolve_project(session)
+            if slug:
+                match = next((p for p in projects if p.id == slug), None)
+                if match is None:
+                    await self.send_message(chat_id, f"Нет проекта <code>{_esc(slug)}</code>")
+                    return
+                setting = await session.get(Setting, CURRENT_PROJECT_KEY)
+                if setting is None:
+                    session.add(Setting(key=CURRENT_PROJECT_KEY, value=slug))
+                else:
+                    setting.value = slug
+                await session.commit()
+                self.current_project = slug
+                current = match
+        names = "\n".join(
+            f"{'👉' if current and p.id == current.id else '•'} <code>{p.id}</code> {_esc(p.name)}" for p in projects
+        )
+        await self.send_message(chat_id, f"Проекты:\n{names or '—'}")
+
+    async def _create_task(self, chat_id: str, text: str) -> None:
+        from autodev.api.database import SessionLocal
+        from autodev.core.models import Task, TaskStatus
+
+        async with SessionLocal() as session:
+            project, projects = await self._resolve_project(session)
+            if project is None:
+                await self.send_message(
+                    chat_id, "Сначала выбери проект: " + ", ".join(f"/project {p.id}" for p in projects)
+                )
+                return
+            title, _, rest = text.partition("\n")
+            title = title.strip()
+            task = Task(
+                title=title[:200],
+                description=rest.strip() or (title if len(title) > 200 else ""),
+                project_id=project.id,
+                repo=project.repos[0]["name"] if len(project.repos) == 1 else None,
+                created_by="telegram",
+                status=TaskStatus.QUEUED,
+                metadata_={},
+            )
+            session.add(task)
+            await session.commit()
+            await session.refresh(task)
+
+        await self.send_message(chat_id, f"⏳ #{task.ticket_number} <b>{_esc(task.title)}</b> → {_esc(project.name)}")
+
+    async def _show_tasks(self, chat_id: str) -> None:
+        from autodev.api.database import SessionLocal
+        from autodev.core.models import Task, TaskStatus
+
+        active = [TaskStatus.QUEUED, TaskStatus.IN_PROGRESS, TaskStatus.CI, TaskStatus.DEPLOYING, TaskStatus.FAILED]
+        async with SessionLocal() as session:
+            rows = await session.execute(
+                select(Task).where(Task.status.in_(active)).order_by(Task.status_changed_at.desc()).limit(20)
+            )
+            tasks = list(rows.scalars())
+        if not tasks:
+            await self.send_message(chat_id, "Пусто — всё сделано 🎉")
             return
+        lines = [f"{STATUS_EMOJI.get(t.status, '•')} #{t.ticket_number} {_esc(t.title[:60])}" for t in tasks]
+        await self.send_message(chat_id, "\n".join(lines))
 
-        pm_response = data.get("response", "")
-        if pm_response:
-            pm_response = pm_response.replace("<", "&lt;").replace(">", "&gt;")
-            await self.send_message(chat_id, pm_response)
+    async def _show_stage(self, chat_id: str) -> None:
+        from autodev.api.database import SessionLocal
+        from autodev.core.models import Project, Task, TaskStatus
 
-        proposals = data.get("proposals", [])
-        session_id = data.get("session_id", "")
+        async with SessionLocal() as session:
+            rows = await session.execute(
+                select(Task).where(Task.status == TaskStatus.ON_STAGE).order_by(Task.project_id, Task.ticket_number)
+            )
+            tasks = list(rows.scalars())
+            projects = {p.id: p for p in (await session.execute(select(Project))).scalars()}
+        if not tasks:
+            await self.send_message(chat_id, "На stage нет невыпущенных задач")
+            return
+        text, current = "", None
+        for t in tasks:
+            if t.project_id != current:
+                current = t.project_id
+                project = projects.get(current)
+                url = f' — <a href="{_esc(project.stage_url)}">stage</a>' if project and project.stage_url else ""
+                text += f"\n<b>{_esc(project.name if project else current or '?')}</b>{url}\n"
+            text += f"✅ #{t.ticket_number} {_esc(t.title[:60])}\n"
+        await self.send_message(chat_id, text.strip())
 
-        for i, p in enumerate(proposals):
-            title = p.get("title", "")
-            repo = p.get("repo", "")
-            priority = p.get("priority", "normal")
-            description = p.get("description", "")[:300]
+    async def _ask_release(self, chat_id: str) -> None:
+        from autodev.api.database import SessionLocal
 
-            text = f"📋 <b>{title}</b>\n📁 {repo}\n🔹 {priority}\n\n{description}..."
-
-            callback_data = f"approve:{session_id}:{i}:{title[:30]}:{repo}:{priority}"
-            reply_markup = {
-                "inline_keyboard": [
-                    [
-                        {"text": "❌ Отклонить", "callback_data": f"reject:{i}"},
-                        {"text": "✅ В бэклог", "callback_data": callback_data},
-                    ]
-                ]
-            }
-
-            await self.send_message(chat_id, text, reply_markup=reply_markup)
+        async with SessionLocal() as session:
+            project, _ = await self._resolve_project(session)
+        if project is None:
+            await self.send_message(chat_id, "Сначала выбери проект: /project <i>slug</i>")
+            return
+        await self.send_message(
+            chat_id,
+            f"🚀 Выкатить <b>{_esc(project.name)}</b> ({_esc(project.base_branch)} → {_esc(project.prod_branch)})?",
+            reply_markup={"inline_keyboard": [[{"text": "🚀 Да, в прод", "callback_data": f"rel:{project.id}"}]]},
+        )
 
     async def _handle_callback(self, callback: dict) -> None:
-        """Handle inline button press."""
         callback_id = callback.get("id", "")
         data = callback.get("data", "")
         message = callback.get("message", {})
         chat_id = str(message.get("chat", {}).get("id", ""))
         message_id = message.get("message_id", 0)
-        original_text = message.get("text", "")
+        if chat_id != self.owner_chat_id:
+            await self.answer_callback_query(callback_id, "⛔")
+            return
 
-        parts = data.split(":")
-        action = parts[0]
+        action, _, arg = data.partition(":")
+        if action != "rel":
+            await self.answer_callback_query(callback_id)
+            return
 
-        if action == "reject":
-            await self.answer_callback_query(callback_id, "❌ Отклонено")
-            await self.edit_message_text(chat_id, message_id, original_text + "\n\n❌ <i>Отклонено</i>")
+        from autodev.api.database import SessionLocal
+        from autodev.core.config import get_settings
+        from autodev.core.models import Project
+        from autodev.integrations.github import GitHubClient
+        from autodev.release import ReleaseError, start_release
 
-        elif action == "approve" and len(parts) >= 6:
-            _, session_id, idx, title, repo, priority = parts[:6]
-
+        async with SessionLocal() as session:
+            project = await session.get(Project, arg)
+            if project is None:
+                await self.answer_callback_query(callback_id, "Проект не найден")
+                return
             try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    resp = await client.post(
-                        f"{self.pm_api_url}/approve",
-                        json={
-                            "session_id": session_id,
-                            "proposals": [
-                                {
-                                    "title": title,
-                                    "repo": repo,
-                                    "priority": priority,
-                                    "description": "",
-                                }
-                            ],
-                        },
-                    )
-                    result = resp.json()
-                    created = result.get("created_tasks", [])
-
-                    if created:
-                        task = created[0]
-                        await self.answer_callback_query(callback_id, "✅ Создано!")
-                        await self.edit_message_text(
-                            chat_id,
-                            message_id,
-                            original_text + f'\n\n✅ <a href="{task["url"]}">Создано</a>',
-                        )
-                    else:
-                        await self.answer_callback_query(callback_id, "❌ Ошибка")
-            except Exception as e:
-                logger.error(f"Failed to approve: {e}")
-                await self.answer_callback_query(callback_id, f"❌ {str(e)[:50]}")
-
-    async def _show_tasks(self, chat_id: str) -> None:
-        """Show recent tasks."""
-        try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get("http://localhost:8000/api/tasks?limit=5")
-                tasks = resp.json()
-
-            if not tasks:
-                await self.send_message(chat_id, "📋 Нет задач")
+                async with GitHubClient(token=get_settings().github_token) as gh:
+                    release = await start_release(session, gh, project, by="telegram")
+            except (ReleaseError, httpx.HTTPError) as exc:
+                await self.answer_callback_query(callback_id, "Не получилось")
+                await self.edit_message_text(chat_id, message_id, f"⚠️ {_esc(str(exc)[:500])}")
                 return
-
-            text = "📋 <b>Последние задачи:</b>\n\n"
-            for t in tasks:
-                status_emoji = {
-                    "queued": "⏳",
-                    "in_progress": "🔄",
-                    "review": "👀",
-                    "failed": "❌",
-                }.get(t["status"], "📋")
-                text += f"{status_emoji} {t['title'][:40]}\n"
-
-            await self.send_message(chat_id, text)
-        except Exception as e:
-            await self.send_message(chat_id, f"❌ Ошибка: {e}")
-
-    async def _show_status(self, chat_id: str) -> None:
-        """Show system status."""
-        try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get("http://localhost:8000/api/agents")
-                agents = resp.json()
-
-            text = "📊 <b>Статус системы:</b>\n\n"
-            for a in agents:
-                status_emoji = {"idle": "😴", "busy": "🔄", "disabled": "⛔"}.get(a.get("status", ""), "❓")
-                enabled = "✅" if a.get("enabled", True) else "⛔"
-                text += f"{enabled} {a['name']}: {status_emoji}\n"
-
-            await self.send_message(chat_id, text)
-        except Exception as e:
-            await self.send_message(chat_id, f"❌ Ошибка: {e}")
-
-    # ========== Notifications ==========
-
-    async def _show_staging(self, chat_id: str) -> None:
-        """Show tasks currently on staging."""
-        from sqlalchemy import select
-
-        from autodev.api.database import SessionLocal
-        from autodev.core.models import Release, ReleaseStatus, Task, TaskStatus
-
-        async with SessionLocal() as session:
-            result = await session.execute(
-                select(Release)
-                .where(Release.status == ReleaseStatus.STAGING)
-                .order_by(Release.created_at.desc())
-                .limit(1)
-            )
-            release = result.scalar_one_or_none()
-
-            if not release:
-                await self.send_message(chat_id, "📦 Нет активных релизов на staging")
-                return
-
-            result = await session.execute(
-                select(Task).where(Task.status == TaskStatus.STAGING).order_by(Task.created_at)
-            )
-            tasks = result.scalars().all()
-
-        text = f"📦 <b>Staging: {release.version}</b>\n"
-        text += f"{len(tasks)} задач\n\n"
-        for i, t in enumerate(tasks, 1):
-            sp = f"[{t.story_points}SP] " if t.story_points else ""
-            text += f"{i}. {sp}<b>{t.title}</b>\n"
-            if t.pr_url:
-                text += f'   <a href="{t.pr_url}">PR</a>\n'
-
-        text += "\n💬 /feedback <i>текст</i> — отправить правки"
-        await self.send_message(chat_id, text)
-
-    async def _feedback_to_pm(self, chat_id: str, comment: str) -> None:
-        """Send feedback to PM agent for analysis and task proposals."""
-        from sqlalchemy import select
-
-        from autodev.api.database import SessionLocal
-        from autodev.core.models import Release, ReleaseStatus, Task, TaskStatus
-
-        # Get staging context
-        async with SessionLocal() as session:
-            result = await session.execute(
-                select(Release)
-                .where(Release.status == ReleaseStatus.STAGING)
-                .order_by(Release.created_at.desc())
-                .limit(1)
-            )
-            release = result.scalar_one_or_none()
-
-            staging_tasks = []
-            if release:
-                result = await session.execute(select(Task).where(Task.status == TaskStatus.STAGING))
-                staging_tasks = result.scalars().all()
-
-        # Build staging context for PM
-        staging_context = ""
-        if release:
-            staging_context = f"\n\nТекущий staging релиз: {release.version}\nЗадачи на staging:\n"
-            for t in staging_tasks:
-                staging_context += f"- {t.title} (PR: {t.pr_url or 'N/A'})\n"
-
-        # Send to PM with staging context
-        enriched_message = (
-            f"[FEEDBACK ПО STAGING]{staging_context}\n\n"
-            f"Фидбек пользователя:\n{comment}\n\n"
-            f"Проанализируй фидбек и предложи hotfix-задачи для исправления. "
-            f"Задачи должны быть типа hotfix."
+        prs = "\n".join(
+            f'<a href="{_esc(p["pr_url"])}">{_esc(p["repo"])}#{p["pr_number"]}</a>' for p in release.release_prs or []
+        )
+        await self.answer_callback_query(callback_id, "Поехали")
+        await self.edit_message_text(
+            chat_id, message_id, f"🚀 Релиз {_esc(release.version)} запущен — смержу, когда пройдут проверки.\n{prs}"
         )
 
-        await self._chat_with_pm(chat_id, enriched_message)
-
-    async def _create_hotfix(self, chat_id: str, comment: str) -> None:
-        """Create hotfix task directly without PM analysis."""
-        from datetime import UTC, datetime
-        from uuid import uuid4
-
-        from sqlalchemy import select
-
-        from autodev.api.database import SessionLocal
-        from autodev.core.models import Release, ReleaseStatus, Task, TaskStatus
-
-        async with SessionLocal() as session:
-            result = await session.execute(
-                select(Release)
-                .where(Release.status == ReleaseStatus.STAGING)
-                .order_by(Release.created_at.desc())
-                .limit(1)
-            )
-            release = result.scalar_one_or_none()
-            version = release.version if release else "unknown"
-
-            task = Task(
-                id=uuid4(),
-                title=f"Hotfix: {comment[:60]}",
-                description=f"Фидбек по staging {version}:\n\n{comment}",
-                status=TaskStatus.QUEUED,
-                priority="high",
-                story_points=2,
-                task_type="hotfix",
-                repo="",
-                created_by="telegram-feedback",
-                created_at=datetime.now(UTC),
-                updated_at=datetime.now(UTC),
-            )
-            session.add(task)
-            await session.commit()
-
-        await self.send_message(chat_id, f"✅ Задача создана: <b>{task.title}</b>\n\n{comment[:200]}")
-
-    async def notify_task_failed(self, task_id: str, title: str, error: str) -> None:
-        """Notify owner about failed task."""
-        if not self.owner_chat_id:
-            return
-
-        text = f"❌ <b>Задача провалилась</b>\n\n📋 {title}\n\nОшибка: <code>{error[:200]}</code>"
-        await self.send_message(self.owner_chat_id, text)
-
-    async def notify_task_ready_for_review(self, task_id: str, title: str, pr_url: str = "") -> None:
-        """Notify owner about task ready for review."""
-        if not self.owner_chat_id:
-            return
-
-        text = f"👀 <b>Готово к ревью</b>\n\n📋 {title}\n"
-        if pr_url:
-            text += f'🔗 <a href="{pr_url}">Pull Request</a>'
-
-        await self.send_message(self.owner_chat_id, text)
-
-    async def notify_release_pending(self, release_id: str, version: str) -> None:
-        """Notify owner about pending release."""
-        if not self.owner_chat_id:
-            return
-
-        text = f"🚀 <b>Релиз ждёт подтверждения</b>\n\nВерсия: {version}"
-
-        reply_markup = {
-            "inline_keyboard": [
-                [
-                    {"text": "❌ Отмена", "callback_data": f"release_cancel:{release_id}"},
-                    {"text": "✅ Деплой", "callback_data": f"release_deploy:{release_id}"},
-                ]
-            ]
-        }
-
-        await self.send_message(self.owner_chat_id, text, reply_markup=reply_markup)
-
     async def close(self) -> None:
-        """Close HTTP client."""
         if self._client:
             await self._client.aclose()
 

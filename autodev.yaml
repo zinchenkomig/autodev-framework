@@ -1,61 +1,33 @@
-name: "Great Alerter"
+# Seeds the projects table on first start. After that, edit projects in the
+# dashboard (Settings → Projects); existing rows are not overwritten.
+# ${VAR} is expanded from the environment.
 
-repos:
-  - name: great_alerter_backend
-    url: github.com/zinchenkomig/great_alerter_backend
-    language: python
-    tests_command: "uv run pytest tests/ -x --tb=short"
-    context_file: CLAUDE.md
+projects:
+  - slug: alerter
+    name: Great Alerter
+    base_branch: stage
+    prod_branch: main
+    stage_url: https://staging.alerter.zinchenkomig.com
+    smoke_paths: ["/"]
+    repos:
+      - name: zinchenkomig/great_alerter_backend
+        role: backend
+        # Without version_url, "on stage" = the stage deploy workflow succeeded
+        # for the merge commit. Add e.g. https://staging.alerter.../api/version
+        # once the app exposes its GIT_SHA.
 
-  - name: great_alerter_frontend
-    url: github.com/zinchenkomig/great_alerter_frontend
-    language: typescript
-    tests_command: "npm run build"
-    context_file: CLAUDE.md
-
-environments:
-  - name: staging
-    url: https://staging.alerter.zinchenkomig.com
-    deploy_command: "/root/.openclaw/workspace/supervisor/deploy.sh staging both"
-    requires_approval: false
-
-  - name: production
-    url: https://alerter.zinchenkomig.com
-    deploy_command: "/root/.openclaw/workspace/supervisor/deploy.sh production both"
-    requires_approval: true
-
-agents:
-  - role: pm
-    runner: llm
-    model: z-ai/glm-5-turbo
-
-  - role: developer
-    runner: claude-code
-
-  - role: qa
-    runner: claude-code
-    model: claude-sonnet-4
-    max_iterations: 20
-    triggers:
-      - type: event
-        value: task.assigned
-    instructions: |
-      You are a senior developer working on the Great Alerter project.
-      Implement the assigned task with clean code, write tests, and follow
-      the project's coding standards.
-
-release:
-  branch_strategy: gitflow
-  min_prs: 8
-  auto_deploy_staging: true
-  require_human_approval: true
-
-notifications:
-  targets:
-    - type: telegram
-      config:
-        bot_token: "${TELEGRAM_BOT_TOKEN}"
-        chat_id: "861853668"
-  events:
-    - release.ready
-    - bug.found
+      - name: zinchenkomig/great_alerter_frontend
+        role: frontend
+        # Regenerate the typed API client from the backend's OpenAPI schema so
+        # Claude works against the current backend contract.
+        setup: |
+          set -e
+          be=$(mktemp -d)
+          git clone -q --depth 1 -b stage https://github.com/zinchenkomig/great_alerter_backend.git "$be"
+          mkdir -p openapi
+          (cd "$be" && unset VIRTUAL_ENV && uv sync -q --frozen &&
+            POSTGRES__HOST=localhost POSTGRES__PORT=5432 POSTGRES__USER=x POSTGRES__PASSWORD=x POSTGRES__DB=x \
+            uv run python -c "import json; from src.backend.main import app; json.dump(app.openapi(), open('$AUTODEV_WORKDIR/openapi/openapi.json', 'w'), indent=2)")
+          rm -rf "$be"
+          npm install --silent
+          npm run gen:api

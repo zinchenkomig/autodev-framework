@@ -11,7 +11,12 @@ from autodev.core.models import Base
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
+if config.get_main_option("sqlalchemy.url", "").startswith("postgresql+asyncpg://autodev:autodev@localhost"):
+    # alembic.ini holds only a dev default; DATABASE_URL wins.
+    from autodev.core.config import get_settings
+
+    config.set_main_option("sqlalchemy.url", get_settings().database_url)
 
 target_metadata = Base.metadata
 

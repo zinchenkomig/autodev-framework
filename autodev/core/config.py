@@ -1,250 +1,119 @@
-"""Project configuration models using Pydantic.
+"""Configuration.
 
-Two layers of configuration:
-1. **AppSettings** — runtime settings read from environment variables / ``.env``
-   (tokens, DB connection, ports, etc.).
-2. **ProjectConfig** — project-level declarative config loaded from a YAML file
-   (repos, agents, environments, release strategy, notifications).
+Two layers:
 
-Usage::
-
-    from autodev.core.config import load_config, save_config
-
-    cfg = load_config("autodev.yaml")
-    print(cfg.name)
-
-    save_config(cfg, "autodev.yaml")
+1. :class:`Settings` — runtime settings from environment variables
+   (DB, tokens, worker sizing, timeouts).
+2. :class:`AutodevConfig` — ``autodev.yaml``. It seeds the ``projects``
+   table on startup; projects that already exist in the DB are left alone, so
+   the dashboard stays the place to edit them. ``${VAR}`` references are
+   expanded from the environment.
 """
 
 from __future__ import annotations
 
-from enum import StrEnum
+import os
+import re
+from functools import lru_cache
 from pathlib import Path
-from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import AliasChoices, BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # ---------------------------------------------------------------------------
-# Runtime / environment settings (unchanged)
+# Runtime settings
 # ---------------------------------------------------------------------------
 
 
-class DatabaseSettings(BaseSettings):
-    """PostgreSQL connection settings."""
+class Settings(BaseSettings):
+    """Runtime settings read from the environment (and ``.env``)."""
 
-    model_config = SettingsConfigDict(env_prefix="DB_")
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    host: str = "localhost"
-    port: int = 5432
-    name: str = "autodev"
-    user: str = "autodev"
-    password: SecretStr = Field(default=SecretStr("autodev"))
-
-    @property
-    def url(self) -> str:
-        """Async SQLAlchemy connection URL."""
-        pwd = self.password.get_secret_value()
-        return f"postgresql+asyncpg://{self.user}:{pwd}@{self.host}:{self.port}/{self.name}"
-
-
-class RedisSettings(BaseSettings):
-    """Redis connection settings."""
-
-    model_config = SettingsConfigDict(env_prefix="REDIS_")
-
-    host: str = "localhost"
-    port: int = 6379
-    db: int = 0
-    password: SecretStr | None = None
-
-    @property
-    def url(self) -> str:
-        """Redis connection URL."""
-        pwd = self.password.get_secret_value() if self.password else None
-        auth = f":{pwd}@" if pwd else ""
-        return f"redis://{auth}{self.host}:{self.port}/{self.db}"
-
-
-class GitHubSettings(BaseSettings):
-    """GitHub integration settings."""
-
-    model_config = SettingsConfigDict(env_prefix="GITHUB_")
-
-    token: SecretStr | None = None
-    webhook_secret: SecretStr | None = None
-    repo: str = ""
-
-
-class TelegramSettings(BaseSettings):
-    """Telegram bot integration settings."""
-
-    model_config = SettingsConfigDict(env_prefix="TELEGRAM_")
-
-    bot_token: SecretStr | None = None
-    chat_id: str = ""
-
-
-class AppSettings(BaseSettings):
-    """Top-level application runtime configuration.
-
-    Reads from environment variables and an optional ``.env`` file.
-    """
-
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
+    database_url: str = Field(
+        default="postgresql+asyncpg://autodev:autodev@localhost:5432/autodev",
+        validation_alias="DATABASE_URL",
     )
+    github_token: str = Field(default="", validation_alias=AliasChoices("GITHUB_TOKEN", "GH_TOKEN"))
+    config_path: str = Field(default="autodev.yaml", validation_alias="AUTODEV_CONFIG")
 
-    app_name: str = "AutoDev Framework"
-    debug: bool = False
-    log_level: str = "INFO"
+    # Which loops this process runs: "api", "worker" or "all".
+    role: str = Field(default="all", validation_alias="AUTODEV_ROLE")
+    host: str = Field(default="0.0.0.0", validation_alias="AUTODEV_HOST")
+    port: int = Field(default=8000, validation_alias="AUTODEV_PORT")
 
-    api_host: str = "0.0.0.0"
-    api_port: int = 8000
+    # Claude Code. Empty model = the CLI's default for the account.
+    model: str = Field(default="", validation_alias="AUTODEV_MODEL")
+    claude_bin: str = Field(default="claude", validation_alias="AUTODEV_CLAUDE_BIN")
+    claude_timeout: int = Field(default=45 * 60, validation_alias="AUTODEV_CLAUDE_TIMEOUT")
 
-    db: DatabaseSettings = Field(default_factory=DatabaseSettings)
-    redis: RedisSettings = Field(default_factory=RedisSettings)
-    github: GitHubSettings = Field(default_factory=GitHubSettings)
-    telegram: TelegramSettings = Field(default_factory=TelegramSettings)
+    # Worker
+    workdir: str = Field(default="/work", validation_alias="AUTODEV_WORKDIR")
+    worker_slots: int = Field(default=2, validation_alias="AUTODEV_WORKER_SLOTS")
+    poll_interval: float = Field(default=10.0, validation_alias="AUTODEV_POLL_INTERVAL")
+    max_fix_attempts: int = Field(default=3, validation_alias="AUTODEV_MAX_FIX_ATTEMPTS")
+    # How long a PR may sit without any check run before it is merged anyway.
+    checks_grace_seconds: int = Field(default=120, validation_alias="AUTODEV_CHECKS_GRACE")
+    ci_timeout: int = Field(default=60 * 60, validation_alias="AUTODEV_CI_TIMEOUT")
+    deploy_timeout: int = Field(default=20 * 60, validation_alias="AUTODEV_DEPLOY_TIMEOUT")
+
+    # Public URL of the dashboard, used for links in notifications.
+    public_url: str = Field(default="", validation_alias="AUTODEV_PUBLIC_URL")
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
 
 
 # ---------------------------------------------------------------------------
-# YAML-based project configuration (Pydantic models)
+# autodev.yaml
 # ---------------------------------------------------------------------------
 
 
-class RepoConfig(BaseModel):
-    """Configuration for a single source repository."""
+class RepoSpec(BaseModel):
+    """One repository of a project."""
 
+    name: str  # owner/repo
+    role: str = "app"  # e.g. backend / frontend; used to route tasks
+    # URL on stage that returns the deployed commit SHA (JSON or plain text).
+    version_url: str | None = None
+    # Shell run in the fresh checkout before Claude starts (codegen etc.).
+    setup: str | None = None
+
+
+class ProjectSpec(BaseModel):
+    """A project: repos that share one stage environment."""
+
+    slug: str
     name: str
-    url: str
-    language: str = "python"
-    context_file: str = "CLAUDE.md"
-    tests_command: str = "pytest tests/"
-    lint_command: str = "ruff check ."
+    repos: list[RepoSpec]
+    base_branch: str = "stage"
+    prod_branch: str = "main"
+    stage_url: str | None = None
+    smoke_paths: list[str] = Field(default_factory=list)
+    instructions: str | None = None
+    model: str | None = None
+    max_parallel: int = 1
+    enabled: bool = True
 
 
-class EnvironmentConfig(BaseModel):
-    """Deployment environment (staging, production, etc.)."""
-
-    name: str
-    url: str
-    deploy_command: str
-    requires_approval: bool = False
+class AutodevConfig(BaseModel):
+    projects: list[ProjectSpec] = Field(default_factory=list)
 
 
-class TriggerType(StrEnum):
-    schedule = "schedule"
-    event = "event"
+_ENV_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
-class AgentTrigger(BaseModel):
-    """A trigger that causes an agent to run."""
-
-    type: TriggerType
-    value: str
+def _expand_env(text: str) -> str:
+    return _ENV_REF.sub(lambda m: os.environ.get(m.group(1), ""), text)
 
 
-class AgentConfig(BaseModel):
-    """Configuration for an autonomous agent."""
-
-    role: str
-    runner: str = "claude-code"
-    model: str = "claude-sonnet-4"
-    max_iterations: int = 20
-    triggers: list[AgentTrigger] = Field(default_factory=list)
-    instructions: str = ""
-    tools: list[str] = Field(default_factory=list)
-
-
-class BranchStrategy(StrEnum):
-    gitflow = "gitflow"
-    trunk = "trunk"
-
-
-class ReleaseConfig(BaseModel):
-    """Release and branching strategy configuration."""
-
-    branch_strategy: BranchStrategy = BranchStrategy.gitflow
-    min_prs: int = 1
-    auto_deploy_staging: bool = True
-    require_human_approval: bool = True
-
-
-class NotificationType(StrEnum):
-    telegram = "telegram"
-    slack = "slack"
-    webhook = "webhook"
-
-
-class NotificationTarget(BaseModel):
-    """A single notification destination."""
-
-    type: NotificationType
-    config: dict[str, Any] = Field(default_factory=dict)
-
-
-class NotificationConfig(BaseModel):
-    """Aggregated notification settings."""
-
-    targets: list[NotificationTarget] = Field(default_factory=list)
-    events: list[str] = Field(default_factory=list)
-
-
-class ProjectConfig(BaseModel):
-    """Top-level YAML project configuration."""
-
-    name: str
-    repos: list[RepoConfig] = Field(default_factory=list)
-    environments: list[EnvironmentConfig] = Field(default_factory=list)
-    agents: list[AgentConfig] = Field(default_factory=list)
-    release: ReleaseConfig = Field(default_factory=ReleaseConfig)
-    notifications: NotificationConfig = Field(default_factory=NotificationConfig)
-
-
-# ---------------------------------------------------------------------------
-# Load / save helpers
-# ---------------------------------------------------------------------------
-
-
-def load_config(path: str) -> ProjectConfig:
-    """Load a :class:`ProjectConfig` from a YAML file.
-
-    Args:
-        path: Path to the YAML configuration file.
-
-    Returns:
-        Validated :class:`ProjectConfig` instance.
-
-    Raises:
-        FileNotFoundError: If *path* does not exist.
-        yaml.YAMLError: If the file is not valid YAML.
-        pydantic.ValidationError: If the data does not match the schema.
-    """
-    data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
-    if data is None:
-        data = {}
-    return ProjectConfig.model_validate(data)
-
-
-def save_config(config: ProjectConfig, path: str) -> None:
-    """Serialize a :class:`ProjectConfig` to a YAML file.
-
-    Args:
-        config: The configuration object to save.
-        path: Destination file path.  Parent directories are created if needed.
-    """
-    dest = Path(path)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(
-        yaml.dump(
-            config.model_dump(mode="json"),
-            allow_unicode=True,
-            default_flow_style=False,
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
+def load_config(path: str | Path) -> AutodevConfig:
+    """Load ``autodev.yaml``. A missing file yields an empty config."""
+    path = Path(path)
+    if not path.exists():
+        return AutodevConfig()
+    data = yaml.safe_load(_expand_env(path.read_text(encoding="utf-8"))) or {}
+    return AutodevConfig.model_validate(data)

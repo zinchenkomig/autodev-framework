@@ -186,6 +186,7 @@ class GitHubClient:
         pr_number: int,
         merge_method: str = "squash",
         repo: str | None = None,
+        commit_title: str | None = None,
     ) -> dict:
         """Merge a pull request.
 
@@ -198,10 +199,10 @@ class GitHubClient:
             Merge result dict from GitHub API.
         """
         resolved = self._resolve_repo(repo)
-        response = await self._client.put(
-            f"/repos/{resolved}/pulls/{pr_number}/merge",
-            json={"merge_method": merge_method},
-        )
+        payload: dict = {"merge_method": merge_method}
+        if commit_title:
+            payload["commit_title"] = commit_title
+        response = await self._client.put(f"/repos/{resolved}/pulls/{pr_number}/merge", json=payload)
         response.raise_for_status()
         return response.json()
 
@@ -339,9 +340,60 @@ class GitHubClient:
         resolved = self._resolve_repo(repo)
         response = await self._client.get(
             f"/repos/{resolved}/commits/{ref}/check-runs",
+            params={"per_page": 100},
         )
         response.raise_for_status()
         return response.json().get("check_runs", [])
+
+    async def find_open_pr(self, head: str, base: str, repo: str | None = None) -> dict | None:
+        """Return the open PR from branch *head* into *base*, if any."""
+        resolved = self._resolve_repo(repo)
+        owner = resolved.split("/")[0]
+        response = await self._client.get(
+            f"/repos/{resolved}/pulls", params={"state": "open", "head": f"{owner}:{head}", "base": base}
+        )
+        response.raise_for_status()
+        prs = response.json()
+        return prs[0] if prs else None
+
+    async def close_pr(self, pr_number: int, repo: str | None = None) -> dict:
+        resolved = self._resolve_repo(repo)
+        response = await self._client.patch(f"/repos/{resolved}/pulls/{pr_number}", json={"state": "closed"})
+        response.raise_for_status()
+        return response.json()
+
+    async def compare(self, base: str, head: str, repo: str | None = None) -> dict:
+        """Compare two refs. ``status`` is ahead / behind / identical / diverged (head relative to base)."""
+        resolved = self._resolve_repo(repo)
+        response = await self._client.get(f"/repos/{resolved}/compare/{base}...{head}", params={"per_page": 1})
+        response.raise_for_status()
+        return response.json()
+
+    async def contains_commit(self, ref: str, sha: str, repo: str | None = None) -> bool:
+        """True if commit *sha* is part of *ref*'s history."""
+        status = (await self.compare(sha, ref, repo)).get("status")
+        return status in ("ahead", "identical")
+
+    async def list_workflow_runs(
+        self,
+        repo: str | None = None,
+        *,
+        branch: str | None = None,
+        head_sha: str | None = None,
+        event: str | None = None,
+        per_page: int = 30,
+    ) -> list[dict]:
+        resolved = self._resolve_repo(repo)
+        params: dict = {"per_page": per_page}
+        if branch:
+            params["branch"] = branch
+        if head_sha:
+            params["head_sha"] = head_sha
+        if event:
+            params["event"] = event
+        response = await self._client.get(f"/repos/{resolved}/actions/runs", params=params)
+        response.raise_for_status()
+        return response.json().get("workflow_runs", [])
 
     # ------------------------------------------------------------------
     # Releases (kept from original stub)
