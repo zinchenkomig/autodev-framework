@@ -19,6 +19,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["settings"])
 
 
+def _webhook_url() -> str:
+    from autodev.core.config import get_settings
+
+    explicit = os.environ.get("AUTODEV_WEBHOOK_URL")
+    return explicit or f"{get_settings().public_url.rstrip('/')}/api/webhooks/telegram"
+
+
 class TelegramSettings(BaseModel):
     bot_token: str
     owner_chat_id: str
@@ -59,7 +66,7 @@ async def get_telegram_settings(
     token = await get_setting(session, "telegram_bot_token")
     chat_id = await get_setting(session, "telegram_owner_chat_id")
     secret = await get_setting(session, "telegram_webhook_secret")
-    webhook_url = os.environ.get("AUTODEV_WEBHOOK_URL", "https://autodev.zinchenkomig.com/api/webhooks/telegram")
+    webhook_url = _webhook_url()
 
     return TelegramSettings(
         bot_token="*" * 10 if token else "",
@@ -142,7 +149,7 @@ async def setup_telegram_webhook(
 ) -> dict:
     token = await get_setting(session, "telegram_bot_token")
     secret = await get_setting(session, "telegram_webhook_secret")
-    webhook_url = os.environ.get("AUTODEV_WEBHOOK_URL", "https://autodev.zinchenkomig.com/api/webhooks/telegram")
+    webhook_url = _webhook_url()
 
     if not token:
         raise HTTPException(400, "Сначала сохраните токен")

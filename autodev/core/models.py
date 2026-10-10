@@ -1,6 +1,6 @@
 """SQLAlchemy ORM models for the AutoDev Framework.
 
-Defines persistent entities: tasks, agents, events, agent_runs, releases.
+Defines persistent entities: projects, tasks, agents, logs, releases.
 Uses PostgreSQL-specific types (UUID, ARRAY, JSONB) on PostgreSQL, and falls
 back to JSON-serialised TEXT columns on other dialects (e.g. SQLite for tests).
 """
@@ -9,10 +9,9 @@ import enum
 import json
 import uuid
 from datetime import UTC, datetime
-from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, Sequence, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Sequence, String, Text, func
 from sqlalchemy import types as sa_types
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB  # used in TypeDecorators below
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -136,18 +135,27 @@ class Priority(enum.StrEnum):
 
 
 class TaskStatus(enum.StrEnum):
-    """Lifecycle states of a development task."""
+    """Lifecycle states of a development task.
+
+    queued → in_progress → ci → deploying → on_stage → released
+    A fix round (red CI, merge conflict, owner feedback) sends the task back
+    to ``queued`` with a pending fix in ``metadata["fix"]``.
+    """
 
     QUEUED = "queued"
-    ASSIGNED = "assigned"
-    IN_PROGRESS = "in_progress"
-    AUTOREVIEW = "autoreview"
-    QA_TESTING = "qa_testing"
-    REVIEW = "review"  # kept for backward compat
-    READY_TO_RELEASE = "ready_to_release"
-    STAGING = "staging"
+    IN_PROGRESS = "in_progress"  # Claude Code is working on it
+    CI = "ci"  # PR open, waiting for checks, then auto-merge into stage
+    DEPLOYING = "deploying"  # merged into stage, waiting for stage to run it
+    ON_STAGE = "on_stage"  # verified on stage, waiting for a prod release
     RELEASED = "released"
     FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+#: Statuses meaning the change is merged into the stage branch.
+MERGED_STATUSES = frozenset({TaskStatus.DEPLOYING, TaskStatus.ON_STAGE, TaskStatus.RELEASED})
+#: Statuses a task never leaves on its own.
+TERMINAL_STATUSES = frozenset({TaskStatus.RELEASED, TaskStatus.FAILED, TaskStatus.CANCELLED})
 
 
 class AgentRole(enum.StrEnum):
@@ -171,31 +179,57 @@ class AgentStatus(enum.StrEnum):
     OFFLINE = "offline"
 
 
-class AgentRunStatus(enum.StrEnum):
-    """Status of a single agent execution run."""
-
-    RUNNING = "running"
-    SUCCESS = "success"
-    FAILED = "failed"
-    TIMEOUT = "timeout"
-
-
 class ReleaseStatus(enum.StrEnum):
     """Release lifecycle states."""
 
-    DRAFT = "draft"
-    STAGING = "staging"
-    PENDING_APPROVAL = "pending_approval"
-    APPROVED = "approved"
-    DEPLOYED = "deployed"
+    PENDING = "pending"  # stage→main PRs open, waiting for checks / merge
+    DEPLOYED = "deployed"  # merged into the prod branch
     FAILED = "failed"
-    CANCELLED = "cancelled"
-    REVERTED = "reverted"
 
 
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
+
+
+class Project(Base):
+    """A product the agents work on: one or more repos sharing a stage."""
+
+    __tablename__ = "projects"
+
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)  # slug
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # [{"name": "owner/repo", "role": "backend", "version_url": "...", "setup": "..."}]
+    repos: Mapped[list[dict]] = mapped_column(_JSONEncodedDict(), nullable=False, default=list)
+    base_branch: Mapped[str] = mapped_column(String(100), nullable=False, default="stage")
+    prod_branch: Mapped[str] = mapped_column(String(100), nullable=False, default="main")
+    stage_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    smoke_paths: Mapped[list[str]] = mapped_column(_JSONEncodedDict(), nullable=False, default=list)
+    instructions: Mapped[str | None] = mapped_column(Text, nullable=True)  # extra prompt text
+    model: Mapped[str | None] = mapped_column(String(100), nullable=True)  # overrides AUTODEV_MODEL
+    max_parallel: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    def repo(self, name_or_role: str | None) -> dict | None:
+        """Find a repo entry by full name, bare name or role; default to the only repo."""
+        if not name_or_role:
+            return self.repos[0] if len(self.repos) == 1 else None
+        for entry in self.repos:
+            if name_or_role in (entry["name"], entry["name"].split("/")[-1], entry.get("role")):
+                return entry
+        return None
+
+    def __repr__(self) -> str:
+        return f"<Project id={self.id!r}>"
 
 
 class Task(Base):
@@ -220,11 +254,19 @@ class Task(Base):
     story_points: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=TaskStatus.QUEUED)
     assigned_to: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    repo: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    project_id: Mapped[str | None] = mapped_column(
+        String(100), ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    repo: Mapped[str | None] = mapped_column(String(255), nullable=True)  # owner/name
     issue_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     pr_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     pr_url: Mapped[str | None] = mapped_column(String, nullable=True)
     branch: Mapped[str | None] = mapped_column(String, nullable=True)
+    session_id: Mapped[str | None] = mapped_column(String(100), nullable=True)  # Claude Code session
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # fix rounds so far
+    merge_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)  # Claude's summary → PR body
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
     release_id: Mapped[uuid.UUID | None] = mapped_column(_UUID(), nullable=True)
     depends_on: Mapped[list[uuid.UUID] | None] = mapped_column(_JSONEncodedList(), nullable=True, default=list)
     metadata_: Mapped[dict | None] = mapped_column("metadata", _JSONEncodedDict(), nullable=True, default=dict)
@@ -242,8 +284,7 @@ class Task(Base):
         nullable=False,
     )
 
-    # Relationships
-    agent_runs: Mapped[list["AgentRun"]] = relationship("AgentRun", back_populates="task")
+    project: Mapped[Project | None] = relationship("Project", lazy="selectin")
 
     def __repr__(self) -> str:
         return f"<Task id={self.id} title={self.title!r} status={self.status}>"
@@ -267,7 +308,6 @@ class Agent(Base):
 
     # Relationships
     current_task: Mapped[Task | None] = relationship("Task", foreign_keys=[current_task_id])
-    agent_runs: Mapped[list["AgentRun"]] = relationship("AgentRun", back_populates="agent")
 
     def __repr__(self) -> str:
         return f"<Agent id={self.id!r} role={self.role!r} status={self.status}>"
@@ -288,49 +328,6 @@ class Event(Base):
 
     def __repr__(self) -> str:
         return f"<Event id={self.id} type={self.type!r}>"
-
-
-class AgentRun(Base):
-    """A single execution run of an agent on a task."""
-
-    __tablename__ = "agent_runs"
-
-    id: Mapped[uuid.UUID] = mapped_column(_UUID(), primary_key=True, default=uuid.uuid4)
-    agent_id: Mapped[str | None] = mapped_column(
-        String(100), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
-    )
-    task_id: Mapped[uuid.UUID | None] = mapped_column(
-        _UUID(), ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True
-    )
-    status: Mapped[str] = mapped_column(String(20), nullable=False)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    result: Mapped[dict | None] = mapped_column(_JSONEncodedDict(), nullable=True)
-    tokens_used: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), nullable=True)
-
-    # Relationships
-    agent: Mapped[Agent | None] = relationship("Agent", back_populates="agent_runs")
-    task: Mapped[Task | None] = relationship("Task", back_populates="agent_runs")
-
-    def __repr__(self) -> str:
-        return f"<AgentRun id={self.id} agent_id={self.agent_id!r} status={self.status}>"
-
-
-class ChatMessage(Base):
-    """A message in the PM chat history."""
-
-    __tablename__ = "chat_messages"
-
-    id: Mapped[uuid.UUID] = mapped_column(_UUID(), primary_key=True, default=uuid.uuid4)
-    role: Mapped[str] = mapped_column(String(20), nullable=False)  # 'user' | 'pm'
-    content: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
-    )
-
-    def __repr__(self) -> str:
-        return f"<ChatMessage id={self.id} role={self.role!r}>"
 
 
 class AgentLog(Base):
@@ -377,23 +374,23 @@ class TaskTransition(Base):
 
 
 class Release(Base):
-    """A software release artifact."""
+    """A promotion of a project's stage branch to production."""
 
     __tablename__ = "releases"
 
     id: Mapped[uuid.UUID] = mapped_column(_UUID(), primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[str | None] = mapped_column(
+        String(100), ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     version: Mapped[str] = mapped_column(String(50), nullable=False)
-    status: Mapped[str] = mapped_column(String(30), nullable=False, default=ReleaseStatus.DRAFT)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default=ReleaseStatus.PENDING)
     tasks: Mapped[list[uuid.UUID]] = mapped_column(_JSONEncodedList(), nullable=False, default=list)
     release_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    staging_deployed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    production_deployed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    approved_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    reverted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    reverted_by: Mapped[str | None] = mapped_column(String, nullable=True)
-    previous_status: Mapped[str | None] = mapped_column(String, nullable=True)
+    # [{"repo": "owner/name", "pr_number": 1, "pr_url": "...", "merged": false}]
     release_prs: Mapped[list[dict] | None] = mapped_column(_JSONEncodedDict(), nullable=True, default=list)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    production_deployed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )

@@ -1,291 +1,162 @@
-"""Integration tests for the AutoDev Framework REST API.
-
-Uses httpx.AsyncClient with ASGITransport and an in-memory SQLite database
-so no running PostgreSQL is required.
-"""
+"""REST API."""
 
 from __future__ import annotations
 
-import uuid
-
 import pytest
-import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from autodev.core.models import Agent, AgentStatus, Base
-from tests.conftest import make_test_engine
+from autodev.core.models import AgentLog, Task, TaskStatus
+from tests.conftest import make_project
+from tests.fakes import FakeGitHub
+
+
+async def test_health(client) -> None:
+    assert (await client.get("/health")).json() == {"status": "ok"}
 
-# ---------------------------------------------------------------------------
-# Test database setup — SQLite in-memory
-# ---------------------------------------------------------------------------
-
-
-@pytest_asyncio.fixture(scope="function")
-async def app():
-    """Create a fresh app instance wired to an in-memory SQLite database."""
-    import autodev.api.database as db_module
-
-    # Swap out the engine and session factory for in-memory SQLite
-    test_engine = make_test_engine()
-    test_session = async_sessionmaker(test_engine, expire_on_commit=False)
-
-    original_engine = db_module.engine
-    original_session = db_module.SessionLocal
-
-    db_module.engine = test_engine
-    db_module.SessionLocal = test_session
-
-    # Create tables
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    from autodev.api.app import create_app
-
-    application = create_app()
-
-    yield application
-
-    # Teardown
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-    await test_engine.dispose()
-
-    db_module.engine = original_engine
-    db_module.SessionLocal = original_session
-
-
-@pytest_asyncio.fixture(scope="function")
-async def client(app):
-    """Return an AsyncClient for the test app."""
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
-
-
-# ---------------------------------------------------------------------------
-# Helper: seed an agent directly via session
-# ---------------------------------------------------------------------------
-
-
-@pytest_asyncio.fixture(scope="function")
-async def seeded_agent(app):
-    """Seed a test agent in the database and return its id."""
-    import autodev.api.database as db_module
-
-    agent = Agent(id="test-developer", role="developer", status=AgentStatus.IDLE)
-    async with db_module.SessionLocal() as session:
-        session.add(agent)
-        await session.commit()
-    return "test-developer"
-
-
-# ---------------------------------------------------------------------------
-# Health check
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_health_check(client: AsyncClient):
-    response = await client.get("/health")
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
-
-
-# ---------------------------------------------------------------------------
-# Tasks endpoints
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_list_tasks_empty(client: AsyncClient):
-    response = await client.get("/api/tasks/")
-    assert response.status_code == 200
-    assert response.json() == []
-
-
-@pytest.mark.asyncio
-async def test_create_task(client: AsyncClient):
-    payload = {"title": "Test task", "description": "A test", "priority": "high"}
-    response = await client.post("/api/tasks/", json=payload)
-    assert response.status_code == 201
-    data = response.json()
-    assert data["title"] == "Test task"
-    assert data["priority"] == "high"
-    assert data["status"] == "queued"
-    assert "id" in data
-    # id should be a valid UUID
-    uuid.UUID(data["id"])
-
-
-@pytest.mark.asyncio
-async def test_get_task_not_found(client: AsyncClient):
-    response = await client.get(f"/api/tasks/{uuid.uuid4()}")
-    assert response.status_code == 404
-
-
-@pytest.mark.asyncio
-async def test_get_task(client: AsyncClient):
-    # Create first
-    create_resp = await client.post("/api/tasks/", json={"title": "Find me"})
-    task_id = create_resp.json()["id"]
-
-    response = await client.get(f"/api/tasks/{task_id}")
-    assert response.status_code == 200
-    assert response.json()["title"] == "Find me"
-
-
-@pytest.mark.asyncio
-async def test_update_task(client: AsyncClient):
-    create_resp = await client.post("/api/tasks/", json={"title": "Original"})
-    task_id = create_resp.json()["id"]
-
-    patch_resp = await client.patch(f"/api/tasks/{task_id}", json={"status": "in_progress"})
-    assert patch_resp.status_code == 200
-    assert patch_resp.json()["status"] == "in_progress"
-
-
-@pytest.mark.asyncio
-async def test_delete_task(client: AsyncClient):
-    create_resp = await client.post("/api/tasks/", json={"title": "Delete me"})
-    task_id = create_resp.json()["id"]
-
-    del_resp = await client.delete(f"/api/tasks/{task_id}")
-    assert del_resp.status_code == 204
-
-    get_resp = await client.get(f"/api/tasks/{task_id}")
-    assert get_resp.status_code == 404
-
-
-@pytest.mark.asyncio
-async def test_list_tasks_with_filters(client: AsyncClient):
-    await client.post("/api/tasks/", json={"title": "High prio", "priority": "high"})
-    await client.post("/api/tasks/", json={"title": "Low prio", "priority": "low"})
-
-    response = await client.get("/api/tasks/?priority=high")
-    assert response.status_code == 200
-    data = response.json()
-    assert all(t["priority"] == "high" for t in data)
-    assert len(data) == 1
-
-
-# ---------------------------------------------------------------------------
-# Agents endpoints
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_list_agents_empty(client: AsyncClient):
-    response = await client.get("/api/agents/")
-    assert response.status_code == 200
-    assert response.json() == []
-
-
-@pytest.mark.asyncio
-async def test_list_agents(client: AsyncClient, seeded_agent: str):
-    response = await client.get("/api/agents/")
-    assert response.status_code == 200
-    data = response.json()
-    assert len(data) >= 1
-    ids = [a["id"] for a in data]
-    assert seeded_agent in ids
-
-
-@pytest.mark.asyncio
-async def test_trigger_agent(client: AsyncClient, seeded_agent: str):
-    response = await client.post(f"/api/agents/{seeded_agent}/trigger")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["agent_id"] == seeded_agent
-    assert "event_id" in data
-
-
-@pytest.mark.asyncio
-async def test_trigger_agent_not_found(client: AsyncClient):
-    response = await client.post("/api/agents/nonexistent/trigger")
-    assert response.status_code == 404
-
-
-# ---------------------------------------------------------------------------
-# Events endpoints
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_list_events_empty(client: AsyncClient):
-    response = await client.get("/api/events/")
-    assert response.status_code == 200
-    assert response.json() == []
-
-
-@pytest.mark.asyncio
-async def test_trigger_creates_event(client: AsyncClient, seeded_agent: str):
-    await client.post(f"/api/agents/{seeded_agent}/trigger")
-    response = await client.get("/api/events/")
-    assert response.status_code == 200
-    data = response.json()
-    assert len(data) >= 1
-    assert any(e["type"] == "agent.triggered" for e in data)
-
-
-@pytest.mark.asyncio
-async def test_list_events_filter_by_type(client: AsyncClient, seeded_agent: str):
-    await client.post(f"/api/agents/{seeded_agent}/trigger")
-    response = await client.get("/api/events/?type=agent.triggered")
-    assert response.status_code == 200
-    data = response.json()
-    assert all(e["type"] == "agent.triggered" for e in data)
-
-
-# ---------------------------------------------------------------------------
-# Releases endpoints
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_list_releases_empty(client: AsyncClient):
-    response = await client.get("/api/releases/")
-    assert response.status_code == 200
-    assert response.json() == []
-
-
-@pytest.mark.asyncio
-async def test_create_release(client: AsyncClient):
-    payload = {"version": "v1.0.0", "release_notes": "Initial release"}
-    response = await client.post("/api/releases/", json=payload)
-    assert response.status_code == 201
-    data = response.json()
-    assert data["version"] == "v1.0.0"
-    assert data["status"] == "draft"
-
-
-@pytest.mark.asyncio
-async def test_get_release(client: AsyncClient):
-    create_resp = await client.post("/api/releases/", json={"version": "v2.0.0"})
-    release_id = create_resp.json()["id"]
-
-    get_resp = await client.get(f"/api/releases/{release_id}")
-    assert get_resp.status_code == 200
-    assert get_resp.json()["version"] == "v2.0.0"
-
-
-@pytest.mark.asyncio
-async def test_approve_release(client: AsyncClient):
-    create_resp = await client.post("/api/releases/", json={"version": "v3.0.0"})
-    release_id = create_resp.json()["id"]
-
-    approve_resp = await client.post(
-        f"/api/releases/{release_id}/approve",
-        json={"approved_by": "admin"},
-    )
-    assert approve_resp.status_code == 200
-    data = approve_resp.json()
-    assert data["status"] == "approved"
-    assert data["approved_by"] == "admin"
-    assert data["approved_at"] is not None
-
-
-@pytest.mark.asyncio
-async def test_get_release_not_found(client: AsyncClient):
-    response = await client.get(f"/api/releases/{uuid.uuid4()}")
-    assert response.status_code == 404
+
+async def test_project_crud(client) -> None:
+    body = {
+        "id": "shop",
+        "name": "Shop",
+        "repos": [{"name": "acme/api", "role": "backend"}, {"name": "acme/web", "role": "frontend"}],
+    }
+    r = await client.post("/api/projects/", json=body)
+    assert r.status_code == 201, r.text
+    assert r.json()["base_branch"] == "stage"
+    assert (await client.post("/api/projects/", json=body)).status_code == 409
+
+    body["stage_url"] = "https://stage.shop"
+    r = await client.put("/api/projects/shop", json={k: v for k, v in body.items() if k != "id"})
+    assert r.json()["stage_url"] == "https://stage.shop"
+    assert [p["id"] for p in (await client.get("/api/projects/")).json()] == ["shop"]
+    assert (await client.delete("/api/projects/shop")).status_code == 204
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"id": "Bad Slug", "name": "x", "repos": [{"name": "a/b"}]},
+        {"id": "ok", "name": "x", "repos": []},
+        {"id": "ok", "name": "x", "repos": [{"name": "no-owner"}]},
+    ],
+)
+async def test_project_validation(client, body) -> None:
+    assert (await client.post("/api/projects/", json=body)).status_code == 422
+
+
+async def test_create_task_single_project_single_repo(client, project) -> None:
+    r = await client.post("/api/tasks/", json={"title": "Add search"})
+    assert r.status_code == 201, r.text
+    t = r.json()
+    assert t["project_id"] == "shop" and t["repo"] == "acme/shop" and t["status"] == "queued"
+    assert t["ticket_number"] >= 1
+
+
+async def test_create_task_multi_repo_leaves_repo_for_triage(client, session_factory) -> None:
+    async with session_factory() as s:
+        s.add(make_project(repos=[{"name": "acme/api", "role": "backend"}, {"name": "acme/web", "role": "frontend"}]))
+        await s.commit()
+    r = await client.post("/api/tasks/", json={"title": "Add search", "project_id": "shop"})
+    assert r.json()["repo"] is None
+    r = await client.post("/api/tasks/", json={"title": "Fix", "project_id": "shop", "repo": "frontend"})
+    assert r.json()["repo"] == "acme/web"
+    r = await client.post("/api/tasks/", json={"title": "Fix", "project_id": "shop", "repo": "mobile"})
+    assert r.status_code == 422
+
+
+async def test_create_task_needs_project_when_ambiguous(client, session_factory, project) -> None:
+    async with session_factory() as s:
+        s.add(make_project("blog"))
+        await s.commit()
+    assert (await client.post("/api/tasks/", json={"title": "x"})).status_code == 422
+    assert (await client.post("/api/tasks/", json={"title": "x", "project_id": "nope"})).status_code == 422
+    assert (await client.post("/api/tasks/", json={"title": "x", "repo": "acme/blog"})).json()["project_id"] == "blog"
+
+
+async def set_status(session_factory, task_id: str, status: str, **fields) -> None:
+    import uuid
+
+    async with session_factory() as s:
+        t = await s.get(Task, uuid.UUID(task_id))
+        t.status = status
+        for k, v in fields.items():
+            setattr(t, k, v)
+        await s.commit()
+
+
+async def test_cancel_and_retry(client, project, session_factory) -> None:
+    t = (await client.post("/api/tasks/", json={"title": "x"})).json()
+    r = await client.post(f"/api/tasks/{t['id']}/cancel")
+    assert r.json()["status"] == "cancelled"
+    assert (await client.post(f"/api/tasks/{t['id']}/cancel")).status_code == 409
+
+    await set_status(session_factory, t["id"], TaskStatus.FAILED, error="boom", attempts=3)
+    r = (await client.post(f"/api/tasks/{t['id']}/retry")).json()
+    assert r["status"] == "queued" and r["attempts"] == 0 and r["pending_fix"] == "retry" and r["error"] is None
+
+    transitions = (await client.get(f"/api/tasks/{t['id']}/transitions")).json()
+    assert [x["to_status"] for x in transitions] == ["cancelled", "queued"]
+
+
+async def test_feedback_before_merge_reopens_pr(client, project, session_factory) -> None:
+    t = (await client.post("/api/tasks/", json={"title": "x"})).json()
+    await set_status(session_factory, t["id"], TaskStatus.CI, pr_number=5, branch="autodev/1-x")
+    r = (await client.post(f"/api/tasks/{t['id']}/feedback", json={"text": "сделай кнопку синей"})).json()
+    assert r["id"] == t["id"] and r["status"] == "queued" and r["pending_fix"] == "feedback"
+
+
+async def test_feedback_after_merge_creates_follow_up(client, project, session_factory) -> None:
+    t = (await client.post("/api/tasks/", json={"title": "x"})).json()
+    await set_status(session_factory, t["id"], TaskStatus.ON_STAGE, pr_url="https://pr/1")
+    r = (await client.post(f"/api/tasks/{t['id']}/feedback", json={"text": "ещё и экспорт"})).json()
+    assert r["id"] != t["id"] and r["depends_on"] == [t["id"]] and "ещё и экспорт" in r["description"]
+
+
+async def test_logs_incremental(client, project, session_factory) -> None:
+    import uuid
+
+    t = (await client.post("/api/tasks/", json={"title": "x"})).json()
+    async with session_factory() as s:
+        s.add(AgentLog(agent_id="developer-1", task_id=uuid.UUID(t["id"]), message="one"))
+        await s.commit()
+    logs = (await client.get(f"/api/tasks/{t['id']}/logs")).json()
+    assert [entry["message"] for entry in logs] == ["one"]
+    after = logs[-1]["created_at"]
+    async with session_factory() as s:
+        s.add(AgentLog(agent_id="developer-1", task_id=uuid.UUID(t["id"]), message="two"))
+        await s.commit()
+    newer = (await client.get(f"/api/tasks/{t['id']}/logs", params={"after": after})).json()
+    assert [entry["message"] for entry in newer] == ["two"]
+
+
+async def test_delete_rules(client, project, session_factory) -> None:
+    t = (await client.post("/api/tasks/", json={"title": "x"})).json()
+    await set_status(session_factory, t["id"], TaskStatus.IN_PROGRESS)
+    assert (await client.delete(f"/api/tasks/{t['id']}")).status_code == 409
+    await set_status(session_factory, t["id"], TaskStatus.FAILED)
+    assert (await client.delete(f"/api/tasks/{t['id']}")).status_code == 204
+    assert (await client.get(f"/api/tasks/{t['id']}")).status_code == 404
+
+
+async def test_release_endpoint(client, project, session_factory, monkeypatch) -> None:
+    import autodev.api.routes.projects as projects_mod
+
+    gh = FakeGitHub()
+    gh.ahead_by["acme/shop"] = 2
+    monkeypatch.setattr(projects_mod, "GitHubClient", lambda token: gh)
+    t = (await client.post("/api/tasks/", json={"title": "Search"})).json()
+    await set_status(session_factory, t["id"], TaskStatus.ON_STAGE)
+
+    r = await client.post("/api/projects/shop/release")
+    assert r.status_code == 201, r.text
+    rel = r.json()
+    assert rel["status"] == "pending" and rel["tasks"] == [t["id"]] and "Search" in rel["release_notes"]
+    assert gh.prs[1]["head_ref"] == "stage" and gh.prs[1]["base_ref"] == "main"
+    assert (await client.post("/api/projects/shop/release")).status_code == 409  # one at a time
+    assert [x["id"] for x in (await client.get("/api/releases/", params={"project_id": "shop"})).json()] == [rel["id"]]
+
+
+async def test_release_nothing_to_ship(client, project, monkeypatch) -> None:
+    import autodev.api.routes.projects as projects_mod
+
+    monkeypatch.setattr(projects_mod, "GitHubClient", lambda token: FakeGitHub())
+    assert (await client.post("/api/projects/shop/release")).status_code == 409

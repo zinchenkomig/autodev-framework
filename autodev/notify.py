@@ -1,0 +1,60 @@
+"""Owner notifications (Telegram). Never raise: a failed notification must not break the pipeline."""
+
+from __future__ import annotations
+
+import html
+import logging
+
+from autodev.core.config import get_settings
+from autodev.core.models import Project, Release, Task
+
+logger = logging.getLogger(__name__)
+
+
+def _task_link(task: Task) -> str:
+    title = html.escape(f"#{task.ticket_number} {task.title}")
+    base = get_settings().public_url.rstrip("/")
+    return f'<a href="{base}/tasks/{task.id}">{title}</a>' if base else f"<b>{title}</b>"
+
+
+async def _send(text: str) -> None:
+    try:
+        from autodev.integrations.telegram_pm import notify_owner
+
+        await notify_owner(text)
+    except Exception:
+        logger.exception("notification failed")
+
+
+async def on_stage(task: Task, project: Project | None) -> None:
+    text = f"✅ {_task_link(task)} на stage"
+    if project and project.stage_url:
+        text += f'\n🌐 <a href="{html.escape(project.stage_url)}">{html.escape(project.stage_url)}</a>'
+    if task.summary:
+        text += f"\n\n{html.escape(task.summary[:600])}"
+    if task.pr_url:
+        text += f'\n\n<a href="{html.escape(task.pr_url)}">PR</a>'
+    await _send(text)
+
+
+async def failed(task: Task, reason: str) -> None:
+    text = f"❌ {_task_link(task)}\n\n<pre>{html.escape(reason[:800])}</pre>"
+    if task.pr_url:
+        text += f'\n<a href="{html.escape(task.pr_url)}">PR</a>'
+    await _send(text)
+
+
+async def blocked(task: Task, reason: str) -> None:
+    await _send(f"🤔 {_task_link(task)} — агенту нужна помощь\n\n{html.escape(reason[:1000])}")
+
+
+async def released(release: Release, project: Project, tasks: list[Task]) -> None:
+    lines = "\n".join(f"• {html.escape(f'#{t.ticket_number} {t.title}')}" for t in tasks[:30])
+    await _send(f"🚀 <b>{html.escape(project.name)}</b> {html.escape(release.version)} в проде\n\n{lines}")
+
+
+async def release_failed(release: Release, project: Project, reason: str) -> None:
+    await _send(
+        f"⚠️ Релиз <b>{html.escape(project.name)}</b> {html.escape(release.version)} застрял\n\n"
+        f"<pre>{html.escape(reason[:800])}</pre>"
+    )

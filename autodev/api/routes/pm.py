@@ -21,7 +21,6 @@ from autodev.core.models import (
     ChatSession,
     PMChatMessage,
     Priority,
-    ProjectContext,
     Task,
     TaskStatus,
 )
@@ -39,7 +38,8 @@ class ChatRequest(BaseModel):
 
 class TaskProposal(BaseModel):
     title: str
-    repo: str
+    repo: str | None = None
+    project_id: str | None = None
     priority: str
     description: str
 
@@ -98,8 +98,10 @@ async def get_repo_docs(repo: str) -> str:
 
 async def build_context(session: AsyncSession) -> str:
     # 1. Project docs
-    result = await session.execute(select(ProjectContext.repo))
-    repos = [r[0] for r in result.all()]
+    from autodev.core.models import Project
+
+    projects = (await session.execute(select(Project).where(Project.enabled))).scalars()
+    repos = [r["name"] for p in projects for r in p.repos]
     parts = []
     for repo in repos:
         docs = await get_repo_docs(repo)
@@ -107,11 +109,9 @@ async def build_context(session: AsyncSession) -> str:
             parts.append(f"# {repo}\n{docs}")
 
     # 2. Current tasks by status
-    from autodev.core.models import Release, ReleaseStatus
-
     result = await session.execute(
         select(Task)
-        .where(Task.status.in_(["queued", "in_progress", "autoreview", "ready_to_release", "staging", "failed"]))
+        .where(Task.status.in_(["queued", "in_progress", "ci", "deploying", "on_stage", "failed"]))
         .order_by(Task.status, Task.created_at)
     )
     tasks = result.scalars().all()
@@ -125,9 +125,9 @@ async def build_context(session: AsyncSession) -> str:
         status_labels = {
             "queued": "📋 В очереди",
             "in_progress": "🔨 В работе",
-            "autoreview": "🔍 Автоматическая проверка",
-            "ready_to_release": "✅ Готово к релизу",
-            "staging": "🚀 На staging",
+            "ci": "🧪 PR на проверке",
+            "deploying": "🚚 Выкатывается на stage",
+            "on_stage": "✅ На stage, ждёт релиза",
             "failed": "❌ Ошибка",
         }
 
@@ -143,19 +143,6 @@ async def build_context(session: AsyncSession) -> str:
                     task_section += f"  Описание: {t.description[:150]}\n"
 
         parts.append(task_section)
-
-    # 3. Active release on staging
-    result = await session.execute(
-        select(Release).where(Release.status == ReleaseStatus.STAGING).order_by(Release.created_at.desc()).limit(1)
-    )
-    release = result.scalar_one_or_none()
-
-    if release:
-        release_section = f"\n\n# Текущий релиз на staging: {release.version}\n"
-        release_section += f"Задач: {len(release.tasks or [])}\n"
-        if release.release_notes:
-            release_section += f"\nRelease notes:\n{release.release_notes[:1000]}\n"
-        parts.append(release_section)
 
     return "\n\n---\n\n".join(parts) if parts else "Нет данных о проекте"
 
@@ -276,7 +263,7 @@ async def pm_chat(request: ChatRequest, session: Annotated[AsyncSession, Depends
     proposals = [
         TaskProposal(
             title=t.get("title", ""),
-            repo=t.get("repo", "zinchenkomig/great_alerter_backend"),
+            repo=t.get("repo") or None,
             priority=t.get("priority", "normal"),
             description=t.get("description", ""),
         )
@@ -334,6 +321,7 @@ async def approve_tasks(
             status=TaskStatus.QUEUED,
             priority=pmap.get(p.priority, Priority.NORMAL),
             repo=p.repo,
+            project_id=p.project_id,
             depends_on=depends_on,
             created_at=datetime.now(UTC),
             created_by="pm",
@@ -348,7 +336,7 @@ async def approve_tasks(
                 "id": str(task.id),
                 "title": task.title,
                 "repo": task.repo,
-                "url": f"{DASHBOARD_URL}/tasks?id={task.id}",
+                "url": f"{DASHBOARD_URL}/tasks/{task.id}",
                 "depends_on": [str(d) for d in depends_on],
             }
         )

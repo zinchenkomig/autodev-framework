@@ -3,95 +3,22 @@
 This module creates and configures the main FastAPI application, including:
 - API routers for tasks, agents, events, releases, webhooks, PM
 - WebSocket router for real-time updates
-- Database setup via lifespan context manager
 - Health check endpoint
 """
 
 from __future__ import annotations
 
 import logging
-import os
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from autodev.api.database import SessionLocal, engine
 from autodev.api.middleware import ErrorAlertMiddleware
-from autodev.api.routes import agents, events, releases, tasks, webhooks
+from autodev.api.routes import agents, events, projects, releases, tasks, webhooks
 from autodev.api.routes import pm as pm_router
 from autodev.api.websocket import router as ws_router
-from autodev.core.models import Base
 
 logger = logging.getLogger(__name__)
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Application lifespan: create tables on startup."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("Database tables created/verified")
-
-    # Sync project contexts from config
-    await sync_project_contexts_from_config()
-
-    yield
-
-
-async def sync_project_contexts_from_config():
-    """Sync project contexts from autodev.yaml on startup."""
-    from pathlib import Path
-    from uuid import uuid4
-
-    import yaml
-    from sqlalchemy import select
-
-    from autodev.core.models import ProjectContext
-
-    config_path = Path(os.environ.get("AUTODEV_CONFIG", "/app/autodev.yaml"))
-    if not config_path.exists():
-        logger.info("No autodev.yaml found, skipping context sync")
-        return
-
-    try:
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
-
-        repos_config = config.get("repos", [])
-        repos = []
-        for repo_config in repos_config:
-            repo_url = repo_config.get("url", "")
-            if "github.com/" in repo_url:
-                repo = repo_url.split("github.com/")[-1]
-            else:
-                repo = repo_url
-            if "/" in repo:
-                repos.append(repo)
-
-        if not repos:
-            logger.info("No repos in config")
-            return
-
-        async with SessionLocal() as session:
-            for repo in repos:
-                existing = await session.scalar(select(ProjectContext).where(ProjectContext.repo == repo))
-                if not existing:
-                    ctx = ProjectContext(
-                        id=uuid4(),
-                        repo=repo,
-                        name=repo.split("/")[-1],
-                        description=f"Project from {repo} (pending analysis)",
-                    )
-                    session.add(ctx)
-                    logger.info(f"Added project context placeholder: {repo}")
-
-            await session.commit()
-
-        logger.info(f"Synced {len(repos)} project contexts from config")
-    except Exception as e:
-        logger.warning(f"Failed to sync project contexts: {e}")
 
 
 def create_app() -> FastAPI:
@@ -99,8 +26,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="AutoDev Framework API",
         description="API for the AI-powered software development framework",
-        version="0.1.0",
-        lifespan=lifespan,
+        version="2.0.0",
     )
 
     # CORS
@@ -116,6 +42,7 @@ def create_app() -> FastAPI:
     app.add_middleware(ErrorAlertMiddleware)
 
     # Routers
+    app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
     app.include_router(tasks.router, prefix="/api/tasks", tags=["tasks"])
     app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
     app.include_router(events.router, prefix="/api/events", tags=["events"])

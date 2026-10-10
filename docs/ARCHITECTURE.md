@@ -1,212 +1,87 @@
-# AutoDev Architecture
+# Architecture
 
-## Task Lifecycle
-
-```
-   ┌─────────┐  ┌───────────┐  ┌────────────┐  ┌─────────────────┐  ┌─────────┐  ┌──────────┐
-   │ QUEUED  │─→│IN_PROGRESS│─→│ AUTOREVIEW │─→│READY_TO_RELEASE │─→│ STAGING │─→│ RELEASED │
-   └─────────┘  └───────────┘  └────────────┘  └─────────────────┘  └─────────┘  └──────────┘
-        ↑              │              │                                    │
-        │              ▼              ▼                                    │ правки
-        │         ┌────────┐                                              ↓
-        └─────────│ FAILED │                                    новая задача → QUEUED
-                  └────────┘
-```
-
-### Статусы
-
-| Статус | Описание | Кто переводит |
-|--------|----------|---------------|
-| `queued` | Задача в очереди | PM Agent / User |
-| `in_progress` | Developer работает | Orchestrator |
-| `autoreview` | CI + Critic проверяют (автоматика, не требует человека) | Orchestrator |
-| `ready_to_release` | Все проверки пройдены, ждёт пока Release Agent сформирует релиз | CI Webhook |
-| `staging` | Задеплоено на staging в составе релиза, ждёт фидбек/approve от User | Release Agent |
-| `released` | Approve получен, задеплоено на production | Release Agent |
-| `failed` | Ошибка выполнения | Orchestrator |
-
-### Переходы
-
-- **queued → in_progress**: Orchestrator берёт задачу, Developer Agent начинает работу
-- **in_progress → autoreview**: Developer Agent завершил (Critic одобрил), PR создан
-- **autoreview → ready_to_release**: GitHub CI прошёл успешно (webhook)
-- **autoreview → failed**: CI или Critic отклонили
-- **ready_to_release → staging**: Release Agent формирует релиз, мержит PR, деплоит на staging
-- **staging → released**: User approve → deploy production
-- **staging → (новая задача)**: User даёт фидбек → создаётся follow-up задача → queued
-- **failed → queued**: Full Restart (удаляет ветку, PR, сбрасывает)
-
-### Релизы
-
-Release Agent формирует релизы из пула `ready_to_release` задач:
-
-1. Берёт N задач в `ready_to_release`
-2. Создаёт Release (фиксирует список задач)
-3. Мержит их PR в develop
-4. Создаёт release branch
-5. Деплоит на staging
-6. Задачи переходят в `staging`
-7. User смотрит staging, даёт фидбек или approve
-
-**Важно:**
-- Список задач в релизе фиксируется при создании
-- Новые `ready_to_release` задачи НЕ попадают в текущий релиз
-- Доработки по фидбеку создаются как новые задачи → проходят полный цикл
-- Developer продолжает работать над другими задачами параллельно
-
-## Agent Graph
+## Processes
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        USER (Mikhail)                        │
-│   Telegram / Dashboard                                       │
-└──────────┬─────────────────────────────────┬─────────────────┘
-           │ описание фичи                   │ фидбек/approve
-           ▼                                 ▼
-┌──────────────────┐              ┌────────────────────┐
-│   PM Agent       │              │  Dashboard UI      │
-│   (GLM-5 Turbo)  │              │  ready_to_release  │
-│   Анализ + план  │              │  → правки/approve  │
-│   → task proposals│              └────────┬───────────┘
-└────────┬─────────┘                        │
-         │ создаёт задачи                   │ follow-up задачи
-         │ (с depends_on)                   │
-         ▼                                  ▼
-┌──────────────────────────────────────────────────────────────┐
-│                     TASK QUEUE (PostgreSQL)                   │
-│  Задачи с приоритетами и зависимостями                       │
-└──────────┬───────────────────────────────────────────────────┘
-           │ poll every 30s
-           ▼
-┌──────────────────────────────────────────────────────────────┐
-│                     ORCHESTRATOR (systemd)                    │
-│  Единственный процесс с Claude Code CLI                     │
-│                                                              │
-│  Phase 1: 📋 Developer → Plan                               │
-│  Phase 2: 🔍 Critic → Plan Review                           │
-│  Phase 3: 🛠️ Developer → Implementation                      │
-│  Phase 4: 🔍 Critic → Code Review (до 3 итераций)           │
-│  Phase 5: 📦 git commit + push + PR                         │
-│                                                              │
-│  Claude Code: --print --permission-mode bypassPermissions    │
-│  Timeout: 30 min                                             │
-│  Working dir: /tmp/autodev-{task_id}                         │
-└──────────┬───────────────────────────────────────────────────┘
-           │ push + PR
-           ▼
-┌──────────────────────────────────────────────────────────────┐
-│                     GITHUB                                    │
-│                                                              │
-│  Branch: autodev-{task_id}                                   │
-│  PR: develop ← autodev-{task_id}                            │
-│  CI: GitHub Actions (pytest / npm build)                     │
-│  Review: Claude Code Review (workflow)                       │
-└──────────┬───────────────────────────────────────────────────┘
-           │ check_suite webhook
-           ▼
-┌──────────────────────────────────────────────────────────────┐
-│                     CI WEBHOOK                                │
-│  autoreview → ready_to_release (при CI success)              │
-└──────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────┐
-│                     RELEASE AGENT (TODO)                      │
-│                                                              │
-│  1. Собирает задачи в ready_to_release                       │
-│  2. Мержит PR в develop                                      │
-│  3. Создаёт release branch                                   │
-│  4. Деплоит на staging                                       │
-│  5. Уведомляет user                                          │
-│  6. User approve → deploy production                         │
-│  7. Статус → released                                        │
-└──────────────────────────────────────────────────────────────┘
+            phone
+              │  dashboard (Next.js)          Telegram
+              ▼                                  │ webhook
+┌──────────────────────────┐                     ▼
+│ API  (AUTODEV_ROLE=api)  │◄──────────── /api/webhooks/telegram
+│ FastAPI, k8s             │
+└────────────┬─────────────┘
+             │ Postgres (tasks, projects, logs, releases)
+┌────────────┴──────────────────────────────────────────────┐
+│ Worker (AUTODEV_ROLE=worker), host systemd, full rights    │
+│                                                            │
+│  developer-1..N  ── claim (SKIP LOCKED) ── develop()       │
+│                       triage → checkout → Claude → push/PR │
+│  delivery        ── every 2×poll: CI → merge → stage → ✅  │
+│                     + pending releases (stage→main merge)  │
+└────────────────────────────────────────────────────────────┘
+             │ GitHub REST (polling)       │ Claude Agent SDK
 ```
 
-## Alerting System
+## Code map
 
-```
-Triggers:
-  ├── Task failed          → high severity
-  ├── API 500 error        → high severity (middleware auto)
-  ├── Task stuck >1h       → medium severity (TODO: heartbeat)
-  └── Agent stuck          → medium severity (TODO: heartbeat)
+| path | what |
+|---|---|
+| `autodev/main.py` | entry point: migrations, seeding projects, start API and/or worker |
+| `autodev/core/claude.py` | `ClaudeRunner`: one SDK session, log streaming, structured result, rate limits, host guard |
+| `autodev/core/models.py` | `Project`, `Task` (statuses), `Release`, logs, transitions |
+| `autodev/core/config.py` | env `Settings`, `autodev.yaml` schema |
+| `autodev/worker/loop.py` | slots, claiming, recovery after restart |
+| `autodev/worker/triage.py` | multi-repo projects: choose repo / split into dependent tasks |
+| `autodev/worker/developer.py` | one development round: checkout → agent → commit → push → PR |
+| `autodev/worker/workspace.py` | per-task clone at `$AUTODEV_WORKDIR/tasks/<task id>` |
+| `autodev/worker/delivery.py` | CI/merge/stage verification, fix rounds, release merging |
+| `autodev/release.py` | start a release: stage→prod PRs per repo |
+| `autodev/notify.py` | Telegram notifications |
+| `autodev/api/routes/` | REST API (`projects`, `tasks`, `releases`, `agents`, …) |
 
-Pipeline:
-  Event → Alert (DB) → Notify OpenClaw (Brian) → Telegram (User)
-                     → Dashboard /alerts page
-```
+## A task's life
 
-## Infrastructure
+1. **Created** from the dashboard, Telegram or the CLI. A multi-repo project may leave
+   `repo` empty.
+2. **Claimed** by a free slot. The slot picks the highest priority first, then the oldest. A task is
+   skipped while its project already runs `max_parallel` tasks or while a dependency is not merged yet.
+3. **Triage** (only when `repo` is empty): a short Claude call picks the repo. If the change spans
+   repos it creates follow-up tasks, each depending on the previous one (API before UI).
+4. **Develop**:
+   - fresh partial clone; new branch `autodev/<n>-<slug>` from the base branch
+     (or the existing branch for fix rounds)
+   - repo `setup` script, e.g. OpenAPI client generation
+   - one Claude session with the system rules from `worker/prompts.py`
+   - the session ends with `{status: done|blocked, summary}`
+   - leftovers are committed; then push and open a PR to the base branch. The summary becomes the PR body.
+5. **CI**: the delivery loop polls check runs on the PR head.
+   - red checks → back to `queued` with `metadata.fix = {kind: "ci"}`. The next round resumes the
+     same Claude session.
+   - merge conflict → `kind: "conflict"`. The worker merges the base branch first and Claude
+     resolves only if conflicts remain.
+   - green checks, or no checks after a grace period → squash-merge.
+   - `AUTODEV_MAX_FIX_ATTEMPTS` caps the fix rounds.
+6. **Deploying**: the change counts as on stage when either
+   - the repo's `version_url` reports a commit that contains the merge commit, or
+   - (without `version_url`) every push workflow for that commit, or a newer commit containing it,
+     succeeded on the base branch.
+7. **On stage**: Telegram notification with the stage link and the summary.
+8. **Release**: `POST /api/projects/{id}/release`.
+   - opens stage→prod PRs for every repo that has changes
+   - the delivery loop merges them with a merge commit once their checks pass. A squash here would
+     make the next stage→main PR conflict.
+   - then the tasks become `released`.
 
-| Component | Where | Purpose |
-|-----------|-------|---------|
-| Orchestrator (worker) | systemd on dev server | Runs Claude Code, processes tasks |
-| API | k8s pod (autodev-api) | REST API, no worker |
-| Dashboard | k8s pod (autodev-dashboard) | Next.js UI |
-| PostgreSQL | k8s pod (autodev-postgres) | Data store |
-| Claude Code | installed on dev server | AI coding |
+## Owner actions
 
-**Dev server**: 188.245.45.123  
-**Staging/Prod**: 178.104.35.218  
-**Dashboard**: https://autodev.zinchenkomig.com  
+- **Cancel**: allowed in queued, in_progress or ci. A running Claude session is stopped within ~5 s.
+- **Retry**: allowed in failed or cancelled. The previous error is passed to the agent.
+- **Feedback**:
+  - before merge — another round on the same PR
+  - after merge — a follow-up task that depends on the original
+- **Pause everything**: toggle the `developer` agent off in the dashboard.
 
-## Repositories
+## Subscription limits
 
-| Repo | Purpose |
-|------|---------|
-| `zinchenkomig/autodev-framework` | AutoDev platform itself |
-| `zinchenkomig/great_alerter_backend` | Target project: backend |
-| `zinchenkomig/great_alerter_frontend` | Target project: frontend |
-
-## Key Design Decisions
-
-1. **Orchestrator on host, not k8s** — Claude Code needs local filesystem
-2. **HTTPS clone с токеном** — Docker/k8s не имеет SSH ключей
-3. **develop для PR, main для production** — стандартный git flow
-4. **PM на GLM-5 Turbo** — оптимизирован для агентов, 200K контекст
-5. **Developer-Critic loop** — два независимых "мнения" для качества кода
-6. **Sequential tasks** — depends_on для backend → frontend порядка
-7. **autoreview ≠ human review** — автоматика не требует действий от user
-
-## Task Types
-
-### Feature (default)
-```
-queued → in_progress → autoreview → ready_to_release → [ждёт Release Manager] → staging → released
-```
-
-### Hotfix (feedback fix)
-```
-queued → in_progress → autoreview → staging (в текущий релиз, PR мержится сразу)
-```
-
-Hotfix создаётся через:
-- `/feedback текст` в Telegram
-- "Request Changes" на странице релиза в Dashboard
-- `POST /api/releases/{id}/feedback`
-
-Hotfix обходит Release Manager и попадает напрямую в текущий staging релиз.
-
-## Release Pipeline (детерминированный, без AI)
-
-```
-ready_to_release (SP >= 10)
-    │
-    ├─ Сортировка: priority → created_at
-    ├─ Набор до 20 SP (soft limit)
-    │
-    ├─ Мерж PR в develop
-    │   ├─ Успех → задача в релиз
-    │   └─ Конфликт → задача возвращается в ready_to_release
-    │                  + создаётся hotfix "Resolve merge conflict"
-    │
-    ├─ Обновление stage ветки (develop → stage, force push)
-    ├─ Build Docker образов из stage
-    ├─ Push :staging тег в GHCR
-    ├─ Rollout pods на 178.104.35.218 (staging namespace)
-    ├─ Alembic migrations
-    │
-    └─ Уведомление в Telegram
-```
-
-Никакого LLM. Чистая автоматика с правилами.
+Claude reports a rejected rate limit (`rate_limit_event`), or the result text says the limit was hit.
+In that case the task goes back to `queued` and every slot pauses until the reset time.

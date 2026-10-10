@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 import uuid as _uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from autodev.api.database import get_session
-from autodev.core.models import Agent, AgentLog, Event
+from autodev.core.models import Agent, AgentLog
 
 router = APIRouter()
 
@@ -35,12 +35,6 @@ class AgentResponse(BaseModel):
     enabled: bool
 
     model_config = {"from_attributes": True}
-
-
-class TriggerResponse(BaseModel):
-    event_id: str
-    agent_id: str
-    message: str
 
 
 class AgentLogResponse(BaseModel):
@@ -123,33 +117,6 @@ async def get_agent_logs(
     ]
 
 
-@router.post("/{agent_id}/trigger", summary="Trigger an agent")
-async def trigger_agent(
-    agent_id: str,
-    session: Annotated[AsyncSession, Depends(get_session)],
-) -> TriggerResponse:
-    """Trigger an agent by creating an agent.triggered event."""
-    agent = await session.get(Agent, agent_id)
-    if agent is None:
-        raise HTTPException(status_code=404, detail="Agent not found")
-
-    event = Event(
-        type="agent.triggered",
-        payload={"agent_id": agent_id},
-        source="api",
-        created_at=datetime.now(UTC),
-    )
-    session.add(event)
-    await session.flush()
-    await session.refresh(event)
-
-    return TriggerResponse(
-        event_id=str(event.id),
-        agent_id=agent_id,
-        message=f"Agent {agent_id} triggered",
-    )
-
-
 @router.post("/{agent_id}/toggle", summary="Toggle agent enabled/disabled")
 async def toggle_agent(
     agent_id: str,
@@ -176,23 +143,3 @@ async def toggle_agent(
         total_failures=agent.total_failures,
         enabled=agent.enabled,
     )
-
-
-@router.post("/developer/cancel", summary="Cancel current developer task")
-async def cancel_developer_task(request: Request) -> dict:
-    """Cancel the currently running developer task."""
-    orchestrator = getattr(request.app.state, "orchestrator", None)
-    if orchestrator is None:
-        # Fallback to global
-        from autodev.orchestrator import get_orchestrator
-
-        orchestrator = get_orchestrator()
-
-    if orchestrator is None:
-        raise HTTPException(status_code=503, detail="Orchestrator not running")
-
-    cancelled = orchestrator.cancel_current_task()
-    if cancelled:
-        return {"status": "cancelled", "message": "Task cancellation requested"}
-    else:
-        return {"status": "idle", "message": "No task running"}

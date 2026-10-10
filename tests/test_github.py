@@ -16,10 +16,7 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
-from autodev.api.routes.webhooks import router as webhook_router
 from autodev.integrations.github import GitHubClient, verify_webhook_signature
 
 # ---------------------------------------------------------------------------
@@ -51,19 +48,6 @@ def make_client(default_repo: str = "owner/repo") -> GitHubClient:
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture()
-def app() -> FastAPI:
-    """FastAPI test app with the webhook router."""
-    application = FastAPI()
-    application.include_router(webhook_router, prefix="/api/webhooks")
-    return application
-
-
-@pytest.fixture()
-def client(app: FastAPI) -> TestClient:
-    return TestClient(app)
 
 
 # ===========================================================================
@@ -258,56 +242,38 @@ class TestVerifyWebhookSignature:
 
 
 # ===========================================================================
-# 10. Webhook event routing
+# PR lookup, compare, workflow runs
 # ===========================================================================
 
 
-class TestWebhookRouting:
-    def _post(self, client: TestClient, event: str, payload: dict, secret: str = "") -> Any:
-        body = json.dumps(payload).encode()
-        headers = {"X-GitHub-Event": event, "Content-Type": "application/json"}
-        if secret:
-            headers["X-Hub-Signature-256"] = sign_payload(body, secret)
-        return client.post("/api/webhooks/github", content=body, headers=headers)
+class TestDeliveryHelpers:
+    async def test_find_open_pr_uses_owner_prefixed_head(self):
+        client = make_client("acme/shop")
+        with patch.object(
+            client._client, "get", new=AsyncMock(return_value=make_response(200, [{"number": 3}]))
+        ) as get:
+            pr = await client.find_open_pr("autodev/1-x", "stage")
+        assert pr == {"number": 3}
+        assert get.call_args.kwargs["params"]["head"] == "acme:autodev/1-x"
 
-    def test_push_event_returns_received(self, client: TestClient):
-        resp = self._post(client, "push", {"ref": "refs/heads/main"})
-        assert resp.status_code == 200
-        assert resp.json()["event"] == "push"
+    async def test_find_open_pr_none(self):
+        client = make_client("acme/shop")
+        with patch.object(client._client, "get", new=AsyncMock(return_value=make_response(200, []))):
+            assert await client.find_open_pr("b", "stage") is None
 
-    def test_signature_verification_rejects_bad_sig(self, client: TestClient, app: FastAPI):
-        import os
+    @pytest.mark.parametrize(
+        ("status", "expected"), [("ahead", True), ("identical", True), ("behind", False), ("diverged", False)]
+    )
+    async def test_contains_commit(self, status, expected):
+        client = make_client("acme/shop")
+        with patch.object(
+            client._client, "get", new=AsyncMock(return_value=make_response(200, {"status": status}))
+        ) as get:
+            assert await client.contains_commit("stage", "abc") is expected
+        assert get.call_args.args[0] == "/repos/acme/shop/compare/abc...stage"
 
-        # Patch env so secret is required
-        with patch.dict(os.environ, {"GITHUB_WEBHOOK_SECRET": "supersecret"}):
-            body = json.dumps({"ref": "refs/heads/main"}).encode()
-            resp = client.post(
-                "/api/webhooks/github",
-                content=body,
-                headers={
-                    "X-GitHub-Event": "push",
-                    "X-Hub-Signature-256": "sha256=badsignature",
-                    "Content-Type": "application/json",
-                },
-            )
-        assert resp.status_code == 400
-
-    def test_signature_verification_accepts_valid_sig(self, client: TestClient):
-        import os
-
-        secret = "supersecret"
-        payload = {"ref": "refs/heads/main"}
-        body = json.dumps(payload).encode()
-        sig = sign_payload(body, secret)
-        with patch.dict(os.environ, {"GITHUB_WEBHOOK_SECRET": secret}):
-            resp = client.post(
-                "/api/webhooks/github",
-                content=body,
-                headers={
-                    "X-GitHub-Event": "push",
-                    "X-Hub-Signature-256": sig,
-                    "Content-Type": "application/json",
-                },
-            )
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "ok"
+    async def test_merge_pr_commit_title(self):
+        client = make_client("acme/shop")
+        with patch.object(client._client, "put", new=AsyncMock(return_value=make_response(200, {"sha": "m"}))) as put:
+            await client.merge_pr(5, commit_title="Add search (#5)")
+        assert put.call_args.kwargs["json"] == {"merge_method": "squash", "commit_title": "Add search (#5)"}
