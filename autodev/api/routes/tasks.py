@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +18,7 @@ from autodev.core.models import (
     Priority,
     Project,
     Task,
+    TaskArtifact,
     TaskStatus,
     TaskTransition,
 )
@@ -70,6 +71,7 @@ class TaskResponse(BaseModel):
     error: str | None
     attempts: int
     pending_fix: str | None  # kind of the queued fix round, if any
+    qa: dict | None  # {"ok": bool, "problems": [...], "skipped": str | None} after stage QA
     depends_on: list[str]
     created_by: str | None
     created_at: datetime
@@ -83,6 +85,14 @@ class LogResponse(BaseModel):
     level: str
     message: str
     details: str | None
+    created_at: datetime
+
+
+class ArtifactResponse(BaseModel):
+    id: str
+    kind: str
+    name: str
+    url: str
     created_at: datetime
 
 
@@ -115,6 +125,7 @@ def to_response(task: Task) -> TaskResponse:
         error=task.error,
         attempts=task.attempts,
         pending_fix=fix.get("kind") if isinstance(fix, dict) else None,
+        qa=(task.metadata_ or {}).get("qa"),
         depends_on=[str(d) for d in task.depends_on or []],
         created_by=task.created_by,
         created_at=task.created_at,
@@ -349,3 +360,41 @@ async def task_transitions(
         )
         for t in rows.scalars()
     ]
+
+
+@router.get("/{task_id}/artifacts", summary="Screenshots and other files")
+async def task_artifacts(
+    task_id: str, session: Annotated[AsyncSession, Depends(get_session)]
+) -> list[ArtifactResponse]:
+    task = await load_task(session, task_id)
+    rows = await session.execute(
+        select(TaskArtifact.id, TaskArtifact.kind, TaskArtifact.name, TaskArtifact.created_at)
+        .where(TaskArtifact.task_id == task.id)
+        .order_by(TaskArtifact.created_at.desc())
+    )
+    return [
+        ArtifactResponse(
+            id=str(a.id),
+            kind=a.kind,
+            name=a.name,
+            url=f"/api/tasks/{task.id}/artifacts/{a.id}",
+            created_at=a.created_at,
+        )
+        for a in rows.all()
+    ]
+
+
+@router.get("/{task_id}/artifacts/{artifact_id}", summary="Download an artifact")
+async def task_artifact(
+    task_id: str, artifact_id: str, session: Annotated[AsyncSession, Depends(get_session)]
+) -> Response:
+    task = await load_task(session, task_id)
+    try:
+        artifact = await session.get(TaskArtifact, uuid.UUID(artifact_id))
+    except ValueError:
+        artifact = None
+    if artifact is None or artifact.task_id != task.id:
+        raise HTTPException(404, "Artifact not found")
+    return Response(
+        artifact.content, media_type=artifact.content_type, headers={"Cache-Control": "private, max-age=86400"}
+    )

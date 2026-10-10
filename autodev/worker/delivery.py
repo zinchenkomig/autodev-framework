@@ -14,8 +14,9 @@ import httpx
 from sqlalchemy import select
 
 from autodev import notify
-from autodev.core.models import Project, Release, ReleaseStatus, Task, TaskStatus
+from autodev.core.models import Project, Release, ReleaseStatus, Task, TaskArtifact, TaskStatus
 from autodev.integrations.github import GitHubClient
+from autodev.worker import qa
 from autodev.worker.context import WorkerContext
 
 logger = logging.getLogger(__name__)
@@ -255,11 +256,77 @@ class Delivery:
         return "pending"
 
     async def on_stage(self, task: Task, reason: str) -> None:
+        project = task.project
+        result = await self.run_qa(task, project)
+        metadata = dict(task.metadata_ or {})
+        if result is not None:
+            metadata["qa"] = {"ok": result.ok, "problems": result.problems[:20], "skipped": result.skipped}
         moved = await self.store.transition(
-            task.id, TaskStatus.ON_STAGE, reason=reason, by="delivery", only_from={TaskStatus.DEPLOYING}
+            task.id,
+            TaskStatus.ON_STAGE,
+            reason=reason,
+            by="delivery",
+            only_from={TaskStatus.DEPLOYING},
+            metadata_=metadata,
         )
-        if moved:
-            await notify.on_stage(moved, moved.project)
+        if not moved:
+            return
+
+        screenshot = None
+        if result is not None:
+            await self.save_screenshots(task, result)
+            screenshot = next((p.screenshot for p in result.pages if p.screenshot), None)
+            if result.skipped:
+                await self.store.log(task.id, f"🧪 QA skipped: {result.skipped}", level="warning", agent="qa")
+            elif result.ok:
+                await self.store.log(task.id, f"🧪 QA: {len(result.pages)} page(s) OK", agent="qa")
+            else:
+                await self.store.log(
+                    task.id,
+                    "🧪 QA found problems on stage",
+                    level="error",
+                    details="\n".join(result.problems),
+                    agent="qa",
+                )
+                await self.create_qa_fix(moved, result)
+        await notify.on_stage(moved, project, qa=result, screenshot=screenshot)
+
+    async def run_qa(self, task: Task, project) -> qa.QAResult | None:
+        if project is None or not project.stage_url:
+            return None
+        urls = qa.page_urls(project.stage_url, (task.metadata_ or {}).get("check_paths") or [], project.smoke_paths)
+        return await qa.check_stage(urls)
+
+    async def save_screenshots(self, task: Task, result: qa.QAResult) -> None:
+        async with self.ctx.session_factory() as session:
+            for page in result.pages:
+                if page.screenshot:
+                    session.add(
+                        TaskArtifact(task_id=task.id, kind="screenshot", name=page.url, content=page.screenshot)
+                    )
+            await session.commit()
+
+    async def create_qa_fix(self, task: Task, result: qa.QAResult) -> None:
+        """Stage is shared, so fix forward: queue a follow-up task (never for a QA follow-up itself)."""
+        if task.created_by == "qa":
+            return
+        async with self.ctx.session_factory() as session:
+            session.add(
+                Task(
+                    title=f"Stage: ошибки после #{task.ticket_number}",
+                    description="QA открыл stage после выкатки и нашёл проблемы:\n"
+                    + "\n".join(f"- {p}" for p in result.problems)
+                    + f"\n\nПредыдущее изменение: #{task.ticket_number} {task.title} ({task.pr_url or 'no PR'}).",
+                    project_id=task.project_id,
+                    repo=task.repo,
+                    priority="high",
+                    depends_on=[task.id],
+                    created_by="qa",
+                    status=TaskStatus.QUEUED,
+                    metadata_={},
+                )
+            )
+            await session.commit()
 
 
 # -- releases ---------------------------------------------------------------

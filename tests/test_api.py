@@ -240,3 +240,21 @@ async def test_toggle_developer_switch(client, session_factory) -> None:
         await s.commit()
     assert (await client.post("/api/agents/developer/toggle")).json()["enabled"] is False
     assert (await client.post("/api/agents/developer/toggle")).json()["enabled"] is True
+
+
+async def test_artifacts_endpoints(client, project, session_factory) -> None:
+    import uuid
+
+    from autodev.core.models import TaskArtifact
+
+    t = (await client.post("/api/tasks/", json={"title": "x"})).json()
+    other = (await client.post("/api/tasks/", json={"title": "y"})).json()
+    async with session_factory() as s:
+        a = TaskArtifact(task_id=uuid.UUID(t["id"]), kind="screenshot", name="https://stage/", content=b"\x89PNG")
+        s.add(a)
+        await s.commit()
+    listed = (await client.get(f"/api/tasks/{t['id']}/artifacts")).json()
+    assert [x["name"] for x in listed] == ["https://stage/"]
+    r = await client.get(listed[0]["url"])
+    assert r.status_code == 200 and r.content == b"\x89PNG" and r.headers["content-type"] == "image/png"
+    assert (await client.get(f"/api/tasks/{other['id']}/artifacts/{a.id}")).status_code == 404

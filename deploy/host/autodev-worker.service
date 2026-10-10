@@ -9,7 +9,8 @@ WorkingDirectory=/opt/autodev
 EnvironmentFile=/etc/autodev/worker.env
 Environment=HOME=/root
 Environment=PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=/root/.local/bin/uv run --frozen --no-dev python -m autodev
+# --no-sync: the env is prepared by autodev-update.sh (with the qa extra).
+ExecStart=/root/.local/bin/uv run --no-sync python -m autodev
 Restart=always
 RestartSec=10
 # Claude sessions get SIGTERM with the service; in-progress tasks are requeued on start.

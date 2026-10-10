@@ -8,6 +8,7 @@ worker picks tasks up) to exist; creates its own tasks.
 
 import re
 import sys
+import time
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
@@ -15,6 +16,8 @@ from playwright.sync_api import expect, sync_playwright
 BASE = sys.argv[1].rstrip("/")
 SHOTS = Path(sys.argv[2]) if len(sys.argv) > 2 else None
 errors: list[str] = []
+RUN = str(int(time.time()))[-6:]
+TITLE = f"E2E {RUN}: кнопка экспорта в CSV"
 
 
 def shot(page, name):
@@ -48,18 +51,18 @@ with sync_playwright() as p:
             page.get_by_role("button", name="Задача").click()
             dialog = page.get_by_role("dialog", name="Новая задача")
             expect(dialog).to_be_visible()
-            dialog.locator("textarea").fill("E2E: кнопка экспорта в CSV\nНа странице алертов, рядом с фильтрами")
+            dialog.locator("textarea").fill(f"{TITLE}\nНа странице алертов, рядом с фильтрами")
             dialog.locator("select").first.select_option("alerter")
             expect(dialog.get_by_text("Авто — агент решит сам")).to_be_attached()
             shot(page, "light-new-task")
             dialog.get_by_role("button", name="В работу").click()
             expect(dialog).to_be_hidden()
-            card = page.get_by_role("link", name=re.compile("E2E: кнопка экспорта в CSV"))
+            card = page.get_by_role("link", name=re.compile(re.escape(TITLE)))
             expect(card).to_be_visible()  # board switched to the queue tab
 
             # Task page: actions
             card.click()
-            expect(page.get_by_role("heading", name="E2E: кнопка экспорта в CSV")).to_be_visible()
+            expect(page.get_by_role("heading", name=TITLE)).to_be_visible()
             expect(page.get_by_text("На странице алертов, рядом с фильтрами")).to_be_visible()
             page.once("dialog", lambda d: d.accept())
             page.get_by_role("button", name="Стоп").click()
@@ -76,6 +79,8 @@ with sync_playwright() as p:
         page.get_by_role("button", name=re.compile("^На stage")).click()
         page.get_by_role("link", name=re.compile("Добавь поиск по имени")).click()
         expect(page.get_by_text("Что сделал агент")).to_be_visible()
+        expect(page.get_by_text("На stage есть проблемы")).to_be_visible()
+        expect(page.get_by_role("img", name=re.compile("autodev-sandbox"))).to_be_visible()
         expect(page.get_by_role("button", name="Открыть stage")).to_be_visible()
         shot(page, f"{scheme}-task-stage")
 

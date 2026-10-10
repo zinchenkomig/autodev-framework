@@ -27,7 +27,7 @@ hurt the node or other workloads.
 
 ```bash
 git clone https://github.com/zinchenkomig/autodev-framework /opt/autodev
-cd /opt/autodev && uv sync --frozen --no-dev
+cd /opt/autodev && uv sync --frozen --no-dev --extra qa && uv run --no-sync playwright install --with-deps chromium
 cp deploy/host/autodev-*.service deploy/host/autodev-update.timer /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now autodev-worker autodev-update.timer

@@ -11,7 +11,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Sequence, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, LargeBinary, Sequence, String, Text, func
 from sqlalchemy import types as sa_types
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB  # used in TypeDecorators below
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -437,3 +437,21 @@ class Alert(Base):
 
     def __repr__(self) -> str:
         return f"<Alert id={self.id} type={self.type} severity={self.severity} resolved={self.resolved}>"
+
+
+class TaskArtifact(Base):
+    """A file produced for a task, e.g. a stage screenshot taken by QA."""
+
+    __tablename__ = "task_artifacts"
+
+    id: Mapped[uuid.UUID] = mapped_column(_UUID(), primary_key=True, default=uuid.uuid4)
+    task_id: Mapped[uuid.UUID] = mapped_column(
+        _UUID(), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(30), nullable=False)  # "screenshot"
+    name: Mapped[str] = mapped_column(String(500), nullable=False)  # e.g. the page URL
+    content_type: Mapped[str] = mapped_column(String(100), nullable=False, default="image/png")
+    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )

@@ -106,9 +106,13 @@ async def develop(ctx: WorkerContext, task_id: uuid.UUID, slot: str) -> None:
                 return
             if not result.ok:
                 raise TaskFailed(result.summary or "Agent session failed")
-            task = await store.update(task_id, session_id=result.session_id or task.session_id) or task
+            fields: dict = {"session_id": result.session_id or task.session_id}
             if not fix:
-                task = await store.update(task_id, summary=result.summary) or task
+                fields["summary"] = result.summary
+            paths = [p for p in result.data.get("check_paths") or [] if isinstance(p, str) and p.strip()]
+            if paths:
+                fields["metadata_"] = {**(task.metadata_ or {}), "check_paths": paths[:5]}
+            task = await store.update(task_id, **fields) or task
 
         if await ws.in_merge():
             unresolved = (await ws.git("diff", "--name-only", "--diff-filter=U")).strip()

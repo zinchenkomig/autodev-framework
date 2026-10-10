@@ -17,24 +17,28 @@ def _task_link(task: Task) -> str:
     return f'<a href="{base}/tasks/{task.id}">{title}</a>' if base else f"<b>{title}</b>"
 
 
-async def _send(text: str) -> None:
+async def _send(text: str, photo: bytes | None = None) -> None:
     try:
         from autodev.integrations.telegram_pm import notify_owner
 
-        await notify_owner(text)
+        await notify_owner(text, photo=photo)
     except Exception:
         logger.exception("notification failed")
 
 
-async def on_stage(task: Task, project: Project | None) -> None:
-    text = f"✅ {_task_link(task)} на stage"
+async def on_stage(task: Task, project: Project | None, qa=None, screenshot: bytes | None = None) -> None:
+    broken = qa is not None and not qa.ok
+    text = f"{'⚠️' if broken else '✅'} {_task_link(task)} на stage"
     if project and project.stage_url:
         text += f'\n🌐 <a href="{html.escape(project.stage_url)}">{html.escape(project.stage_url)}</a>'
-    if task.summary:
+    if broken:
+        problems = "\n".join(f"• {html.escape(p[:200])}" for p in qa.problems[:5])
+        text += f"\n\n<b>QA нашёл проблемы</b> — поставил задачу на исправление:\n{problems}"
+    elif task.summary:
         text += f"\n\n{html.escape(task.summary[:600])}"
     if task.pr_url:
         text += f'\n\n<a href="{html.escape(task.pr_url)}">PR</a>'
-    await _send(text)
+    await _send(text, photo=screenshot)
 
 
 async def failed(task: Task, reason: str) -> None:
