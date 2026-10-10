@@ -41,7 +41,10 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra qa
+
+      - name: Install Chromium for QA tests
+        run: uv run playwright install --with-deps chromium
 
       - name: Run ruff linter
         run: uv run ruff check .

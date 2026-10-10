@@ -20,7 +20,7 @@ if [ "$conclusion" != "success" ]; then
   exit 0
 fi
 
-busy=$(uv run --frozen --no-dev python - <<'PY'
+busy=$(uv run --no-sync python - <<'PY'
 import asyncio
 from sqlalchemy import func, select
 from autodev.api.database import SessionLocal
@@ -40,7 +40,10 @@ fi
 
 echo "updating ${current:0:7} → ${target:0:7}"
 git reset -q --hard "$target"
-uv sync -q --frozen --no-dev
+uv sync -q --frozen --no-dev --extra qa
+uv run --no-sync playwright install chromium >/dev/null
+cp deploy/host/autodev-worker.service deploy/host/autodev-update.service deploy/host/autodev-update.timer /etc/systemd/system/
+systemctl daemon-reload
 kubectl -n "$NS" rollout restart deploy/autodev-api deploy/autodev-dashboard
 systemctl restart autodev-worker
 echo "done"

@@ -32,6 +32,7 @@ export interface Task {
   error: string | null
   attempts: number
   pending_fix: string | null
+  qa: { ok: boolean; problems: string[]; skipped: string | null } | null
   depends_on: string[]
   created_by: string | null
   created_at: string
@@ -45,6 +46,14 @@ export interface LogEntry {
   level: string
   message: string
   details: string | null
+  created_at: string
+}
+
+export interface Artifact {
+  id: string
+  kind: string
+  name: string
+  url: string
   created_at: string
 }
 
@@ -169,6 +178,8 @@ export const api = {
   feedback: (id: string, text: string) => post<Task>(`/api/tasks/${id}/feedback`, { text }),
   logs: (id: string, after?: string) =>
     request<LogEntry[]>(`/api/tasks/${id}/logs${after ? `?after=${encodeURIComponent(after)}` : ''}`),
+  artifacts: (id: string) => request<Artifact[]>(`/api/tasks/${id}/artifacts`),
+  artifactUrl: (path: string) => `${BASE}${path}`,
   transitions: (id: string) => request<Transition[]>(`/api/tasks/${id}/transitions`),
 
   toggleDevelopers: () => post<{ enabled: boolean }>('/api/agents/developer/toggle'),

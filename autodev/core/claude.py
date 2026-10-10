@@ -51,6 +51,12 @@ RESULT_SCHEMA: dict[str, Any] = {
             "description": "2-5 sentences in Russian: what changed and what a reviewer should check, "
             "or why the task is blocked",
         },
+        "check_paths": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "URL paths on the deployed site where the change is visible, e.g. ['/settings']. "
+            "Empty for backend-only changes.",
+        },
     },
     "required": ["status", "summary"],
 }

@@ -96,6 +96,20 @@ class TelegramPMBot:
             logger.error("Telegram sendMessage failed: %s", e)
             return {}
 
+    async def send_photo(self, chat_id: str, photo: bytes, caption: str) -> dict:
+        """Photo with an HTML caption (Telegram caps captions at 1024 chars)."""
+        try:
+            resp = await self.client.post(
+                "/sendPhoto",
+                data={"chat_id": chat_id, "caption": caption[:1024], "parse_mode": "HTML"},
+                files={"photo": ("stage.png", photo, "image/png")},
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:
+            logger.error("Telegram sendPhoto failed: %s", e)
+            return {}
+
     async def answer_callback_query(self, callback_id: str, text: str = "") -> None:
         try:
             await self.client.post("/answerCallbackQuery", data={"callback_query_id": callback_id, "text": text})
@@ -327,12 +341,14 @@ async def get_telegram_bot() -> TelegramPMBot:
     return await TelegramPMBot.from_settings()
 
 
-async def notify_owner(text: str) -> bool:
-    """Send an HTML message to the owner chat. Returns True if it was delivered."""
+async def notify_owner(text: str, photo: bytes | None = None) -> bool:
+    """Send an HTML message (optionally with a photo) to the owner chat. Returns True if delivered."""
     bot = await get_telegram_bot()
     try:
         if not bot.token or not bot.owner_chat_id:
             return False
+        if photo and len(text) <= 1024 and await bot.send_photo(bot.owner_chat_id, photo, text):
+            return True
         return bool(await bot.send_message(bot.owner_chat_id, text))
     finally:
         await bot.close()

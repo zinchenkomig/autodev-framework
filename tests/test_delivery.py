@@ -10,9 +10,19 @@ import pytest
 from autodev.core.config import Settings
 from autodev.core.models import Release, ReleaseStatus, Task, TaskStatus
 from autodev.worker import delivery as delivery_mod
+from autodev.worker import qa
 from autodev.worker.context import WorkerContext
 from autodev.worker.delivery import Delivery, advance_release, extract_sha, summarize_checks
 from tests.fakes import FakeGitHub, run
+
+
+@pytest.fixture(autouse=True)
+def stub_qa(monkeypatch):
+    """Stage QA passes with one screenshot unless a test overrides it."""
+    result = qa.QAResult(pages=[qa.PageResult(url="https://stage.shop.test/", status=200, screenshot=b"\x89PNGfake")])
+    check = AsyncMock(return_value=result)
+    monkeypatch.setattr(delivery_mod.qa, "check_stage", check)
+    return check
 
 
 @pytest.fixture(autouse=True)
@@ -253,3 +263,62 @@ async def test_release_fails_on_red_checks(session_factory, project, no_notifica
         r = await s.get(Release, rel.id)
         assert r.status == ReleaseStatus.FAILED and "test" in r.error
     no_notifications.release_failed.assert_awaited()
+
+
+async def test_on_stage_runs_qa_saves_screenshot_and_notifies(
+    session_factory, project, stub_qa, no_notifications
+) -> None:
+    from sqlalchemy import select
+
+    from autodev.core.models import TaskArtifact
+
+    t = await make_task(
+        session_factory, status=TaskStatus.DEPLOYING, merge_sha="m1", metadata_={"check_paths": ["/users"]}
+    )
+    await Delivery(ctx(session_factory)).on_stage(t, "test")
+    urls = stub_qa.await_args.args[0]
+    assert urls[0] == "https://stage.shop.test/users"
+    t = await reload(session_factory, t.id)
+    assert t.status == TaskStatus.ON_STAGE and t.metadata_["qa"]["ok"] is True
+    async with session_factory() as s:
+        shots = (await s.execute(select(TaskArtifact).where(TaskArtifact.task_id == t.id))).scalars().all()
+    assert [a.content for a in shots] == [b"\x89PNGfake"]
+    assert no_notifications.on_stage.await_args.kwargs["screenshot"] == b"\x89PNGfake"
+
+
+async def test_failed_qa_queues_one_fix_task(session_factory, project, stub_qa) -> None:
+    from sqlalchemy import select
+
+    stub_qa.return_value = qa.QAResult(
+        pages=[qa.PageResult(url="https://stage.shop.test/", status=500, problems=["HTTP 500"])]
+    )
+    t = await make_task(session_factory, status=TaskStatus.DEPLOYING, merge_sha="m1")
+    await Delivery(ctx(session_factory)).on_stage(t, "test")
+    async with session_factory() as s:
+        fixes = (await s.execute(select(Task).where(Task.created_by == "qa"))).scalars().all()
+    assert len(fixes) == 1 and "HTTP 500" in fixes[0].description and fixes[0].depends_on == [t.id]
+    assert (await reload(session_factory, t.id)).metadata_["qa"]["ok"] is False
+
+    # a QA follow-up that is itself broken doesn't spawn another one
+    fix = fixes[0]
+    async with session_factory() as s:
+        f = await s.get(Task, fix.id)
+        f.status, f.merge_sha = TaskStatus.DEPLOYING, "m2"
+        await s.commit()
+    await Delivery(ctx(session_factory)).on_stage(await reload(session_factory, fix.id), "test")
+    async with session_factory() as s:
+        assert len((await s.execute(select(Task).where(Task.created_by == "qa"))).scalars().all()) == 1
+
+
+async def test_no_stage_url_skips_qa(session_factory, stub_qa) -> None:
+    from tests.conftest import make_project
+
+    async with session_factory() as s:
+        p = make_project()
+        p.stage_url = None
+        s.add(p)
+        await s.commit()
+    t = await make_task(session_factory, status=TaskStatus.DEPLOYING, merge_sha="m1")
+    await Delivery(ctx(session_factory)).on_stage(t, "test")
+    stub_qa.assert_not_awaited()
+    assert "qa" not in (await reload(session_factory, t.id)).metadata_

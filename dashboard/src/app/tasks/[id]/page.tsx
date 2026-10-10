@@ -127,6 +127,8 @@ export default function TaskPage() {
         </Card>
       )}
 
+      {t.qa && <QaCard taskId={t.id} qa={t.qa} />}
+
       {t.summary && (
         <Card className="p-4">
           <div className="mb-1 text-sm font-semibold">Что сделал агент</div>
@@ -163,6 +165,45 @@ export default function TaskPage() {
         создана {dateTime(t.created_at)} · {t.created_by ?? t.source}
       </p>
     </div>
+  )
+}
+
+function QaCard({ taskId, qa }: { taskId: string; qa: NonNullable<Task['qa']> }) {
+  const { data: artifacts } = usePoll(() => api.artifacts(taskId), 60000, [taskId])
+  const shots = (artifacts ?? []).filter((a) => a.kind === 'screenshot')
+  const tone = qa.skipped ? 'text-muted' : qa.ok ? 'text-ok' : 'text-bad'
+  return (
+    <Card className="space-y-3 p-4">
+      <div className={cx('flex items-center gap-2 text-sm font-semibold', tone)}>
+        {qa.skipped ? 'Проверка stage пропущена' : qa.ok ? 'Stage проверен — ошибок нет' : 'На stage есть проблемы'}
+      </div>
+      {qa.skipped && <p className="text-xs text-muted">{qa.skipped}</p>}
+      {qa.problems.length > 0 && (
+        <ul className="space-y-1 text-xs text-bad">
+          {qa.problems.map((p) => (
+            <li key={p} className="break-words">
+              {p}
+            </li>
+          ))}
+        </ul>
+      )}
+      {shots.length > 0 && (
+        <div className="no-scrollbar -mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-1">
+          {shots.map((a) => (
+            <a key={a.id} href={api.artifactUrl(a.url)} target="_blank" rel="noreferrer" className="w-40 shrink-0 snap-start">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={api.artifactUrl(a.url)}
+                alt={a.name}
+                loading="lazy"
+                className="aspect-[390/844] w-full rounded-xl border border-line object-cover object-top"
+              />
+              <div className="mt-1 truncate text-[11px] text-muted">{a.name.replace(/^https?:\/\/[^/]+/, '') || '/'}</div>
+            </a>
+          ))}
+        </div>
+      )}
+    </Card>
   )
 }
 
