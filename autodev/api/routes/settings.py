@@ -28,10 +28,10 @@ def _webhook_url() -> str:
 
 
 class TelegramSettings(BaseModel):
-    bot_token: str
-    owner_chat_id: str
-    webhook_secret: str
-    webhook_url: str
+    bot_token: str = ""
+    owner_chat_id: str = ""
+    webhook_secret: str = ""
+    webhook_url: str = ""
 
 
 class TelegramTestRequest(BaseModel):
@@ -72,7 +72,7 @@ async def get_telegram_settings(
     return TelegramSettings(
         bot_token="*" * 10 if token else "",
         owner_chat_id=chat_id,
-        webhook_secret=secret,
+        webhook_secret="*" * 10 if secret else "",  # never sent to the browser
         webhook_url=webhook_url,
     )
 
@@ -85,8 +85,9 @@ async def update_telegram_settings(
     if settings.bot_token and not settings.bot_token.startswith("*"):
         await set_setting(session, "telegram_bot_token", settings.bot_token)
 
-    await set_setting(session, "telegram_owner_chat_id", settings.owner_chat_id)
-    await set_setting(session, "telegram_webhook_secret", settings.webhook_secret)
+    await set_setting(session, "telegram_owner_chat_id", settings.owner_chat_id.strip())
+    if settings.webhook_secret and not settings.webhook_secret.startswith("*"):
+        await set_setting(session, "telegram_webhook_secret", settings.webhook_secret)
 
     return {"status": "updated"}
 
@@ -96,16 +97,10 @@ async def test_telegram(
     request: TelegramTestRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> TelegramTestResult:
-    logger.info(
-        f"Test request: bot_token={request.bot_token[:20] if request.bot_token else None}..., chat_id={request.owner_chat_id}"
-    )
-
     # Use provided token if given and not masked
     use_provided = request.bot_token and not request.bot_token.startswith("*")
     token = request.bot_token if use_provided else await get_setting(session, "telegram_bot_token")
     chat_id = request.owner_chat_id or await get_setting(session, "telegram_owner_chat_id")
-
-    logger.info(f"Using token: {token[:20] if token else None}... (provided={use_provided})")
 
     if not token:
         return TelegramTestResult(success=False, message="Введите Bot Token")
@@ -190,3 +185,26 @@ async def remove_telegram_webhook(
             return {"status": "ok" if result.get("ok") else "error"}
     except Exception as e:
         raise HTTPException(500, str(e))
+
+
+@router.post("/telegram/detect-chat")
+async def detect_chat(
+    request: TelegramTestRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict:
+    """Find the chat of whoever last messaged the bot (works before the webhook is set)."""
+    use_provided = request.bot_token and not request.bot_token.startswith("*")
+    token = request.bot_token if use_provided else await get_setting(session, "telegram_bot_token")
+    if not token:
+        raise HTTPException(400, "Введите Bot Token")
+    async with httpx.AsyncClient(timeout=15) as client:
+        data = (await client.get(f"https://api.telegram.org/bot{token}/getUpdates")).json()
+    if not data.get("ok"):
+        raise HTTPException(400, data.get("description", "Telegram error"))
+    chats = [
+        (u.get("message") or {}).get("chat") for u in data.get("result", []) if (u.get("message") or {}).get("chat")
+    ]
+    if not chats:
+        raise HTTPException(404, "Напишите боту /start и повторите (если вебхук уже стоит — сначала снимите его)")
+    chat = chats[-1]
+    return {"chat_id": str(chat["id"]), "name": chat.get("username") or chat.get("first_name") or ""}

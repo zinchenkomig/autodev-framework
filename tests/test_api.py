@@ -176,3 +176,67 @@ async def test_telegram_webhook_requires_secret(client, session_factory) -> None
     assert (await client.post("/api/webhooks/telegram", json=update, headers=good)).json() == {
         "status": "not_configured"
     }
+
+
+async def test_status_reports_worker_liveness_and_slots(client, session_factory, project) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from autodev.core.models import Agent, Setting
+
+    r = (await client.get("/api/status/")).json()
+    assert r["worker_online"] is False and r["slots"] == [] and r["developers_enabled"] is True
+
+    t = (await client.post("/api/tasks/", json={"title": "x"})).json()
+    async with session_factory() as s:
+        import uuid
+
+        s.add_all(
+            [
+                Agent(id="delivery", role="delivery", last_run_at=datetime.now(UTC)),
+                Agent(id="developer", role="developer", enabled=False),
+                Agent(id="developer-1", role="developer", status="working", current_task_id=uuid.UUID(t["id"])),
+                Setting(key="worker_paused_until", value=(datetime.now(UTC) + timedelta(hours=1)).isoformat()),
+            ]
+        )
+        await s.commit()
+    r = (await client.get("/api/status/")).json()
+    assert r["worker_online"] is True and r["developers_enabled"] is False and r["paused_until"]
+    assert r["slots"] == [
+        {
+            "id": "developer-1",
+            "status": "working",
+            "task_id": t["id"],
+            "task_ticket": t["ticket_number"],
+            "task_title": "x",
+        }
+    ]
+
+
+async def test_telegram_settings_never_expose_secrets(client, session_factory) -> None:
+    from autodev.core.models import Setting
+
+    async with session_factory() as s:
+        s.add_all(
+            [Setting(key="telegram_bot_token", value="123:abc"), Setting(key="telegram_webhook_secret", value="s3cret")]
+        )
+        await s.commit()
+    r = (await client.get("/api/settings/telegram")).json()
+    assert "abc" not in r["bot_token"] and r["webhook_secret"] != "s3cret"
+
+    # round-tripping the masked values must not overwrite the real ones
+    r["owner_chat_id"] = "42"
+    assert (await client.put("/api/settings/telegram", json=r)).status_code == 200
+    async with session_factory() as s:
+        assert (await s.get(Setting, "telegram_bot_token")).value == "123:abc"
+        assert (await s.get(Setting, "telegram_webhook_secret")).value == "s3cret"
+        assert (await s.get(Setting, "telegram_owner_chat_id")).value == "42"
+
+
+async def test_toggle_developer_switch(client, session_factory) -> None:
+    from autodev.core.models import Agent
+
+    async with session_factory() as s:
+        s.add(Agent(id="developer", role="developer"))
+        await s.commit()
+    assert (await client.post("/api/agents/developer/toggle")).json()["enabled"] is False
+    assert (await client.post("/api/agents/developer/toggle")).json()["enabled"] is True

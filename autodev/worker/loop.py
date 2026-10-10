@@ -118,7 +118,19 @@ class Worker:
                 await delivery.tick()
             except Exception:
                 logger.exception("delivery tick failed")
+            try:
+                await self._heartbeat()
+            except Exception:
+                logger.exception("heartbeat failed")
             await asyncio.sleep(self.ctx.settings.poll_interval * 2)
+
+    async def _heartbeat(self) -> None:
+        """Lets the dashboard tell a live worker from a dead one."""
+        async with self.ctx.session_factory() as session:
+            agent = await session.get(Agent, "delivery")
+            if agent is not None:
+                agent.last_run_at = datetime.now(UTC)
+                await session.commit()
 
     async def developers_enabled(self) -> bool:
         async with self.ctx.session_factory() as session:

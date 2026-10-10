@@ -313,23 +313,6 @@ class Agent(Base):
         return f"<Agent id={self.id!r} role={self.role!r} status={self.status}>"
 
 
-class Event(Base):
-    """Domain event record for the event sourcing log."""
-
-    __tablename__ = "events"
-
-    id: Mapped[uuid.UUID] = mapped_column(_UUID(), primary_key=True, default=uuid.uuid4)
-    type: Mapped[str] = mapped_column(String(100), nullable=False)
-    payload: Mapped[dict] = mapped_column(_JSONEncodedDict(), nullable=False, default=dict)
-    source: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
-    )
-
-    def __repr__(self) -> str:
-        return f"<Event id={self.id} type={self.type!r}>"
-
-
 class AgentLog(Base):
     """A log entry emitted by the orchestrator during task processing."""
 
@@ -397,71 +380,6 @@ class Release(Base):
 
     def __repr__(self) -> str:
         return f"<Release id={self.id} version={self.version!r} status={self.status}>"
-
-
-class ProjectContext(Base):
-    """Project context for PM agent."""
-
-    __tablename__ = "project_contexts"
-
-    id: Mapped[uuid.UUID] = mapped_column(_UUID(), primary_key=True, default=uuid.uuid4)
-    repo: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    stack: Mapped[str | None] = mapped_column(Text, nullable=True)
-    features: Mapped[str | None] = mapped_column(Text, nullable=True)
-    architecture: Mapped[str | None] = mapped_column(Text, nullable=True)
-    current_focus: Mapped[str | None] = mapped_column(Text, nullable=True)
-    raw_context: Mapped[str | None] = mapped_column(Text, nullable=True)  # Full analyzed context
-    last_analyzed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(UTC),
-        onupdate=lambda: datetime.now(UTC),
-        nullable=False,
-    )
-
-
-class ChatSession(Base):
-    """PM chat session/conversation."""
-
-    __tablename__ = "chat_sessions"
-
-    id: Mapped[uuid.UUID] = mapped_column(_UUID(), primary_key=True, default=uuid.uuid4)
-    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(UTC),
-        onupdate=lambda: datetime.now(UTC),
-        nullable=False,
-    )
-
-    messages: Mapped[list["PMChatMessage"]] = relationship(
-        "PMChatMessage", back_populates="session", order_by="PMChatMessage.created_at"
-    )
-
-
-class PMChatMessage(Base):
-    """Message in PM chat session."""
-
-    __tablename__ = "pm_chat_messages"
-
-    id: Mapped[uuid.UUID] = mapped_column(_UUID(), primary_key=True, default=uuid.uuid4)
-    session_id: Mapped[uuid.UUID] = mapped_column(_UUID(), ForeignKey("chat_sessions.id"), nullable=False)
-    role: Mapped[str] = mapped_column(String(20), nullable=False)  # user or pm
-    content: Mapped[str] = mapped_column(Text, nullable=False)
-    task_id: Mapped[uuid.UUID | None] = mapped_column(_UUID(), nullable=True)  # If task was created
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
-    )
-
-    session: Mapped["ChatSession"] = relationship("ChatSession", back_populates="messages")
 
 
 class Setting(Base):
