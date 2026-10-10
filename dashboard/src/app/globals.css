@@ -1,167 +1,76 @@
 @import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
-
-@custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-geist-mono);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
-  --color-ring: var(--ring);
-  --color-input: var(--input);
-  --color-border: var(--border);
-  --color-destructive: var(--destructive);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-fg: var(--fg);
   --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary: var(--primary);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
-  --color-card: var(--card);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --color-info: var(--info);
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-mono: var(--font-mono), ui-monospace, monospace;
 }
 
 :root {
-  /* JetBrains Darcula palette */
-  --bg: #2B2B2B;
-  --surface: #3C3F41;
-  --surface-dark: #313335;
-  --border: #515151;
-  --border-subtle: #414345;
-  --text: #BABABA;
-  --text-bright: #FFFFFF;
-  --text-muted: #808080;
-  --accent: #3592C4;
-  --success: #6A8759;
-  --warning: #CC7832;
-  --error: #CC4E4E;
-  --purple: #9876AA;
-  --yellow: #FFC66D;
-  --selection: #214283;
-  --hover: #353739;
-  --active-tab: #4E5254;
-
-  /* shadcn/tailwind compat */
-  --background: #2B2B2B;
-  --foreground: #BABABA;
-  --card: #3C3F41;
-  --card-foreground: #BABABA;
-  --popover: #3C3F41;
-  --popover-foreground: #BABABA;
-  --primary: #3592C4;
-  --primary-foreground: #FFFFFF;
-  --secondary: #313335;
-  --secondary-foreground: #BABABA;
-  --muted: #313335;
-  --muted-foreground: #808080;
-  --accent: #3592C4;
-  --accent-foreground: #FFFFFF;
-  --destructive: #CC4E4E;
-  --border: #515151;
-  --input: #3C3F41;
-  --ring: #3592C4;
-  --chart-1: #3592C4;
-  --chart-2: #6A8759;
-  --chart-3: #CC7832;
-  --chart-4: #9876AA;
-  --chart-5: #FFC66D;
-  --radius: 0.375rem;
-  --sidebar: #313335;
-  --sidebar-foreground: #BABABA;
-  --sidebar-primary: #3592C4;
-  --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #353739;
-  --sidebar-accent-foreground: #FFFFFF;
-  --sidebar-border: #515151;
-  --sidebar-ring: #3592C4;
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #eef0f4;
+  --line: #e2e5eb;
+  --fg: #111827;
+  --muted: #6b7280;
+  --accent: #4f46e5;
+  --accent-fg: #ffffff;
+  --ok: #059669;
+  --warn: #d97706;
+  --bad: #dc2626;
+  --info: #2563eb;
+  color-scheme: light;
 }
 
-@layer base {
-  * {
-    @apply border-border outline-ring/50;
-    box-shadow: none !important;
-  }
-  body {
-    background-color: #2B2B2B;
-    color: #BABABA;
-    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-  }
-  html {
-    @apply font-sans;
-  }
-  [class*="hover:"] {
-    transition: all 150ms;
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1020;
+    --surface: #131a2e;
+    --surface-2: #1b2340;
+    --line: #26304f;
+    --fg: #e5e7eb;
+    --muted: #8b93a7;
+    --accent: #818cf8;
+    --accent-fg: #0b1020;
+    --ok: #34d399;
+    --warn: #fbbf24;
+    --bad: #f87171;
+    --info: #60a5fa;
+    color-scheme: dark;
   }
 }
 
-/* Hide scrollbar utility */
+html,
+body {
+  background: var(--bg);
+  color: var(--fg);
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
 .no-scrollbar {
-  -ms-overflow-style: none;
   scrollbar-width: none;
 }
 
-/* Custom scrollbar for Darcula feel */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-track {
-  background: #2B2B2B;
-}
-::-webkit-scrollbar-thumb {
-  background: #515151;
-  border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #808080;
-}
-
-/* Pulse animation for working agents */
-@keyframes status-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-.animate-status-pulse {
-  animation: status-pulse 1.5s ease-in-out infinite;
-}
-
-/* Section heading style */
-.section-heading {
-  color: #FFC66D;
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid #515151;
-  margin-bottom: 1rem;
+input,
+textarea,
+select {
+  font-size: 16px; /* stops iOS from zooming into fields */
 }
