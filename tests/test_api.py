@@ -160,3 +160,19 @@ async def test_release_nothing_to_ship(client, project, monkeypatch) -> None:
 
     monkeypatch.setattr(projects_mod, "GitHubClient", lambda token: FakeGitHub())
     assert (await client.post("/api/projects/shop/release")).status_code == 409
+
+
+async def test_telegram_webhook_requires_secret(client, session_factory) -> None:
+    from autodev.core.models import Setting
+
+    update = {"message": {"chat": {"id": 1}, "text": "hi"}}
+    assert (await client.post("/api/webhooks/telegram", json=update)).status_code == 403  # no secret configured
+    async with session_factory() as s:
+        s.add_all([Setting(key="telegram_webhook_secret", value="s3cret"), Setting(key="telegram_bot_token", value="")])
+        await s.commit()
+    bad = {"X-Telegram-Bot-Api-Secret-Token": "nope"}
+    assert (await client.post("/api/webhooks/telegram", json=update, headers=bad)).status_code == 403
+    good = {"X-Telegram-Bot-Api-Secret-Token": "s3cret"}
+    assert (await client.post("/api/webhooks/telegram", json=update, headers=good)).json() == {
+        "status": "not_configured"
+    }

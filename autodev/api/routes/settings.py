@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 from typing import Annotated
 
 import httpx
@@ -153,12 +154,14 @@ async def setup_telegram_webhook(
 
     if not token:
         raise HTTPException(400, "Сначала сохраните токен")
+    if not secret:
+        # The webhook path is public; the secret token is what authenticates Telegram.
+        secret = secrets.token_urlsafe(32)
+        await set_setting(session, "telegram_webhook_secret", secret)
 
     try:
         async with httpx.AsyncClient() as client:
-            payload = {"url": webhook_url}
-            if secret:
-                payload["secret_token"] = secret
+            payload = {"url": webhook_url, "secret_token": secret}
 
             resp = await client.post(f"https://api.telegram.org/bot{token}/setWebhook", json=payload)
             result = resp.json()

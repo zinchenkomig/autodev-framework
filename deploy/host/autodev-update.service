@@ -1,0 +1,10 @@
+[Unit]
+Description=AutoDev self-update (pull main, restart worker and k8s deployments)
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/autodev/worker.env
+Environment=HOME=/root
+Environment=PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/opt/autodev/deploy/host/autodev-update.sh

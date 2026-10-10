@@ -5,6 +5,7 @@ GitHub state is polled by the worker, so only Telegram pushes to us.
 
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 
@@ -25,10 +26,10 @@ async def telegram_webhook(request: Request) -> dict[str, str]:
     # Verify secret token if set
     settings = await get_telegram_settings()
     secret = settings.get("secret", "")
-    if secret:
-        header_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
-        if header_secret != secret:
-            raise HTTPException(403, "Invalid secret")
+    header_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    # The path is public (no basic auth), so an unset secret means "not configured", not "open".
+    if not secret or not hmac.compare_digest(header_secret, secret):
+        raise HTTPException(403, "Invalid secret")
 
     try:
         update = json.loads(body)

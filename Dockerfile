@@ -1,5 +1,5 @@
 # API image (dashboard backend + Telegram webhook). The worker runs on the
-# host instead — see README.md — because it needs Claude Code, git and
+# host instead — see docs/DEPLOY.md — because it needs Claude Code, git and
 # full access to build and test target projects.
 FROM python:3.12-slim
 
