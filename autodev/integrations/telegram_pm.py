@@ -475,3 +475,14 @@ class TelegramPMBot:
 async def get_telegram_bot() -> TelegramPMBot:
     """Get Telegram bot from settings."""
     return await TelegramPMBot.from_settings()
+
+
+async def notify_owner(text: str) -> bool:
+    """Send an HTML message to the owner chat. Returns True if it was delivered."""
+    bot = await get_telegram_bot()
+    try:
+        if not bot.token or not bot.owner_chat_id:
+            return False
+        return bool(await bot.send_message(bot.owner_chat_id, text))
+    finally:
+        await bot.close()

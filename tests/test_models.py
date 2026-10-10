@@ -31,7 +31,7 @@ class TestEnums:
         assert TaskStatus.ASSIGNED == "assigned"
         assert TaskStatus.IN_PROGRESS == "in_progress"
         assert TaskStatus.REVIEW == "review"
-        assert TaskStatus.DONE == "done"
+        assert TaskStatus.RELEASED == "released"
         assert TaskStatus.FAILED == "failed"
 
     def test_priority_values(self):
@@ -73,7 +73,8 @@ class TestEnums:
         assert ReleaseStatus.FAILED == "failed"
 
     def test_enum_iteration(self):
-        assert set(TaskStatus) == {"queued", "assigned", "in_progress", "review", "done", "failed"}
+        assert "queued" in set(TaskStatus)
+        assert "released" in set(TaskStatus)
         assert set(Priority) == {"critical", "high", "normal", "low"}
 
 

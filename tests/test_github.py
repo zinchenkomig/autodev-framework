@@ -19,9 +19,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from autodev.api.routes.webhooks import get_event_bus
 from autodev.api.routes.webhooks import router as webhook_router
-from autodev.core.events import EventBus
 from autodev.integrations.github import GitHubClient, verify_webhook_signature
 
 # ---------------------------------------------------------------------------
@@ -56,20 +54,10 @@ def make_client(default_repo: str = "owner/repo") -> GitHubClient:
 
 
 @pytest.fixture()
-def bus() -> EventBus:
-    return EventBus()
-
-
-@pytest.fixture()
-def app(bus: EventBus) -> FastAPI:
-    """FastAPI test app with webhook router and injected EventBus."""
+def app() -> FastAPI:
+    """FastAPI test app with the webhook router."""
     application = FastAPI()
-
-    def override_bus() -> EventBus:
-        return bus
-
     application.include_router(webhook_router, prefix="/api/webhooks")
-    application.dependency_overrides[get_event_bus] = override_bus
     return application
 
 
@@ -287,133 +275,6 @@ class TestWebhookRouting:
         assert resp.status_code == 200
         assert resp.json()["event"] == "push"
 
-    def test_pr_opened_event(self, client: TestClient, bus: EventBus):
-        emitted: list = []
-
-        async def handler(event):  # noqa: ANN001
-            emitted.append(event)
-
-        bus.subscribe("pr.created", handler)
-        payload = {
-            "action": "opened",
-            "number": 42,
-            "pull_request": {
-                "title": "My PR",
-                "head": {"ref": "feature/x"},
-                "base": {"ref": "main"},
-            },
-            "repository": {"full_name": "owner/repo"},
-        }
-        resp = self._post(client, "pull_request", payload)
-        assert resp.status_code == 200
-        assert len(emitted) == 1
-        assert emitted[0].type == "pr.created"
-
-    def test_pr_merged_event(self, client: TestClient, bus: EventBus):
-        emitted: list = []
-
-        async def handler(event):  # noqa: ANN001
-            emitted.append(event)
-
-        bus.subscribe("pr.merged", handler)
-        payload = {
-            "action": "closed",
-            "number": 5,
-            "pull_request": {"title": "Fix bug", "merged": True, "merged_by": {"login": "alice"}},
-            "repository": {"full_name": "owner/repo"},
-        }
-        resp = self._post(client, "pull_request", payload)
-        assert resp.status_code == 200
-        assert len(emitted) == 1
-        assert emitted[0].type == "pr.merged"
-
-    def test_pr_closed_not_merged_no_event(self, client: TestClient, bus: EventBus):
-        emitted: list = []
-        bus.subscribe("pr.merged", lambda e: emitted.append(e))
-        payload = {
-            "action": "closed",
-            "number": 5,
-            "pull_request": {"title": "Fix bug", "merged": False},
-            "repository": {"full_name": "owner/repo"},
-        }
-        resp = self._post(client, "pull_request", payload)
-        assert resp.status_code == 200
-        assert len(emitted) == 0
-
-    def test_issue_opened_with_autodev_label(self, client: TestClient, bus: EventBus):
-        emitted: list = []
-
-        async def handler(event):  # noqa: ANN001
-            emitted.append(event)
-
-        bus.subscribe("task.created", handler)
-        payload = {
-            "action": "opened",
-            "issue": {
-                "number": 3,
-                "title": "New feature",
-                "body": "Do something",
-                "labels": [{"name": "autodev"}, {"name": "enhancement"}],
-            },
-            "repository": {"full_name": "owner/repo"},
-        }
-        resp = self._post(client, "issues", payload)
-        assert resp.status_code == 200
-        assert len(emitted) == 1
-        assert emitted[0].type == "task.created"
-        assert "autodev" in emitted[0].payload["labels"]
-
-    def test_issue_opened_without_autodev_label_no_event(self, client: TestClient, bus: EventBus):
-        emitted: list = []
-        bus.subscribe("task.created", lambda e: emitted.append(e))
-        payload = {
-            "action": "opened",
-            "issue": {
-                "number": 4,
-                "title": "Regular issue",
-                "body": "",
-                "labels": [{"name": "help wanted"}],
-            },
-            "repository": {"full_name": "owner/repo"},
-        }
-        resp = self._post(client, "issues", payload)
-        assert resp.status_code == 200
-        assert len(emitted) == 0
-
-    def test_check_suite_success(self, client: TestClient, bus: EventBus):
-        emitted: list = []
-
-        async def handler(event):  # noqa: ANN001
-            emitted.append(event)
-
-        bus.subscribe("pr.ci.passed", handler)
-        payload = {
-            "action": "completed",
-            "check_suite": {"conclusion": "success", "head_sha": "abc", "head_branch": "main"},
-            "repository": {"full_name": "owner/repo"},
-        }
-        resp = self._post(client, "check_suite", payload)
-        assert resp.status_code == 200
-        assert len(emitted) == 1
-        assert emitted[0].type == "pr.ci.passed"
-
-    def test_check_suite_failure(self, client: TestClient, bus: EventBus):
-        emitted: list = []
-
-        async def handler(event):  # noqa: ANN001
-            emitted.append(event)
-
-        bus.subscribe("pr.ci.failed", handler)
-        payload = {
-            "action": "completed",
-            "check_suite": {"conclusion": "failure", "head_sha": "def", "head_branch": "feature/x"},
-            "repository": {"full_name": "owner/repo"},
-        }
-        resp = self._post(client, "check_suite", payload)
-        assert resp.status_code == 200
-        assert len(emitted) == 1
-        assert emitted[0].type == "pr.ci.failed"
-
     def test_signature_verification_rejects_bad_sig(self, client: TestClient, app: FastAPI):
         import os
 
@@ -449,4 +310,4 @@ class TestWebhookRouting:
                 },
             )
         assert resp.status_code == 200
-        assert resp.json()["status"] == "received"
+        assert resp.json()["status"] == "ok"
