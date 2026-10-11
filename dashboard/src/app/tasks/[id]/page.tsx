@@ -136,6 +136,19 @@ export default function TaskPage() {
         </Card>
       )}
 
+      {t.test_plan.length > 0 && (
+        <Card className="p-4">
+          <div className="mb-1 text-sm font-semibold">Как проверить на stage</div>
+          <ol className="list-decimal space-y-1.5 pl-5 text-[15px] leading-relaxed">
+            {t.test_plan.map((step, i) => (
+              <li key={i} className="whitespace-pre-wrap">
+                {step}
+              </li>
+            ))}
+          </ol>
+        </Card>
+      )}
+
       {t.description && (
         <Card className="p-4">
           <div className="mb-1 text-sm font-semibold">Задача</div>

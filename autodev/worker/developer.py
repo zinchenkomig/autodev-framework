@@ -109,9 +109,15 @@ async def develop(ctx: WorkerContext, task_id: uuid.UUID, slot: str) -> None:
             fields: dict = {"session_id": result.session_id or task.session_id}
             if not fix:
                 fields["summary"] = result.summary
-            paths = [p for p in result.data.get("check_paths") or [] if isinstance(p, str) and p.strip()]
+            metadata = dict(task.metadata_ or {})
+            paths = _strings(result.data.get("check_paths"))
             if paths:
-                fields["metadata_"] = {**(task.metadata_ or {}), "check_paths": paths[:5]}
+                metadata["check_paths"] = paths[:5]
+            plan = _strings(result.data.get("test_plan"))
+            if plan:
+                metadata["test_plan"] = plan[:15]
+            if metadata != (task.metadata_ or {}):
+                fields["metadata_"] = metadata
             task = await store.update(task_id, **fields) or task
 
         if await ws.in_merge():
@@ -155,6 +161,10 @@ async def develop(ctx: WorkerContext, task_id: uuid.UUID, slot: str) -> None:
     finally:
         if ws is not None:
             ws.cleanup()
+
+
+def _strings(value) -> list[str]:
+    return [v.strip() for v in value or [] if isinstance(v, str) and v.strip()]
 
 
 async def _requeue_rate_limited(
@@ -213,6 +223,9 @@ async def _ensure_pr(ctx: WorkerContext, task: Task, repo: str, base: str, branc
     if task.pr_number and task.pr_url:
         return task.pr_number, task.pr_url
     body = (task.summary or task.description or task.title).strip()
+    plan = (task.metadata_ or {}).get("test_plan") or []
+    if plan:
+        body += "\n\n### Как проверить на stage\n" + "\n".join(f"{i}. {step}" for i, step in enumerate(plan, 1))
     body += f"\n\n---\nAutoDev task #{task.ticket_number}"
     if ctx.settings.public_url:
         body += f" · {ctx.settings.public_url.rstrip('/')}/tasks/{task.id}"

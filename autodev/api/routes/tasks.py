@@ -72,6 +72,7 @@ class TaskResponse(BaseModel):
     attempts: int
     pending_fix: str | None  # kind of the queued fix round, if any
     qa: dict | None  # {"ok": bool, "problems": [...], "skipped": str | None} after stage QA
+    test_plan: list[str]  # manual check steps for the owner, from the developer agent
     depends_on: list[str]
     created_by: str | None
     created_at: datetime
@@ -126,6 +127,7 @@ def to_response(task: Task) -> TaskResponse:
         attempts=task.attempts,
         pending_fix=fix.get("kind") if isinstance(fix, dict) else None,
         qa=(task.metadata_ or {}).get("qa"),
+        test_plan=(task.metadata_ or {}).get("test_plan") or [],
         depends_on=[str(d) for d in task.depends_on or []],
         created_by=task.created_by,
         created_at=task.created_at,

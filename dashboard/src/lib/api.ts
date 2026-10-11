@@ -33,6 +33,7 @@ export interface Task {
   attempts: number
   pending_fix: string | null
   qa: { ok: boolean; problems: string[]; skipped: string | null } | null
+  test_plan: string[]
   depends_on: string[]
   created_by: string | null
   created_at: string

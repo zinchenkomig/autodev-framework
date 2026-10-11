@@ -119,6 +119,23 @@ async def test_first_round_pushes_and_opens_pr(wired, session_factory) -> None:
     assert not Path(FakeRunner.calls[0]["cwd"]).exists()  # workspace cleaned up
 
 
+async def test_test_plan_is_stored_and_put_into_pr(wired, session_factory) -> None:
+    ctx, gh, _ = wired
+    FakeRunner.result = ClaudeResult(
+        ok=True,
+        summary="Добавил поиск",
+        session_id="sess-1",
+        data={"test_plan": ["Открой /users", " ", "Введи «ann» — останется Ann"], "check_paths": ["/users"]},
+    )
+    t = await new_task(session_factory)
+    await develop(ctx, t.id, "developer-1")
+
+    t = await reload(session_factory, t.id)
+    assert t.metadata_["test_plan"] == ["Открой /users", "Введи «ann» — останется Ann"]
+    assert t.metadata_["check_paths"] == ["/users"]
+    assert "### Как проверить на stage\n1. Открой /users\n2. Введи «ann»" in gh.prs[1]["body"]
+
+
 async def test_uncommitted_changes_are_committed(wired, session_factory) -> None:
     ctx, gh, remote = wired
 

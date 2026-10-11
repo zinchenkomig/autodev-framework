@@ -184,4 +184,4 @@ def test_options() -> None:
     assert opts.env["IS_SANDBOX"] == "1"
     assert opts.resume == "s" and opts.model == "opus"
     assert opts.system_prompt["append"] == "rules"
-    assert opts.output_format["schema"]["required"] == ["status", "summary"]
+    assert opts.output_format["schema"]["required"] == ["status", "summary", "test_plan"]

@@ -39,6 +39,10 @@ async def on_stage(task: Task, project: Project | None, qa=None, screenshot: byt
     if task.pr_url:
         text += f'\n\n<a href="{html.escape(task.pr_url)}">PR</a>'
     await _send(text, photo=screenshot)
+    plan = (task.metadata_ or {}).get("test_plan") or []
+    if plan and not broken:
+        steps = "\n".join(f"{i}. {html.escape(step[:400])}" for i, step in enumerate(plan, 1))
+        await _send(f"🧪 <b>Как проверить #{task.ticket_number}</b>\n\n{steps}"[:4000])
 
 
 async def failed(task: Task, reason: str) -> None:
