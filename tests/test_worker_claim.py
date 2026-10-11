@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
+
+from sqlalchemy import select
 
 from autodev.core.config import Settings
 from autodev.core.models import Agent, Task, TaskStatus
@@ -104,3 +107,63 @@ async def test_recover_requeues_in_progress(session_factory, project) -> None:
     await worker(session_factory).recover()
     async with session_factory() as s:
         assert (await s.get(Task, t.id)).status == TaskStatus.QUEUED
+
+
+async def test_drain_file_stops_new_claims(session_factory, project, tmp_path, monkeypatch) -> None:
+    from autodev.worker import loop as loop_mod
+
+    drain = tmp_path / "drain"
+    w = Worker(
+        WorkerContext(
+            settings=Settings(AUTODEV_DRAIN_FILE=str(drain), AUTODEV_POLL_INTERVAL=0.01),
+            session_factory=session_factory,
+        )
+    )
+    developed: list = []
+
+    async def fake_develop(ctx, task_id, slot):
+        developed.append(task_id)
+
+    monkeypatch.setattr(loop_mod, "develop", fake_develop)
+    await add(session_factory, task("waits for the update"))
+    drain.touch()
+    slot = asyncio.create_task(w.slot_loop("s1"))
+    await asyncio.sleep(0.1)
+    assert developed == []
+
+    drain.unlink()
+    for _ in range(100):
+        if developed:
+            break
+        await asyncio.sleep(0.02)
+    w.stop()
+    await asyncio.wait_for(slot, 1)
+    assert len(developed) == 1
+
+
+async def test_stop_lets_running_task_finish(session_factory, project, monkeypatch) -> None:
+    from autodev.worker import loop as loop_mod
+
+    w = Worker(WorkerContext(settings=Settings(AUTODEV_POLL_INTERVAL=0.01), session_factory=session_factory))
+    started, release = asyncio.Event(), asyncio.Event()
+    finished: list = []
+
+    async def slow_develop(ctx, task_id, slot):
+        started.set()
+        await release.wait()
+        finished.append(task_id)
+
+    monkeypatch.setattr(loop_mod, "develop", slow_develop)
+    await add(session_factory, task("long one"), task("must not start"))
+    slot = asyncio.create_task(w.slot_loop("s1"))
+    await asyncio.wait_for(started.wait(), 2)
+
+    w.stop()
+    await asyncio.sleep(0.05)
+    assert not slot.done()  # still waiting for the running session
+    release.set()
+    await asyncio.wait_for(slot, 1)
+    assert len(finished) == 1
+    async with session_factory() as s:
+        statuses = sorted((await s.execute(select(Task.status))).scalars())
+    assert statuses.count(TaskStatus.QUEUED) == 1

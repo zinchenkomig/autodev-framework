@@ -1,18 +1,31 @@
 #!/bin/bash
 # Roll out a new main commit once its Deploy workflow (images) has succeeded.
-# Restarts the worker only while no developer slot is busy, so a running
-# Claude session is never cut off by an update.
+#
+# A running Claude session is never cut off: when an update is ready the
+# script creates $DRAIN, the worker stops taking new tasks, and the restart
+# happens on a later run once no task is in progress. The worker resumes
+# taking tasks as soon as the flag is gone.
 set -euo pipefail
 
 REPO=zinchenkomig/autodev-framework
 DIR=/opt/autodev
 NS=app-autodev
+DRAIN=${AUTODEV_DRAIN_FILE:-/run/autodev/drain}
+# Wait this long after raising the flag, so a slot that was just claiming a task
+# has registered it before we count running tasks.
+SETTLE=60
 cd "$DIR"
+
+# A failed update must not leave the worker paused; the next run starts over.
+trap 'rc=$?; [ $rc -ne 0 ] && rm -f "$DRAIN"; exit $rc' EXIT
 
 git fetch -q origin main
 current=$(git rev-parse HEAD)
 target=$(git rev-parse origin/main)
-[ "$current" = "$target" ] && exit 0
+if [ "$current" = "$target" ]; then
+  rm -f "$DRAIN"
+  exit 0
+fi
 
 conclusion=$(gh run list -R "$REPO" --workflow deploy.yml --commit "$target" --json conclusion -q '.[0].conclusion' || true)
 if [ "$conclusion" != "success" ]; then
@@ -20,21 +33,29 @@ if [ "$conclusion" != "success" ]; then
   exit 0
 fi
 
+if [ ! -e "$DRAIN" ]; then
+  mkdir -p "$(dirname "$DRAIN")"
+  touch "$DRAIN"
+  echo "update ${target:0:7} ready — worker stops taking new tasks"
+fi
+age=$(( $(date +%s) - $(stat -c %Y "$DRAIN") ))
+[ "$age" -lt "$SETTLE" ] && sleep $(( SETTLE - age ))
+
 busy=$(uv run --no-sync python - <<'PY'
 import asyncio
 from sqlalchemy import func, select
 from autodev.api.database import SessionLocal
-from autodev.core.models import Agent
+from autodev.core.models import Task, TaskStatus
 
 async def main():
     async with SessionLocal() as s:
-        print(await s.scalar(select(func.count()).select_from(Agent).where(Agent.status == "working")))
+        print(await s.scalar(select(func.count()).select_from(Task).where(Task.status == TaskStatus.IN_PROGRESS)))
 
 asyncio.run(main())
 PY
 )
 if [ "${busy:-0}" != "0" ]; then
-  echo "update ${target:0:7} ready, but $busy slot(s) busy — retrying later"
+  echo "update ${target:0:7} waits for $busy running task(s)"
   exit 0
 fi
 
@@ -46,4 +67,5 @@ cp deploy/host/autodev-worker.service deploy/host/autodev-update.service deploy/
 systemctl daemon-reload
 kubectl -n "$NS" rollout restart deploy/autodev-api deploy/autodev-dashboard
 systemctl restart autodev-worker
+rm -f "$DRAIN"
 echo "done"

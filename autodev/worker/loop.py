@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import signal
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 
 from sqlalchemy import case, func, select
 
@@ -49,13 +51,40 @@ class Worker:
     def __init__(self, ctx: WorkerContext) -> None:
         self.ctx = ctx
         self._claim_lock = asyncio.Lock()
+        self.stopping = asyncio.Event()
+        self._drain_logged = False
 
     async def run(self) -> None:
         slots = [f"developer-{i + 1}" for i in range(max(1, self.ctx.settings.worker_slots))]
         await self.register_agents(slots)
         await self.recover()
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, self.stop)
         logger.info("worker started: %d developer slot(s)", len(slots))
         await asyncio.gather(*(self.slot_loop(name) for name in slots), self.delivery_loop())
+        logger.info("worker stopped")
+
+    def stop(self) -> None:
+        """Graceful stop: take no new tasks, let running Claude sessions finish, then return from run()."""
+        if not self.stopping.is_set():
+            logger.info("stop requested — finishing running tasks, taking no new ones")
+            self.stopping.set()
+
+    def draining(self) -> bool:
+        """An update is waiting: don't start new tasks (running ones continue)."""
+        drain = Path(self.ctx.settings.drain_file).exists()
+        if drain != self._drain_logged:
+            logger.info("update pending — not taking new tasks" if drain else "update done — taking tasks again")
+            self._drain_logged = drain
+        return drain
+
+    async def _sleep(self, seconds: float) -> None:
+        """Sleep that ends early on stop()."""
+        try:
+            await asyncio.wait_for(self.stopping.wait(), timeout=seconds)
+        except TimeoutError:
+            pass
 
     async def register_agents(self, slots: list[str]) -> None:
         async with self.ctx.session_factory() as session:
@@ -92,15 +121,16 @@ class Worker:
             await session.commit()
 
     async def slot_loop(self, name: str) -> None:
-        while True:
+        while not self.stopping.is_set():
             try:
                 if self.ctx.paused():
                     remaining = (self.ctx.paused_until - datetime.now(UTC)).total_seconds()
-                    await asyncio.sleep(min(max(remaining, 1), 60))
+                    await self._sleep(min(max(remaining, 1), 60))
                     continue
-                task_id = await self.claim(name) if await self.developers_enabled() else None
+                runnable = not self.draining() and await self.developers_enabled()
+                task_id = await self.claim(name) if runnable else None
                 if task_id is None:
-                    await asyncio.sleep(self.ctx.settings.poll_interval)
+                    await self._sleep(self.ctx.settings.poll_interval)
                     continue
                 await self._agent_status(name, AgentStatus.WORKING, task_id)
                 try:
@@ -109,11 +139,11 @@ class Worker:
                     await self._agent_status(name, AgentStatus.IDLE, None)
             except Exception:
                 logger.exception("slot %s crashed — continuing", name)
-                await asyncio.sleep(5)
+                await self._sleep(5)
 
     async def delivery_loop(self) -> None:
         delivery = Delivery(self.ctx)
-        while True:
+        while not self.stopping.is_set():
             try:
                 await delivery.tick()
             except Exception:
@@ -122,7 +152,7 @@ class Worker:
                 await self._heartbeat()
             except Exception:
                 logger.exception("heartbeat failed")
-            await asyncio.sleep(self.ctx.settings.poll_interval * 2)
+            await self._sleep(self.ctx.settings.poll_interval * 2)
 
     async def _heartbeat(self) -> None:
         """Lets the dashboard tell a live worker from a dead one."""

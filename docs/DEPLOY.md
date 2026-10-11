@@ -3,7 +3,7 @@
 | part | where | how it updates |
 |---|---|---|
 | API + dashboard + Postgres | k3s, namespace `app-autodev`, ArgoCD app `app-autodev` (manifests in `hetzner-gitops/autodev`) | `autodev-update.timer` runs `kubectl rollout restart` after the Deploy workflow has built `:main` images |
-| worker | host, `autodev-worker.service`, root, checkout at `/opt/autodev` | the same timer: `git reset` to main, `uv sync`, restart — only while no slot is busy |
+| worker | host, `autodev-worker.service`, root, checkout at `/opt/autodev` | the same timer: raises `/run/autodev/drain` (worker stops taking new tasks), waits until no task is in progress, then `git reset` to main, `uv sync`, restart. `systemctl stop` also waits for running Claude sessions (up to 50 min) |
 
 The worker runs on the host with full rights so the agent can install toolchains, run
 tests, docker and browsers. `core/claude.py` has a deny-list guard for commands that would
