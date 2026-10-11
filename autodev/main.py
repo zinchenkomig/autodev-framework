@@ -51,7 +51,9 @@ async def seed_projects(session_factory: async_sessionmaker[AsyncSession], confi
 
 async def serve_api(settings: Settings) -> None:
     from autodev.api.app import app
+    from autodev.integrations.telegram_pm import sync_commands
 
+    await sync_commands()
     server = uvicorn.Server(uvicorn.Config(app, host=settings.host, port=settings.port, log_level="info"))
     await server.serve()
 

@@ -20,6 +20,17 @@ logger = logging.getLogger(__name__)
 TELEGRAM_API = "https://api.telegram.org"
 CURRENT_PROJECT_KEY = "telegram_current_project"
 
+#: Bot menu, pushed to Telegram on API start so it never drifts from the handlers.
+COMMANDS = [
+    ("tasks", "Задачи в работе"),
+    ("stage", "Что уже на stage"),
+    ("project", "Текущий проект / переключить"),
+    ("release", "Выкатить stage в прод"),
+    ("help", "Как пользоваться"),
+]
+#: Names from the v1 bot, still accepted so old habits keep working.
+ALIASES = {"/status": "/tasks", "/staging": "/stage"}
+
 STATUS_EMOJI = {
     "queued": "⏳",
     "in_progress": "🛠",
@@ -151,6 +162,7 @@ class TelegramPMBot:
     async def _handle_command(self, chat_id: str, text: str) -> None:
         cmd, _, arg = text.partition(" ")
         cmd = cmd.lower().split("@")[0]
+        cmd = ALIASES.get(cmd, cmd)
         arg = arg.strip()
         if cmd in ("/start", "/help"):
             await self.send_message(
@@ -334,6 +346,23 @@ class TelegramPMBot:
     async def close(self) -> None:
         if self._client:
             await self._client.aclose()
+
+
+async def sync_commands() -> None:
+    """Replace the bot's command menu with COMMANDS. Never raises."""
+    bot = await get_telegram_bot()
+    try:
+        if not bot.token:
+            return
+        resp = await bot.client.post(
+            "/setMyCommands",
+            json={"commands": [{"command": c, "description": d} for c, d in COMMANDS]},
+        )
+        resp.raise_for_status()
+    except Exception as e:
+        logger.error("Telegram setMyCommands failed: %s", e)
+    finally:
+        await bot.close()
 
 
 async def get_telegram_bot() -> TelegramPMBot:
