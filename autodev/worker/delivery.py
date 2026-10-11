@@ -241,18 +241,19 @@ class Delivery:
             by_sha.setdefault(run["head_sha"], []).append(run)
 
         own = by_sha.get(task.merge_sha, [])
-        if any(r.get("conclusion") in FAILED_CONCLUSIONS for r in own):
-            return "failed"
         if own and all(r.get("status") == "completed" and r.get("conclusion") in OK_CONCLUSIONS for r in own):
             return "deployed"
         # A newer commit whose workflows all passed also carries our change
-        # (deploy workflows often cancel superseded runs).
+        # (deploy workflows often cancel superseded runs, and a later deploy
+        # makes up for a failed one).
         for sha, group in by_sha.items():
             if sha == task.merge_sha:
                 continue
             if all(r.get("status") == "completed" and r.get("conclusion") in OK_CONCLUSIONS for r in group):
                 if await gh.contains_commit(sha, task.merge_sha, repo=task.repo):
                     return "deployed"
+        if any(r.get("conclusion") in FAILED_CONCLUSIONS for r in own):
+            return "failed"
         return "pending"
 
     async def on_stage(self, task: Task, reason: str) -> None:
