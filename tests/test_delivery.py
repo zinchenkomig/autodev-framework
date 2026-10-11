@@ -198,6 +198,18 @@ async def test_deploy_workflow_failure_fails_task(session_factory, project) -> N
     assert (await reload(session_factory, t.id)).status == TaskStatus.FAILED
 
 
+async def test_later_successful_deploy_makes_up_for_failed_one(session_factory, project) -> None:
+    gh = FakeGitHub()
+    gh.workflow_runs = [
+        {"head_sha": "m2", "status": "completed", "conclusion": "success"},
+        {"head_sha": "m1", "status": "completed", "conclusion": "failure"},
+    ]
+    gh.ancestry.add(("m2", "m1"))
+    t = await make_task(session_factory, status=TaskStatus.DEPLOYING, merge_sha="m1")
+    await Delivery(ctx(session_factory)).check_deploy(gh, t)
+    assert (await reload(session_factory, t.id)).status == TaskStatus.ON_STAGE
+
+
 async def test_deploy_timeout(session_factory, project) -> None:
     gh = FakeGitHub()
     gh.workflow_runs = [{"head_sha": "m1", "status": "in_progress", "conclusion": None}]
