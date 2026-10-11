@@ -13,9 +13,11 @@ Environment=PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/
 ExecStart=/root/.local/bin/uv run --no-sync python -m autodev
 Restart=always
 RestartSec=10
-# Claude sessions get SIGTERM with the service; in-progress tasks are requeued on start.
+# SIGTERM goes to the worker only: it stops taking tasks and waits for running
+# Claude sessions (AUTODEV_CLAUDE_TIMEOUT, 45 min) before exiting. Whatever is
+# still in progress after the timeout is killed and requeued on the next start.
 KillMode=mixed
-TimeoutStopSec=30
+TimeoutStopSec=50min
 
 [Install]
 WantedBy=multi-user.target

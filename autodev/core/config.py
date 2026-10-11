@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     workdir: str = Field(default="/work", validation_alias="AUTODEV_WORKDIR")
     worker_slots: int = Field(default=2, validation_alias="AUTODEV_WORKER_SLOTS")
     poll_interval: float = Field(default=10.0, validation_alias="AUTODEV_POLL_INTERVAL")
+    # While this file exists no new tasks are started (autodev-update.sh drains before restarting).
+    drain_file: str = Field(default="/run/autodev/drain", validation_alias="AUTODEV_DRAIN_FILE")
     max_fix_attempts: int = Field(default=3, validation_alias="AUTODEV_MAX_FIX_ATTEMPTS")
     # How long a PR may sit without any check run before it is merged anyway.
     checks_grace_seconds: int = Field(default=120, validation_alias="AUTODEV_CHECKS_GRACE")
