@@ -57,8 +57,15 @@ RESULT_SCHEMA: dict[str, Any] = {
             "description": "URL paths on the deployed site where the change is visible, e.g. ['/settings']. "
             "Empty for backend-only changes.",
         },
+        "test_plan": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Manual test plan in Russian for the product owner on stage, one step per item: "
+            "where to go (full stage URL), what to do, what result to expect. Cover the main scenario "
+            "and the important edge cases. Empty only when status is blocked.",
+        },
     },
-    "required": ["status", "summary"],
+    "required": ["status", "summary", "test_plan"],
 }
 
 _RATE_LIMIT_TEXT = re.compile(r"usage limit|hit your limit|rate limit|limit reached", re.IGNORECASE)

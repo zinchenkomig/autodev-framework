@@ -27,6 +27,12 @@ Rules:
 - Your final structured result: status ("done" / "blocked") and a 2-5 sentence
   summary in Russian of what changed and what a reviewer should look at. It becomes
   the PR description.
+- Also return test_plan: 3-8 concrete steps in Russian the product owner follows
+  on stage (often from a phone) to check the change by hand — exact URL, what to
+  click or enter, what they should see. Include the main scenario and the edge
+  cases that matter. For backend-only changes explain how the effect shows up
+  (a page, an API call with `curl`, a log). After a fix round return the plan for
+  the whole task as it is now, not only for the fix.
 """
 
 
