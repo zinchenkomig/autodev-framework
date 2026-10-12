@@ -1,6 +1,18 @@
 'use client'
 
-import { ArrowLeft, ExternalLink, GitPullRequest, Globe, Loader2, MessageSquarePlus, RotateCw, Square, Trash2 } from 'lucide-react'
+import {
+  ArrowLeft,
+  Check,
+  CheckCircle2,
+  ExternalLink,
+  GitPullRequest,
+  Globe,
+  Loader2,
+  MessageSquarePlus,
+  RotateCw,
+  Square,
+  Trash2,
+} from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
@@ -66,6 +78,11 @@ export default function TaskPage() {
             {s.label}
           </Badge>
           {t.pending_fix && t.status === 'queued' && <Badge tone="warn">{FIX_KIND[t.pending_fix] ?? t.pending_fix}</Badge>}
+          {t.verified_at && (
+            <Badge tone="ok">
+              <CheckCircle2 size={12} /> проверено
+            </Badge>
+          )}
           {t.priority !== 'normal' && <Badge tone={t.priority === 'low' ? 'neutral' : 'warn'}>{PRIORITY[t.priority]}</Badge>}
           <span>{ago(t.status_changed_at)}</span>
         </div>
@@ -91,6 +108,19 @@ export default function TaskPage() {
               <Globe size={15} /> Открыть stage
             </Button>
           </a>
+        )}
+        {merged && (
+          <Button
+            size="sm"
+            disabled={busy}
+            className={cx(t.verified_at && 'border-ok/40 text-ok')}
+            onClick={() =>
+              (!t.verified_at || confirm('Снять отметку «проверено»?')) &&
+              act(() => api.verifyTask(t.id, !t.verified_at), (r) => r && task.setData(r))
+            }
+          >
+            <CheckCircle2 size={15} /> {t.verified_at ? 'Проверено' : 'Отметить проверенным'}
+          </Button>
         )}
         {canFeedback && (
           <Button size="sm" onClick={() => setFeedbackOpen(true)}>
@@ -137,16 +167,15 @@ export default function TaskPage() {
       )}
 
       {t.test_plan.length > 0 && (
-        <Card className="p-4">
-          <div className="mb-1 text-sm font-semibold">Как проверить на stage</div>
-          <ol className="list-decimal space-y-1.5 pl-5 text-[15px] leading-relaxed">
-            {t.test_plan.map((step, i) => (
-              <li key={i} className="whitespace-pre-wrap">
-                {step}
-              </li>
-            ))}
-          </ol>
-        </Card>
+        <TestPlan
+          task={t}
+          interactive={merged}
+          onToggle={(step, done) => {
+            const checked = done ? [...t.plan_checked, step] : t.plan_checked.filter((i) => i !== step)
+            task.setData({ ...t, plan_checked: checked })
+            act(() => api.checkStep(t.id, step, done), (r) => r && task.setData(r))
+          }}
+        />
       )}
 
       {t.description && (
@@ -178,6 +207,62 @@ export default function TaskPage() {
         создана {dateTime(t.created_at)} · {t.created_by ?? t.source}
       </p>
     </div>
+  )
+}
+
+function TestPlan({
+  task,
+  interactive,
+  onToggle,
+}: {
+  task: Task
+  interactive: boolean
+  onToggle: (step: number, done: boolean) => void
+}) {
+  const checked = new Set(task.plan_checked)
+  const next = interactive ? task.test_plan.findIndex((_, i) => !checked.has(i)) : -1
+  return (
+    <Card className="p-2">
+      <div className="flex items-center justify-between px-2 pb-1 pt-2">
+        <span className="text-sm font-semibold">Как проверить на stage</span>
+        {interactive && (
+          <span className={cx('text-xs', checked.size === task.test_plan.length ? 'text-ok' : 'text-muted')}>
+            {checked.size} / {task.test_plan.length}
+          </span>
+        )}
+      </div>
+      <ol>
+        {task.test_plan.map((step, i) => {
+          const done = checked.has(i)
+          return (
+            <li key={i}>
+              <button
+                disabled={!interactive}
+                onClick={() => onToggle(i, !done)}
+                className={cx(
+                  'flex w-full items-start gap-3 rounded-xl px-2 py-2.5 text-left transition disabled:cursor-default',
+                  interactive && 'hover:bg-surface-2 active:scale-[0.99]',
+                  i === next && 'bg-accent/10',
+                )}
+              >
+                <span
+                  className={cx(
+                    'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border text-[11px] font-semibold',
+                    done ? 'border-ok bg-ok text-white' : i === next ? 'border-accent text-accent' : 'border-line text-muted',
+                  )}
+                >
+                  {done ? <Check size={14} strokeWidth={3} /> : i + 1}
+                </span>
+                <span className={cx('min-w-0 whitespace-pre-wrap break-words text-[15px] leading-relaxed', done && 'text-muted line-through')}>
+                  {step}
+                </span>
+              </button>
+            </li>
+          )
+        })}
+      </ol>
+      {!interactive && <p className="px-2 pb-2 pt-1 text-xs text-muted">Отмечать шаги можно, когда задача попадёт на stage.</p>}
+    </Card>
   )
 }
 

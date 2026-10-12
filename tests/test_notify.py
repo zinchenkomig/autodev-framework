@@ -30,6 +30,8 @@ async def test_on_stage_sends_test_plan_as_separate_message(sent) -> None:
     assert sent.await_args_list[0].kwargs["photo"] == b"png"
     plan = sent.await_args_list[1].args[0]
     assert "Как проверить #7" in plan and "1. Открой /users\n2. Введи &lt;ann&gt;" in plan
+    button = sent.await_args_list[1].kwargs["reply_markup"]["inline_keyboard"][0][0]
+    assert button["callback_data"].startswith("ok:")
 
 
 async def test_on_stage_without_plan_or_with_broken_qa_sends_one_message(sent) -> None:

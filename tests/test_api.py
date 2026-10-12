@@ -258,3 +258,25 @@ async def test_artifacts_endpoints(client, project, session_factory) -> None:
     r = await client.get(listed[0]["url"])
     assert r.status_code == 200 and r.content == b"\x89PNG" and r.headers["content-type"] == "image/png"
     assert (await client.get(f"/api/tasks/{other['id']}/artifacts/{a.id}")).status_code == 404
+
+
+async def test_test_plan_checklist_and_verify(client, project, session_factory) -> None:
+    t = (await client.post("/api/tasks/", json={"title": "x"})).json()
+    plan = {"test_plan": ["Открой /users", "Найди Ann"]}
+    assert (await client.post(f"/api/tasks/{t['id']}/verify", json={"verified": True})).status_code == 409
+
+    await set_status(session_factory, t["id"], TaskStatus.ON_STAGE, metadata_=plan)
+    r = (await client.post(f"/api/tasks/{t['id']}/plan/1", json={"done": True})).json()
+    assert r["plan_checked"] == [1] and r["verified_at"] is None
+    r = (await client.post(f"/api/tasks/{t['id']}/plan/0", json={"done": True})).json()
+    assert r["plan_checked"] == [0, 1] and r["verified_at"]  # last step ticked → verified
+
+    r = (await client.post(f"/api/tasks/{t['id']}/plan/0", json={"done": False})).json()
+    assert r["plan_checked"] == [1] and r["verified_at"] is None
+    assert (await client.post(f"/api/tasks/{t['id']}/plan/2", json={"done": True})).status_code == 409
+
+    r = (await client.post(f"/api/tasks/{t['id']}/verify", json={"verified": True})).json()
+    assert r["verified_at"] and r["plan_checked"] == [1]
+    assert (await client.get(f"/api/tasks/{t['id']}")).json()["verified_at"] == r["verified_at"]
+    r = (await client.post(f"/api/tasks/{t['id']}/verify", json={"verified": False})).json()
+    assert r["verified_at"] is None

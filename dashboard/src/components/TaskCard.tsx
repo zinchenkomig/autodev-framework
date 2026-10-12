@@ -1,4 +1,4 @@
-import { AlertTriangle, GitPullRequest, Loader2, RotateCw } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, GitPullRequest, ListChecks, Loader2, RotateCw } from 'lucide-react'
 import Link from 'next/link'
 import type { Task } from '@/lib/api'
 import { FIX_KIND, PRIORITY, STATUS, ago, cx } from '@/lib/format'
@@ -37,6 +37,20 @@ export function TaskCard({ task, showProject }: { task: Task; showProject?: bool
         {(task.priority === 'critical' || task.priority === 'high') && (
           <Badge tone={task.priority === 'critical' ? 'bad' : 'warn'}>{PRIORITY[task.priority]}</Badge>
         )}
+        {task.status === 'on_stage' &&
+          (task.verified_at ? (
+            <Badge tone="ok">
+              <CheckCircle2 size={12} />
+              проверено
+            </Badge>
+          ) : (
+            task.test_plan.length > 0 && (
+              <span className="inline-flex items-center gap-1 text-xs text-muted">
+                <ListChecks size={12} />
+                {task.plan_checked.length}/{task.test_plan.length}
+              </span>
+            )
+          ))}
         {task.pr_number && (
           <span className="inline-flex items-center gap-1 text-xs text-muted">
             <GitPullRequest size={12} />#{task.pr_number}

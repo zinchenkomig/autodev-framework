@@ -285,8 +285,9 @@ class TelegramPMBot:
                 project = projects.get(current)
                 url = f' — <a href="{_esc(project.stage_url)}">stage</a>' if project and project.stage_url else ""
                 text += f"\n<b>{_esc(project.name if project else current or '?')}</b>{url}\n"
-            text += f"✅ #{t.ticket_number} {_esc(t.title[:60])}\n"
-        await self.send_message(chat_id, text.strip())
+            mark = "✅" if (t.metadata_ or {}).get("verified_at") else "👀"
+            text += f"{mark} #{t.ticket_number} {_esc(t.title[:60])}\n"
+        await self.send_message(chat_id, text.strip() + "\n\n✅ проверено · 👀 ждёт проверки")
 
     async def _ask_release(self, chat_id: str) -> None:
         from autodev.api.database import SessionLocal
@@ -313,6 +314,9 @@ class TelegramPMBot:
             return
 
         action, _, arg = data.partition(":")
+        if action == "ok":
+            await self._verify_from_callback(callback_id, chat_id, message_id, arg)
+            return
         if action != "rel":
             await self.answer_callback_query(callback_id)
             return
@@ -343,6 +347,30 @@ class TelegramPMBot:
             chat_id, message_id, f"🚀 Релиз {_esc(release.version)} запущен — смержу, когда пройдут проверки.\n{prs}"
         )
 
+    async def _verify_from_callback(self, callback_id: str, chat_id: str, message_id: int, task_id: str) -> None:
+        import uuid
+
+        from autodev import notify, review
+        from autodev.api.database import SessionLocal
+        from autodev.core.models import Task
+
+        async with SessionLocal() as session:
+            try:
+                task = await session.get(Task, uuid.UUID(task_id), with_for_update=True)
+            except ValueError:
+                task = None
+            if task is None:
+                await self.answer_callback_query(callback_id, "Задача не найдена")
+                return
+            try:
+                review.set_verified(task, True)
+            except review.ReviewError:
+                await self.answer_callback_query(callback_id, "Задача уже не на stage")
+                return
+            await session.commit()
+        await self.answer_callback_query(callback_id, "Отмечено")
+        await self.edit_message_text(chat_id, message_id, notify.test_plan_text(task) + "\n\n✅ <b>Проверено</b>")
+
     async def close(self) -> None:
         if self._client:
             await self._client.aclose()
@@ -370,14 +398,14 @@ async def get_telegram_bot() -> TelegramPMBot:
     return await TelegramPMBot.from_settings()
 
 
-async def notify_owner(text: str, photo: bytes | None = None) -> bool:
+async def notify_owner(text: str, photo: bytes | None = None, reply_markup: dict | None = None) -> bool:
     """Send an HTML message (optionally with a photo) to the owner chat. Returns True if delivered."""
     bot = await get_telegram_bot()
     try:
         if not bot.token or not bot.owner_chat_id:
             return False
-        if photo and len(text) <= 1024 and await bot.send_photo(bot.owner_chat_id, photo, text):
+        if photo and not reply_markup and len(text) <= 1024 and await bot.send_photo(bot.owner_chat_id, photo, text):
             return True
-        return bool(await bot.send_message(bot.owner_chat_id, text))
+        return bool(await bot.send_message(bot.owner_chat_id, text, reply_markup=reply_markup))
     finally:
         await bot.close()

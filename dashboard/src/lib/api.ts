@@ -34,6 +34,8 @@ export interface Task {
   pending_fix: string | null
   qa: { ok: boolean; problems: string[]; skipped: string | null } | null
   test_plan: string[]
+  plan_checked: number[]
+  verified_at: string | null
   depends_on: string[]
   created_by: string | null
   created_at: string
@@ -177,6 +179,8 @@ export const api = {
   cancelTask: (id: string) => post<Task>(`/api/tasks/${id}/cancel`),
   retryTask: (id: string) => post<Task>(`/api/tasks/${id}/retry`),
   feedback: (id: string, text: string) => post<Task>(`/api/tasks/${id}/feedback`, { text }),
+  checkStep: (id: string, step: number, done: boolean) => post<Task>(`/api/tasks/${id}/plan/${step}`, { done }),
+  verifyTask: (id: string, verified: boolean) => post<Task>(`/api/tasks/${id}/verify`, { verified }),
   logs: (id: string, after?: string) =>
     request<LogEntry[]>(`/api/tasks/${id}/logs${after ? `?after=${encodeURIComponent(after)}` : ''}`),
   artifacts: (id: string) => request<Artifact[]>(`/api/tasks/${id}/artifacts`),

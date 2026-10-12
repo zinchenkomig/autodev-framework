@@ -136,6 +136,21 @@ async def test_test_plan_is_stored_and_put_into_pr(wired, session_factory) -> No
     assert "### Как проверить на stage\n1. Открой /users\n2. Введи «ann»" in gh.prs[1]["body"]
 
 
+async def test_new_test_plan_resets_owner_check(wired, session_factory) -> None:
+    ctx, _, _ = wired
+    FakeRunner.result = ClaudeResult(ok=True, summary="s", session_id="sess-1", data={"test_plan": ["Новый шаг"]})
+    t = await new_task(session_factory)
+    async with session_factory() as s:
+        task = await s.get(Task, t.id)
+        task.metadata_ = {"test_plan": ["Старый шаг"], "plan_checked": [0], "verified_at": "2026-10-12T00:00:00+00:00"}
+        await s.commit()
+    await develop(ctx, t.id, "developer-1")
+
+    t = await reload(session_factory, t.id)
+    assert t.metadata_["test_plan"] == ["Новый шаг"]
+    assert "plan_checked" not in t.metadata_ and "verified_at" not in t.metadata_
+
+
 async def test_uncommitted_changes_are_committed(wired, session_factory) -> None:
     ctx, gh, remote = wired
 
