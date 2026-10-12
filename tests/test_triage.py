@@ -42,6 +42,7 @@ async def test_split_into_dependent_tasks(session_factory, tmp_path, monkeypatch
 
     updated = await triage_mod.triage(ctx, task, project, log)
     assert updated.repo == "acme/api" and "GET /users?q=" in updated.description
+    assert updated.title == "API поиска" and "Поиск по пользователям" in updated.description
 
     async with session_factory() as s:
         from sqlalchemy import select
