@@ -280,3 +280,24 @@ async def test_test_plan_checklist_and_verify(client, project, session_factory) 
     assert (await client.get(f"/api/tasks/{t['id']}")).json()["verified_at"] == r["verified_at"]
     r = (await client.post(f"/api/tasks/{t['id']}/verify", json={"verified": False})).json()
     assert r["verified_at"] is None
+
+
+async def test_follow_up_in_multi_repo_project_goes_through_triage(client, session_factory) -> None:
+    repos = [{"name": "acme/web", "role": "frontend"}, {"name": "acme/api", "role": "backend"}]
+    async with session_factory() as s:
+        s.add(make_project("alerter", repos=repos))
+        await s.commit()
+    t = (await client.post("/api/tasks/", json={"title": "Экран", "project_id": "alerter", "repo": "acme/web"})).json()
+    await set_status(session_factory, t["id"], TaskStatus.ON_STAGE, pr_url="https://pr/1")
+
+    r = (await client.post(f"/api/tasks/{t['id']}/feedback", json={"text": "добавь квантили"})).json()
+    assert r["repo"] is None and r["title"] == "Экран — доработка" and "[acme/web]" in r["description"]
+    await set_status(session_factory, r["id"], TaskStatus.ON_STAGE)
+    again = (await client.post(f"/api/tasks/{r['id']}/feedback", json={"text": "ещё"})).json()
+    assert again["title"] == "Экран — доработка"  # no "— доработка — доработка"
+
+    # Both follow-ups hang under the main task, not under each other.
+    assert r["parent"]["id"] == t["id"] and again["parent"]["ticket_number"] == t["ticket_number"]
+    children = (await client.get("/api/tasks/", params={"parent_id": t["id"]})).json()
+    assert [c["id"] for c in children] == [r["id"], again["id"]]
+    assert (await client.get(f"/api/tasks/{t['id']}")).json()["parent"] is None

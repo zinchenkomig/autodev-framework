@@ -103,6 +103,7 @@ async def triage(ctx: WorkerContext, task: Task, project: Project, log) -> Task:
                 repo=part["repo"],
                 priority=task.priority,
                 depends_on=[previous],
+                parent_id=task.root_id,
                 created_by="triage",
                 status=TaskStatus.QUEUED,
                 metadata_={},

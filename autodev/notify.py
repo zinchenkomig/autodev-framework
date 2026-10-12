@@ -61,6 +61,13 @@ async def blocked(task: Task, reason: str) -> None:
     await _send(f"🤔 {_task_link(task)} — агенту нужна помощь\n\n{html.escape(reason[:1000])}")
 
 
+async def waiting(task: Task, prerequisite: Task) -> None:
+    await _send(
+        f"🔗 {_task_link(task)} ждёт {_task_link(prerequisite)} ({html.escape(prerequisite.repo or '')}) — "
+        "сначала сделаю её, потом продолжу"
+    )
+
+
 async def released(release: Release, project: Project, tasks: list[Task]) -> None:
     lines = "\n".join(f"• {html.escape(f'#{t.ticket_number} {t.title}')}" for t in tasks[:30])
     await _send(f"🚀 <b>{html.escape(project.name)}</b> {html.escape(release.version)} в проде\n\n{lines}")

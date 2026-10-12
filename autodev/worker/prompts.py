@@ -24,6 +24,11 @@ Rules:
   merge PRs, do NOT switch branches — the orchestrator does that.
 - If the task is impossible or too ambiguous to do safely, make no changes and
   return status "blocked" with the reason.
+- If the task needs a change in another repository of the project first (e.g. the
+  backend lacks a field the UI must send), make no changes, return status "blocked"
+  and describe that change in `needs` (repo, title, description with the exact
+  contract). AutoDev creates it as a task there and retries this one once it is
+  merged — so don't give up on the task, and don't fake the missing part.
 - Your final structured result: status ("done" / "blocked") and a 2-5 sentence
   summary in Russian of what changed and what a reviewer should look at. It becomes
   the PR description.

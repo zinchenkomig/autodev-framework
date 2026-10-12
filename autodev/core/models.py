@@ -269,6 +269,11 @@ class Task(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     release_id: Mapped[uuid.UUID | None] = mapped_column(_UUID(), nullable=True)
     depends_on: Mapped[list[uuid.UUID] | None] = mapped_column(_JSONEncodedList(), nullable=True, default=list)
+    # The main task this one belongs to (follow-ups, triage parts, QA fixes, prerequisites).
+    # Always the root, so the hierarchy is one level deep.
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        _UUID(), ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     metadata_: Mapped[dict | None] = mapped_column("metadata", _JSONEncodedDict(), nullable=True, default=dict)
     created_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -285,6 +290,11 @@ class Task(Base):
     )
 
     project: Mapped[Project | None] = relationship("Project", lazy="selectin")
+
+    @property
+    def root_id(self) -> uuid.UUID:
+        """Parent for a task spawned from this one."""
+        return self.parent_id or self.id
 
     def __repr__(self) -> str:
         return f"<Task id={self.id} title={self.title!r} status={self.status}>"

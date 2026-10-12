@@ -309,6 +309,7 @@ async def test_failed_qa_queues_one_fix_task(session_factory, project, stub_qa) 
     async with session_factory() as s:
         fixes = (await s.execute(select(Task).where(Task.created_by == "qa"))).scalars().all()
     assert len(fixes) == 1 and "HTTP 500" in fixes[0].description and fixes[0].depends_on == [t.id]
+    assert fixes[0].parent_id == t.id
     assert (await reload(session_factory, t.id)).metadata_["qa"]["ok"] is False
 
     # a QA follow-up that is itself broken doesn't spawn another one
