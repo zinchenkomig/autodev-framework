@@ -87,10 +87,14 @@ async def triage(ctx: WorkerContext, task: Task, project: Project, log) -> Task:
         raise RuntimeError(f"Triage failed: {result.summary}")
 
     first, rest = parts[0], parts[1:]
-    description = task.description or ""
+    fields: dict = {"repo": first["repo"]}
     if len(parts) > 1:
-        description = f"{description}\n\n## This part ({first['repo']})\n{first['description']}".strip()
-    updated = await ctx.store.update(task.id, repo=first["repo"], description=description) or task
+        # The task now stands for its first part only: title it so in the hierarchy.
+        fields["title"] = first["title"].strip()[:500] or task.title
+        fields["description"] = (
+            f"{task.description or task.title}\n\n## This part ({first['repo']})\n{first['description']}".strip()
+        )
+    updated = await ctx.store.update(task.id, **fields) or task
 
     previous = task.id
     async with ctx.session_factory() as session:
