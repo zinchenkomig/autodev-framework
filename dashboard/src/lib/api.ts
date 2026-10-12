@@ -14,6 +14,13 @@ export type TaskStatus =
 
 export type Priority = 'critical' | 'high' | 'normal' | 'low'
 
+export interface TaskRef {
+  id: string
+  ticket_number: number
+  title: string
+  status: TaskStatus
+}
+
 export interface Task {
   id: string
   ticket_number: number
@@ -37,6 +44,7 @@ export interface Task {
   plan_checked: number[]
   verified_at: string | null
   depends_on: string[]
+  parent: TaskRef | null
   created_by: string | null
   created_at: string
   status_changed_at: string
@@ -171,6 +179,7 @@ export const api = {
   tasks: (projectId?: string) =>
     request<Task[]>(`/api/tasks/?limit=500${projectId ? `&project_id=${encodeURIComponent(projectId)}` : ''}`),
   task: (id: string) => request<Task>(`/api/tasks/${id}`),
+  children: (id: string) => request<Task[]>(`/api/tasks/?parent_id=${encodeURIComponent(id)}`),
   createTask: (t: { title: string; description: string; project_id: string; repo?: string | null; priority: Priority }) =>
     post<Task>('/api/tasks/', t),
   updateTask: (id: string, t: Partial<Pick<Task, 'title' | 'description' | 'priority'>>) =>

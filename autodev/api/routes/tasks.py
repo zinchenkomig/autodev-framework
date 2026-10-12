@@ -62,6 +62,13 @@ class VerifyRequest(BaseModel):
     verified: bool
 
 
+class TaskRef(BaseModel):
+    id: str
+    ticket_number: int
+    title: str
+    status: str
+
+
 class TaskResponse(BaseModel):
     id: str
     ticket_number: int
@@ -85,6 +92,7 @@ class TaskResponse(BaseModel):
     plan_checked: list[int]  # indices of the test_plan steps the owner has ticked
     verified_at: datetime | None  # when the owner accepted the change on stage
     depends_on: list[str]
+    parent: TaskRef | None  # the main task, for follow-ups and parts
     created_by: str | None
     created_at: datetime
     status_changed_at: datetime
@@ -117,7 +125,7 @@ class TransitionResponse(BaseModel):
     created_at: datetime
 
 
-def to_response(task: Task) -> TaskResponse:
+def to_response(task: Task, parent: Task | None = None) -> TaskResponse:
     fix = (task.metadata_ or {}).get("fix")
     return TaskResponse(
         id=str(task.id),
@@ -142,6 +150,9 @@ def to_response(task: Task) -> TaskResponse:
         plan_checked=review.plan_checked(task),
         verified_at=review.verified_at(task),
         depends_on=[str(d) for d in task.depends_on or []],
+        parent=TaskRef(id=str(parent.id), ticket_number=parent.ticket_number, title=parent.title, status=parent.status)
+        if parent is not None
+        else None,
         created_by=task.created_by,
         created_at=task.created_at,
         status_changed_at=task.status_changed_at,
@@ -163,6 +174,19 @@ async def load_task(session: AsyncSession, task_id: str, *, lock: bool = False) 
     if task is None:
         raise HTTPException(404, "Task not found")
     return task
+
+
+async def respond(session: AsyncSession, tasks: list[Task]) -> list[TaskResponse]:
+    """Responses with each task's parent filled in (one extra query)."""
+    ids = {t.parent_id for t in tasks if t.parent_id}
+    parents = {}
+    if ids:
+        parents = {p.id: p for p in (await session.execute(select(Task).where(Task.id.in_(ids)))).scalars()}
+    return [to_response(t, parents.get(t.parent_id)) for t in tasks]
+
+
+async def respond_one(session: AsyncSession, task: Task) -> TaskResponse:
+    return (await respond(session, [task]))[0]
 
 
 async def resolve_target(session: AsyncSession, project_id: str | None, repo: str | None) -> tuple[Project, str | None]:
@@ -209,6 +233,7 @@ async def list_tasks(
     session: Annotated[AsyncSession, Depends(get_session)],
     project_id: str | None = Query(default=None),
     status: list[str] | None = Query(default=None),
+    parent_id: uuid.UUID | None = Query(default=None, description="Only follow-ups and parts of this task"),
     limit: int = Query(default=200, ge=1, le=1000),
 ) -> list[TaskResponse]:
     stmt = select(Task).order_by(Task.status_changed_at.desc()).limit(limit)
@@ -216,7 +241,9 @@ async def list_tasks(
         stmt = stmt.where(Task.project_id == project_id)
     if status:
         stmt = stmt.where(Task.status.in_(status))
-    return [to_response(t) for t in (await session.execute(stmt)).scalars()]
+    if parent_id:
+        stmt = select(Task).where(Task.parent_id == parent_id).order_by(Task.ticket_number).limit(limit)
+    return await respond(session, list((await session.execute(stmt)).scalars()))
 
 
 @router.post("/", summary="Create a task", status_code=201)
@@ -236,12 +263,12 @@ async def create_task(body: TaskCreate, session: Annotated[AsyncSession, Depends
     session.add(task)
     await session.flush()
     await session.refresh(task)
-    return to_response(task)
+    return await respond_one(session, task)
 
 
 @router.get("/{task_id}", summary="Get a task")
 async def get_task(task_id: str, session: Annotated[AsyncSession, Depends(get_session)]) -> TaskResponse:
-    return to_response(await load_task(session, task_id))
+    return await respond_one(session, await load_task(session, task_id))
 
 
 @router.patch("/{task_id}", summary="Edit a task")
@@ -261,7 +288,7 @@ async def update_task(
         project, repo = await resolve_target(session, body.project_id or task.project_id, body.repo)
         task.project_id, task.repo = project.id, repo
     await session.flush()
-    return to_response(task)
+    return await respond_one(session, task)
 
 
 @router.delete("/{task_id}", summary="Delete a task", status_code=204)
@@ -278,7 +305,7 @@ async def cancel_task(task_id: str, session: Annotated[AsyncSession, Depends(get
     if task.status not in (TaskStatus.QUEUED, TaskStatus.IN_PROGRESS, TaskStatus.CI):
         raise HTTPException(409, f"Can't cancel a task in {task.status}")
     move(session, task, TaskStatus.CANCELLED, "cancelled by owner")
-    return to_response(task)
+    return await respond_one(session, task)
 
 
 @router.post("/{task_id}/retry", summary="Run a failed or cancelled task again")
@@ -291,7 +318,7 @@ async def retry_task(task_id: str, session: Annotated[AsyncSession, Depends(get_
         # Keep the reason so the agent knows what went wrong last time.
         metadata["fix"] = {"kind": "retry", "details": f"Previous attempt failed:\n{task.error[:3000]}"}
     move(session, task, TaskStatus.QUEUED, "retry", attempts=0, error=None, metadata_=metadata)
-    return to_response(task)
+    return await respond_one(session, task)
 
 
 @router.post("/{task_id}/feedback", summary="Ask for changes")
@@ -303,13 +330,18 @@ async def feedback(
     text = body.text.strip()
 
     if task.status in MERGED_STATUSES:
+        # In a multi-repo project the follow-up may need another repo (or several):
+        # leave the repo open so triage decides, like for a new task.
+        project = await session.get(Project, task.project_id) if task.project_id else None
+        multi_repo = project is not None and len(project.repos) > 1
         follow_up = Task(
-            title=f"{task.title} — доработка",
-            description=f"{text}\n\n---\nFollow-up to #{task.ticket_number} ({task.pr_url or 'no PR'}).",
+            title=f"{task.title.removesuffix(' — доработка')} — доработка",
+            description=f"{text}\n\n---\nFollow-up to #{task.ticket_number} [{task.repo}] ({task.pr_url or 'no PR'}).",
             project_id=task.project_id,
-            repo=task.repo,
+            repo=None if multi_repo else task.repo,
             priority=task.priority,
             depends_on=[task.id],
+            parent_id=task.root_id,
             created_by="feedback",
             status=TaskStatus.QUEUED,
             metadata_={},
@@ -317,17 +349,17 @@ async def feedback(
         session.add(follow_up)
         await session.flush()
         await session.refresh(follow_up)
-        return to_response(follow_up)
+        return await respond_one(session, follow_up)
 
     if task.status in (TaskStatus.CI, TaskStatus.FAILED, TaskStatus.CANCELLED) and task.pr_number:
         metadata = dict(task.metadata_ or {})
         metadata["fix"] = {"kind": "feedback", "details": text}
         move(session, task, TaskStatus.QUEUED, "owner feedback", metadata_=metadata, error=None)
-        return to_response(task)
+        return await respond_one(session, task)
 
     if task.status == TaskStatus.QUEUED and not task.branch:
         task.description = f"{task.description or ''}\n\n{text}".strip()
-        return to_response(task)
+        return await respond_one(session, task)
 
     raise HTTPException(409, f"Can't take feedback while the task is {task.status}")
 
@@ -341,7 +373,7 @@ async def check_step(
         review.check_step(task, step, body.done)
     except review.ReviewError as exc:
         raise HTTPException(409, str(exc)) from None
-    return to_response(task)
+    return await respond_one(session, task)
 
 
 @router.post("/{task_id}/verify", summary="Mark a task checked on stage (or take the mark back)")
@@ -353,7 +385,7 @@ async def verify_task(
         review.set_verified(task, body.verified)
     except review.ReviewError as exc:
         raise HTTPException(409, str(exc)) from None
-    return to_response(task)
+    return await respond_one(session, task)
 
 
 @router.get("/{task_id}/logs", summary="Task log")

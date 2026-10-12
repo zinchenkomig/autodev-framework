@@ -91,6 +91,8 @@ async def develop(ctx: WorkerContext, task_id: uuid.UUID, slot: str) -> None:
                 f"🧠 Agent finished: {result.num_turns} turns, ${result.cost_usd:.2f}",
                 details=result.summary or None,
             )
+            if result.blocked and await _wait_for_prerequisite(ctx, task, project, repo, result, slot, log):
+                return
             if result.blocked:
                 moved = await store.transition(
                     task_id,
@@ -209,6 +211,70 @@ async def _run_agent(ctx, task, project, repo, deps, fix, existing, cwd, log, ca
             prompt += "\n\n## Notes from the previous attempt\n" + fix["details"]
     await log("info", "🧠 Agent started")
     return await runner.run(prompt, on_log=log, should_cancel=cancelled)
+
+
+#: A task may spawn this many prerequisite tasks in other repos before a "blocked" fails it.
+MAX_PREREQUISITES = 2
+
+
+async def _wait_for_prerequisite(
+    ctx: WorkerContext, task: Task, project, repo: dict, result: ClaudeResult, slot: str, log
+) -> bool:
+    """The agent needs another repo changed first: queue that change and retry this task after it.
+
+    Returns True if the task now waits for the new prerequisite.
+    """
+    needs = result.data.get("needs")
+    if not isinstance(needs, dict):
+        return False
+    other = project.repo(str(needs.get("repo") or ""))
+    title = str(needs.get("title") or "").strip()
+    if other is None or other["name"] == repo["name"] or not title:
+        await log("warning", f"🔗 Ignoring prerequisite for unknown repo {needs.get('repo')!r}")
+        return False
+    metadata = dict(task.metadata_ or {})
+    spawned = metadata.get("prerequisites") or []
+    if len(spawned) >= MAX_PREREQUISITES:
+        await log("warning", "🔗 Prerequisite limit reached — giving up")
+        return False
+
+    async with ctx.session_factory() as session:
+        prerequisite = Task(
+            id=uuid.uuid4(),
+            title=title[:500],
+            description=f"{str(needs.get('description') or '').strip()}\n\n---\n"
+            f"Needed by #{task.ticket_number} ({repo['name']}): {task.title}",
+            project_id=project.id,
+            repo=other["name"],
+            priority=task.priority,
+            parent_id=task.root_id,
+            created_by="developer",
+            status=TaskStatus.QUEUED,
+            metadata_={},
+        )
+        session.add(prerequisite)
+        await session.commit()
+        await session.refresh(prerequisite)
+
+    metadata["prerequisites"] = [*spawned, str(prerequisite.id)]
+    moved = await ctx.store.transition(
+        task.id,
+        TaskStatus.QUEUED,
+        reason=f"waits for #{prerequisite.ticket_number} in {other['name']}",
+        by=slot,
+        only_from={TaskStatus.IN_PROGRESS},
+        depends_on=[*(task.depends_on or []), prerequisite.id],
+        metadata_=metadata,
+    )
+    if moved is None:  # cancelled meanwhile: the prerequisite is still useful on its own
+        return True
+    await log(
+        "info",
+        f"🔗 Needs #{prerequisite.ticket_number} in {other['name']} first — will continue after it is merged",
+        details=result.summary or None,
+    )
+    await notify.waiting(moved, prerequisite)
+    return True
 
 
 async def _load_deps(ctx: WorkerContext, task: Task) -> list[Task]:

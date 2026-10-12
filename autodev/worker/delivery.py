@@ -322,6 +322,7 @@ class Delivery:
                     repo=task.repo,
                     priority="high",
                     depends_on=[task.id],
+                    parent_id=task.root_id,
                     created_by="qa",
                     status=TaskStatus.QUEUED,
                     metadata_={},

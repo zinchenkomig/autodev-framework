@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, GitPullRequest, ListChecks, Loader2, RotateCw } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, CornerDownRight, GitPullRequest, ListChecks, Loader2, RotateCw } from 'lucide-react'
 import Link from 'next/link'
 import type { Task } from '@/lib/api'
 import { FIX_KIND, PRIORITY, STATUS, ago, cx } from '@/lib/format'
@@ -22,6 +22,14 @@ export function TaskCard({ task, showProject }: { task: Task; showProject?: bool
         </span>
         <span className="ml-auto shrink-0">{ago(task.status_changed_at)}</span>
       </div>
+      {task.parent && (
+        <div className="mb-1 flex min-w-0 items-center gap-1 text-xs text-muted">
+          <CornerDownRight size={12} className="shrink-0" />
+          <span className="truncate">
+            #{task.parent.ticket_number} {task.parent.title}
+          </span>
+        </div>
+      )}
       <div className="line-clamp-3 text-[15px] font-medium leading-snug">{task.title}</div>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <Badge tone={s.tone}>

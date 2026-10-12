@@ -3,6 +3,7 @@
 import {
   ArrowLeft,
   Check,
+  CornerDownRight,
   CheckCircle2,
   ExternalLink,
   GitPullRequest,
@@ -86,6 +87,19 @@ export default function TaskPage() {
           {t.priority !== 'normal' && <Badge tone={t.priority === 'low' ? 'neutral' : 'warn'}>{PRIORITY[t.priority]}</Badge>}
           <span>{ago(t.status_changed_at)}</span>
         </div>
+        {t.parent && (
+          <Link
+            href={`/tasks/${t.parent.id}`}
+            className="flex min-w-0 items-center gap-1.5 text-sm text-muted hover:text-fg"
+          >
+            <CornerDownRight size={14} className="shrink-0" />
+            <span className="shrink-0">Основная задача</span>
+            <span className="truncate font-medium">
+              #{t.parent.ticket_number} {t.parent.title}
+            </span>
+            <Badge tone={STATUS[t.parent.status].tone}>{STATUS[t.parent.status].label}</Badge>
+          </Link>
+        )}
         <h1 className="text-xl font-semibold leading-snug sm:text-2xl">{t.title}</h1>
         <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-muted">
           {project && <Link href={`/projects/${project.id}`} className="hover:text-fg">{project.name}</Link>}
@@ -178,6 +192,8 @@ export default function TaskPage() {
         />
       )}
 
+      {!t.parent && <Children taskId={t.id} />}
+
       {t.description && (
         <Card className="p-4">
           <div className="mb-1 text-sm font-semibold">Задача</div>
@@ -207,6 +223,30 @@ export default function TaskPage() {
         создана {dateTime(t.created_at)} · {t.created_by ?? t.source}
       </p>
     </div>
+  )
+}
+
+function Children({ taskId }: { taskId: string }) {
+  const { data } = usePoll(() => api.children(taskId), 8000, [taskId])
+  if (!data?.length) return null
+  return (
+    <Card className="p-2">
+      <div className="px-2 pb-1 pt-2 text-sm font-semibold">Доработки и подзадачи · {data.length}</div>
+      {data.map((c) => {
+        const s = STATUS[c.status]
+        return (
+          <Link key={c.id} href={`/tasks/${c.id}`} className="flex items-center gap-2 rounded-xl px-2 py-2.5 hover:bg-surface-2">
+            <span className="shrink-0 font-mono text-xs text-muted">#{c.ticket_number}</span>
+            <span className="min-w-0 flex-1 truncate text-[15px]">{c.title}</span>
+            {c.verified_at && <CheckCircle2 size={14} className="shrink-0 text-ok" />}
+            <Badge tone={s.tone}>
+              {c.status === 'in_progress' && <Loader2 size={12} className="animate-spin" />}
+              {s.label}
+            </Badge>
+          </Link>
+        )
+      })}
+    </Card>
   )
 }
 

@@ -48,6 +48,7 @@ async def test_split_into_dependent_tasks(session_factory, tmp_path, monkeypatch
 
         child = (await s.execute(select(Task).where(Task.id != task.id))).scalar_one()
     assert child.repo == "acme/web" and child.depends_on == [task.id] and child.status == TaskStatus.QUEUED
+    assert child.parent_id == task.id
 
 
 def test_schema_limits_repos() -> None:
