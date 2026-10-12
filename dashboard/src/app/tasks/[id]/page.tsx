@@ -226,18 +226,30 @@ export default function TaskPage() {
   )
 }
 
+const CHILD_KIND: Record<string, string> = {
+  feedback: 'доработка',
+  triage: 'часть задачи',
+  qa: 'исправление после QA',
+  developer: 'нужно для другой части',
+}
+
 function Children({ taskId }: { taskId: string }) {
   const { data } = usePoll(() => api.children(taskId), 8000, [taskId])
   if (!data?.length) return null
   return (
     <Card className="p-2">
-      <div className="px-2 pb-1 pt-2 text-sm font-semibold">Доработки и подзадачи · {data.length}</div>
+      <div className="px-2 pb-1 pt-2 text-sm font-semibold">Подзадачи и доработки · {data.length}</div>
       {data.map((c) => {
         const s = STATUS[c.status]
         return (
           <Link key={c.id} href={`/tasks/${c.id}`} className="flex items-center gap-2 rounded-xl px-2 py-2.5 hover:bg-surface-2">
             <span className="shrink-0 font-mono text-xs text-muted">#{c.ticket_number}</span>
-            <span className="min-w-0 flex-1 truncate text-[15px]">{c.title}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[15px]">{c.title}</span>
+              <span className="block truncate text-xs text-muted">
+                {[CHILD_KIND[c.created_by ?? ''], c.repo?.split('/')[1]].filter(Boolean).join(' · ')}
+              </span>
+            </span>
             {c.verified_at && <CheckCircle2 size={14} className="shrink-0 text-ok" />}
             <Badge tone={s.tone}>
               {c.status === 'in_progress' && <Loader2 size={12} className="animate-spin" />}
