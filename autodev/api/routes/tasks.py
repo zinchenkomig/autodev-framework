@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from autodev import review
 from autodev.api.database import get_session
 from autodev.core.models import (
     MERGED_STATUSES,
@@ -53,6 +54,14 @@ class FeedbackRequest(BaseModel):
     text: str = Field(min_length=1)
 
 
+class StepCheck(BaseModel):
+    done: bool
+
+
+class VerifyRequest(BaseModel):
+    verified: bool
+
+
 class TaskResponse(BaseModel):
     id: str
     ticket_number: int
@@ -73,6 +82,8 @@ class TaskResponse(BaseModel):
     pending_fix: str | None  # kind of the queued fix round, if any
     qa: dict | None  # {"ok": bool, "problems": [...], "skipped": str | None} after stage QA
     test_plan: list[str]  # manual check steps for the owner, from the developer agent
+    plan_checked: list[int]  # indices of the test_plan steps the owner has ticked
+    verified_at: datetime | None  # when the owner accepted the change on stage
     depends_on: list[str]
     created_by: str | None
     created_at: datetime
@@ -128,6 +139,8 @@ def to_response(task: Task) -> TaskResponse:
         pending_fix=fix.get("kind") if isinstance(fix, dict) else None,
         qa=(task.metadata_ or {}).get("qa"),
         test_plan=(task.metadata_ or {}).get("test_plan") or [],
+        plan_checked=review.plan_checked(task),
+        verified_at=review.verified_at(task),
         depends_on=[str(d) for d in task.depends_on or []],
         created_by=task.created_by,
         created_at=task.created_at,
@@ -317,6 +330,30 @@ async def feedback(
         return to_response(task)
 
     raise HTTPException(409, f"Can't take feedback while the task is {task.status}")
+
+
+@router.post("/{task_id}/plan/{step}", summary="Tick or untick a test-plan step")
+async def check_step(
+    task_id: str, step: int, body: StepCheck, session: Annotated[AsyncSession, Depends(get_session)]
+) -> TaskResponse:
+    task = await load_task(session, task_id, lock=True)
+    try:
+        review.check_step(task, step, body.done)
+    except review.ReviewError as exc:
+        raise HTTPException(409, str(exc)) from None
+    return to_response(task)
+
+
+@router.post("/{task_id}/verify", summary="Mark a task checked on stage (or take the mark back)")
+async def verify_task(
+    task_id: str, body: VerifyRequest, session: Annotated[AsyncSession, Depends(get_session)]
+) -> TaskResponse:
+    task = await load_task(session, task_id, lock=True)
+    try:
+        review.set_verified(task, body.verified)
+    except review.ReviewError as exc:
+        raise HTTPException(409, str(exc)) from None
+    return to_response(task)
 
 
 @router.get("/{task_id}/logs", summary="Task log")

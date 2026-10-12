@@ -8,7 +8,7 @@ import uuid
 import httpx
 from sqlalchemy import select
 
-from autodev import notify
+from autodev import notify, review
 from autodev.core.claude import ClaudeResult, ClaudeRunner
 from autodev.core.models import Task, TaskStatus
 from autodev.worker import prompts
@@ -114,8 +114,8 @@ async def develop(ctx: WorkerContext, task_id: uuid.UUID, slot: str) -> None:
             if paths:
                 metadata["check_paths"] = paths[:5]
             plan = _strings(result.data.get("test_plan"))
-            if plan:
-                metadata["test_plan"] = plan[:15]
+            if plan and plan[:15] != metadata.get("test_plan"):
+                metadata = review.reset({**metadata, "test_plan": plan[:15]})
             if metadata != (task.metadata_ or {}):
                 fields["metadata_"] = metadata
             task = await store.update(task_id, **fields) or task

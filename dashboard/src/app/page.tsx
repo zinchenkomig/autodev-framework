@@ -34,13 +34,17 @@ export default function Board() {
     const list = tasks.data ?? []
     return COLUMNS.map((c) => {
       const items = list.filter((t) => c.statuses.includes(t.status))
+      // On stage: what still needs a look first, already checked ones below.
+      if (c.key === 'stage') items.sort((a, b) => Number(!!a.verified_at) - Number(!!b.verified_at))
       return { ...c, items: c.limit ? items.slice(0, c.limit) : items, total: items.length }
     })
   }, [tasks.data])
 
   const projectList = projects.data ?? []
   const current = projectList.find((p) => p.id === filter)
-  const onStage = columns.find((c) => c.key === 'stage')?.total ?? 0
+  const stage = columns.find((c) => c.key === 'stage')
+  const onStage = stage?.total ?? 0
+  const verified = stage?.items.filter((t) => t.verified_at).length ?? 0
   const loading = tasks.data === null && !tasks.error
 
   function added(task: Task) {
@@ -75,6 +79,7 @@ export default function Board() {
           <Rocket size={18} className="text-ok" />
           <span>
             На stage ждут релиза: <b>{onStage}</b>
+            <span className="text-muted"> · проверено {verified}</span>
           </span>
           <span className="ml-auto font-medium text-ok">Выкатить →</span>
         </Link>

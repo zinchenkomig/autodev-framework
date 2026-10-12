@@ -27,9 +27,11 @@ export default function ProjectPage() {
 
   const onStage = (tasks.data ?? []).filter((t) => t.status === 'on_stage')
   const pending = releases.data?.find((r) => r.status === 'pending')
+  const unchecked = onStage.filter((t) => !t.verified_at).length
 
   async function release() {
-    if (!confirm(`Выкатить ${p!.name} в прод (${p!.base_branch} → ${p!.prod_branch})?`)) return
+    const warning = unchecked ? `\n\nНе проверено на stage: ${unchecked}.` : ''
+    if (!confirm(`Выкатить ${p!.name} в прод (${p!.base_branch} → ${p!.prod_branch})?${warning}`)) return
     setBusy(true)
     setError(null)
     try {
@@ -86,7 +88,10 @@ export default function ProjectPage() {
 
       {onStage.length > 0 && (
         <section className="space-y-2">
-          <h2 className="text-sm font-semibold text-muted">Попадут в релиз</h2>
+          <h2 className="text-sm font-semibold text-muted">
+            Попадут в релиз
+            {unchecked > 0 && <span className="font-normal text-warn"> · не проверено {unchecked}</span>}
+          </h2>
           {onStage.map((t) => (
             <TaskCard key={t.id} task={t} />
           ))}
