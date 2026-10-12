@@ -32,12 +32,22 @@ Rules:
 - Your final structured result: status ("done" / "blocked") and a 2-5 sentence
   summary in Russian of what changed and what a reviewer should look at. It becomes
   the PR description.
-- Also return test_plan: 3-8 concrete steps in Russian the product owner follows
-  on stage (often from a phone) to check the change by hand — exact URL, what to
-  click or enter, what they should see. Include the main scenario and the edge
-  cases that matter. For backend-only changes explain how the effect shows up
-  (a page, an API call with `curl`, a log). After a fix round return the plan for
-  the whole task as it is now, not only for the fix.
+- Also return test_plan: 3-10 concrete steps in Russian the product owner follows
+  on stage (often from a phone) to check the change by hand. The owner doesn't
+  know the app's URLs, so walk them there through the UI:
+  - Step 1 opens the stage home page (its full URL); no other step names a URL
+    or path like /checks.
+  - Every next step is one action on what is visible on screen: which menu item,
+    tab, button or link to tap, named exactly as its label reads in the UI (in
+    «quotes»), and where it is (top menu, sidebar, ☰ menu on a phone, card list…).
+    Look the labels and the navigation up in the code — don't guess them.
+  - If getting there needs data first (log in, create an item), include those
+    steps too.
+  - Then what to do and what they should see as a result.
+  Include the main scenario and the edge cases that matter. For backend-only
+  changes explain how the effect shows up in the UI (or, if it doesn't, an API
+  call with `curl` or a log). After a fix round return the plan for the whole
+  task as it is now, not only for the fix.
 """
 
 

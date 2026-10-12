@@ -60,9 +60,11 @@ RESULT_SCHEMA: dict[str, Any] = {
         "test_plan": {
             "type": "array",
             "items": {"type": "string"},
-            "description": "Manual test plan in Russian for the product owner on stage, one step per item: "
-            "where to go (full stage URL), what to do, what result to expect. Cover the main scenario "
-            "and the important edge cases. Empty only when status is blocked.",
+            "description": "Manual test plan in Russian for the product owner on stage, one step per item. "
+            "Step 1 opens the stage home page; after that navigate only through the UI (menu items, tabs, "
+            "buttons named by their visible labels in «quotes»), never by URL paths. Then what to do and "
+            "what result to expect. Cover the main scenario and the important edge cases. "
+            "Empty only when status is blocked.",
         },
         "needs": {
             "type": "object",
