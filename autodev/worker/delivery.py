@@ -290,7 +290,10 @@ class Delivery:
                     agent="qa",
                 )
                 await self.create_qa_fix(moved, result)
-        await notify.on_stage(moved, project, qa=result, screenshot=screenshot)
+        main = await self.store.adopt_child_plan(moved)
+        if main is not None:
+            await self.store.log(main.id, f"🧪 #{moved.ticket_number} на stage — план проверки обновлён", agent="qa")
+        await notify.on_stage(moved, project, qa=result, screenshot=screenshot, main=main)
 
     async def run_qa(self, task: Task, project) -> qa.QAResult | None:
         if project is None or not project.stage_url:

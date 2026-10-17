@@ -40,3 +40,15 @@ async def test_on_stage_without_plan_or_with_broken_qa_sends_one_message(sent) -
     await notify.on_stage(task(test_plan=["Открой /users"]), None, qa=broken)
 
     assert sent.await_count == 2  # one per call
+
+
+async def test_follow_up_on_stage_sends_the_main_task_plan(sent) -> None:
+    main = Task(id=uuid.uuid4(), ticket_number=3, title="Экран", metadata_={"test_plan": ["Открой stage", "Фильтр"]})
+    child = task(root_plan={"base": [], "plan": ["свой"]})
+    await notify.on_stage(child, None, main=main)
+
+    assert "доработка к" in sent.await_args_list[0].args[0] and "#3 Экран" in sent.await_args_list[0].args[0]
+    plan = sent.await_args_list[1].args[0]
+    assert "Как проверить #3" in plan and "2. Фильтр" in plan
+    button = sent.await_args_list[1].kwargs["reply_markup"]["inline_keyboard"][0][0]
+    assert button["callback_data"] == f"ok:{main.id}"

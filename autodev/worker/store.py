@@ -9,6 +9,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from autodev import review
 from autodev.core.models import AgentLog, Task, TaskTransition
 
 logger = logging.getLogger(__name__)
@@ -79,3 +80,15 @@ class Store:
             await session.commit()
             logger.info("task #%s %s → %s %s", task.ticket_number, old, to, reason or "")
             return task
+
+    async def adopt_child_plan(self, child: Task) -> Task | None:
+        """*child* is on stage: fold its change into its main task's check. Returns the main task."""
+        if not child.parent_id:
+            return None
+        async with self.session_factory() as session:
+            root = await session.get(Task, child.parent_id, with_for_update=True)
+            if root is None:
+                return None
+            review.adopt_child_plan(root, child)
+            await session.commit()
+            return root

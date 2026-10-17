@@ -32,9 +32,14 @@ def test_plan_text(task: Task) -> str:
     return f"🧪 <b>Как проверить #{task.ticket_number}</b>\n\n{steps}"[:3900]
 
 
-async def on_stage(task: Task, project: Project | None, qa=None, screenshot: bytes | None = None) -> None:
+async def on_stage(
+    task: Task, project: Project | None, qa=None, screenshot: bytes | None = None, main: Task | None = None
+) -> None:
+    """*main*: the main task of a follow-up/part — the owner checks that one, by its (updated) plan."""
     broken = qa is not None and not qa.ok
     text = f"{'⚠️' if broken else '✅'} {_task_link(task)} на stage"
+    if main is not None:
+        text += f"\n↳ доработка к {_task_link(main)}"
     if project and project.stage_url:
         text += f'\n🌐 <a href="{html.escape(project.stage_url)}">{html.escape(project.stage_url)}</a>'
     if broken:
@@ -45,9 +50,10 @@ async def on_stage(task: Task, project: Project | None, qa=None, screenshot: byt
     if task.pr_url:
         text += f'\n\n<a href="{html.escape(task.pr_url)}">PR</a>'
     await _send(text, photo=screenshot)
-    if (task.metadata_ or {}).get("test_plan") and not broken:
-        button = {"text": "✅ Проверено", "callback_data": f"ok:{task.id}"}
-        await _send(test_plan_text(task), reply_markup={"inline_keyboard": [[button]]})
+    checked = main or task
+    if (checked.metadata_ or {}).get("test_plan") and not broken:
+        button = {"text": "✅ Проверено", "callback_data": f"ok:{checked.id}"}
+        await _send(test_plan_text(checked), reply_markup={"inline_keyboard": [[button]]})
 
 
 async def failed(task: Task, reason: str) -> None:

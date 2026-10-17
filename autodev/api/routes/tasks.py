@@ -88,9 +88,12 @@ class TaskResponse(BaseModel):
     attempts: int
     pending_fix: str | None  # kind of the queued fix round, if any
     qa: dict | None  # {"ok": bool, "problems": [...], "skipped": str | None} after stage QA
+    # The owner checks a main task as a whole: a follow-up/part has no plan of its
+    # own and shows its main task's "verified" mark.
     test_plan: list[str]  # manual check steps for the owner, from the developer agent
     plan_checked: list[int]  # indices of the test_plan steps the owner has ticked
     verified_at: datetime | None  # when the owner accepted the change on stage
+    waiting_for: list[TaskRef]  # follow-ups/parts not on stage yet; the check waits for them
     depends_on: list[str]
     parent: TaskRef | None  # the main task, for follow-ups and parts
     created_by: str | None
@@ -125,8 +128,13 @@ class TransitionResponse(BaseModel):
     created_at: datetime
 
 
-def to_response(task: Task, parent: Task | None = None) -> TaskResponse:
+def _ref(task: Task) -> TaskRef:
+    return TaskRef(id=str(task.id), ticket_number=task.ticket_number, title=task.title, status=task.status)
+
+
+def to_response(task: Task, parent: Task | None = None, waiting: list[Task] = ()) -> TaskResponse:
     fix = (task.metadata_ or {}).get("fix")
+    checked_on = parent if task.parent_id and parent is not None else task
     return TaskResponse(
         id=str(task.id),
         ticket_number=task.ticket_number,
@@ -146,13 +154,12 @@ def to_response(task: Task, parent: Task | None = None) -> TaskResponse:
         attempts=task.attempts,
         pending_fix=fix.get("kind") if isinstance(fix, dict) else None,
         qa=(task.metadata_ or {}).get("qa"),
-        test_plan=(task.metadata_ or {}).get("test_plan") or [],
-        plan_checked=review.plan_checked(task),
-        verified_at=review.verified_at(task),
+        test_plan=[] if task.parent_id else (task.metadata_ or {}).get("test_plan") or [],
+        plan_checked=[] if task.parent_id else review.plan_checked(task),
+        verified_at=review.verified_at(checked_on),
+        waiting_for=[_ref(t) for t in waiting],
         depends_on=[str(d) for d in task.depends_on or []],
-        parent=TaskRef(id=str(parent.id), ticket_number=parent.ticket_number, title=parent.title, status=parent.status)
-        if parent is not None
-        else None,
+        parent=_ref(parent) if parent is not None else None,
         created_by=task.created_by,
         created_at=task.created_at,
         status_changed_at=task.status_changed_at,
@@ -177,12 +184,13 @@ async def load_task(session: AsyncSession, task_id: str, *, lock: bool = False) 
 
 
 async def respond(session: AsyncSession, tasks: list[Task]) -> list[TaskResponse]:
-    """Responses with each task's parent filled in (one extra query)."""
+    """Responses with each task's parent and open children filled in (two extra queries)."""
     ids = {t.parent_id for t in tasks if t.parent_id}
     parents = {}
     if ids:
         parents = {p.id: p for p in (await session.execute(select(Task).where(Task.id.in_(ids)))).scalars()}
-    return [to_response(t, parents.get(t.parent_id)) for t in tasks]
+    waiting = await review.waiting_children(session, {t.id for t in tasks if not t.parent_id})
+    return [to_response(t, parents.get(t.parent_id), waiting.get(t.id, [])) for t in tasks]
 
 
 async def respond_one(session: AsyncSession, task: Task) -> TaskResponse:
@@ -347,6 +355,10 @@ async def feedback(
             metadata_={},
         )
         session.add(follow_up)
+        # The main task now includes unfinished work: the owner will check it again.
+        root = task if task.parent_id is None else await session.get(Task, task.parent_id, with_for_update=True)
+        if root is not None:
+            root.metadata_ = review.unverify(root.metadata_ or {})
         await session.flush()
         await session.refresh(follow_up)
         return await respond_one(session, follow_up)
@@ -369,8 +381,9 @@ async def check_step(
     task_id: str, step: int, body: StepCheck, session: Annotated[AsyncSession, Depends(get_session)]
 ) -> TaskResponse:
     task = await load_task(session, task_id, lock=True)
+    waiting = (await review.waiting_children(session, {task.id})).get(task.id, [])
     try:
-        review.check_step(task, step, body.done)
+        review.check_step(task, step, body.done, waiting)
     except review.ReviewError as exc:
         raise HTTPException(409, str(exc)) from None
     return await respond_one(session, task)
@@ -381,8 +394,9 @@ async def verify_task(
     task_id: str, body: VerifyRequest, session: Annotated[AsyncSession, Depends(get_session)]
 ) -> TaskResponse:
     task = await load_task(session, task_id, lock=True)
+    waiting = (await review.waiting_children(session, {task.id})).get(task.id, [])
     try:
-        review.set_verified(task, body.verified)
+        review.set_verified(task, body.verified, waiting)
     except review.ReviewError as exc:
         raise HTTPException(409, str(exc)) from None
     return await respond_one(session, task)

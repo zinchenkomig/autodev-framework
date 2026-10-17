@@ -48,10 +48,12 @@ Rules:
   changes explain how the effect shows up in the UI (or, if it doesn't, an API
   call with `curl` or a log). After a fix round return the plan for the whole
   task as it is now, not only for the fix.
+  When the task is a follow-up or part of a main task, the owner checks the main
+  task as a whole with one plan: return that whole plan, updated for your change.
 """
 
 
-def initial(task: Task, project: Project, repo: dict, deps: list[Task]) -> str:
+def initial(task: Task, project: Project, repo: dict, deps: list[Task], main: Task | None = None) -> str:
     parts = [
         f"# Task #{task.ticket_number}: {task.title}",
         "",
@@ -73,12 +75,34 @@ def initial(task: Task, project: Project, repo: dict, deps: list[Task]) -> str:
             if dep.pr_url:
                 line += f" — {dep.pr_url} (see it with `gh pr diff {dep.pr_url}`)"
             parts.append(line)
+    if main is not None:
+        parts += ["", _main_task(main)]
     if project.instructions:
         parts += ["", "## Project instructions", project.instructions.strip()]
     return "\n".join(parts)
 
 
-def fix(kind: str, details: str, task: Task, project: Project) -> str:
+def _main_task(main: Task) -> str:
+    """Section for a follow-up/part: the owner checks the main task once, by one plan."""
+    lines = [
+        f"## Main task #{main.ticket_number}: {main.title}",
+        "This task is a follow-up to (or a part of) the main task. The owner checks the main task",
+        "as a whole, by one test plan, once all of its work is on stage — not this task separately.",
+    ]
+    plan = (main.metadata_ or {}).get("test_plan") or []
+    if plan:
+        lines += ["", "Its current test plan:"] + [f"{i}. {step}" for i, step in enumerate(plan, 1)]
+        lines += [
+            "",
+            "Return test_plan as this whole plan updated for your change: keep the steps that still",
+            "hold, rewrite the ones your change affects, add steps for what you added or fixed.",
+        ]
+    else:
+        lines += ["", "Return test_plan for the main task as a whole, including your change."]
+    return "\n".join(lines)
+
+
+def fix(kind: str, details: str, task: Task, project: Project, main: Task | None = None) -> str:
     """Prompt for a follow-up round in the same session (or a fresh one, see ``fix_fresh``)."""
     if kind == "ci":
         head = (
@@ -95,13 +119,18 @@ def fix(kind: str, details: str, task: Task, project: Project) -> str:
         head = "The product owner reviewed your change and asks for the following. Implement it and commit."
     else:
         head = "The previous attempt did not finish. Continue the task and commit."
-    return f"{head}\n\n{details.strip()}" if details.strip() else head
+    text = f"{head}\n\n{details.strip()}" if details.strip() else head
+    if main is not None:
+        text += f"\n\nAs before, test_plan is the whole plan of main task #{main.ticket_number}."
+    return text
 
 
-def fix_fresh(kind: str, details: str, task: Task, project: Project, repo: dict, deps: list[Task]) -> str:
+def fix_fresh(
+    kind: str, details: str, task: Task, project: Project, repo: dict, deps: list[Task], main: Task | None = None
+) -> str:
     """Fix prompt when the original session can't be resumed: restate the task first."""
     return (
-        initial(task, project, repo, deps)
+        initial(task, project, repo, deps, main)
         + "\n\n## Current state\nThis branch already contains earlier work on this task "
         + f"(see `git log origin/{project.base_branch}..HEAD`).\n\n"
         + fix(kind, details, task, project)

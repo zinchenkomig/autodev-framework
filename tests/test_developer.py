@@ -151,6 +151,29 @@ async def test_new_test_plan_resets_owner_check(wired, session_factory) -> None:
     assert "plan_checked" not in t.metadata_ and "verified_at" not in t.metadata_
 
 
+async def test_follow_up_updates_the_main_task_plan(wired, session_factory) -> None:
+    ctx, gh, _ = wired
+    FakeRunner.result = ClaudeResult(
+        ok=True, summary="s", session_id="sess-1", data={"test_plan": ["Открой stage", "Проверь фильтр"]}
+    )
+    main = await new_task(session_factory)
+    async with session_factory() as s:
+        m = await s.get(Task, main.id)
+        m.status, m.metadata_ = TaskStatus.ON_STAGE, {"test_plan": ["Открой stage"], "plan_checked": [0]}
+        await s.commit()
+    child = await new_task(session_factory, parent_id=main.id)
+    await develop(ctx, child.id, "developer-1")
+
+    prompt = FakeRunner.calls[0]["prompt"]
+    assert f"## Main task #{main.ticket_number}" in prompt and "1. Открой stage" in prompt
+    child = await reload(session_factory, child.id)
+    assert "test_plan" not in child.metadata_
+    assert child.metadata_["root_plan"] == {"base": ["Открой stage"], "plan": ["Открой stage", "Проверь фильтр"]}
+    assert "2. Проверь фильтр" in gh.prs[1]["body"]
+    main = await reload(session_factory, main.id)
+    assert main.metadata_["plan_checked"] == [0]  # changes only when the follow-up is on stage
+
+
 async def test_uncommitted_changes_are_committed(wired, session_factory) -> None:
     ctx, gh, remote = wired
 

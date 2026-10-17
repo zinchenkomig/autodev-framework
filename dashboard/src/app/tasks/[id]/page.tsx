@@ -65,6 +65,7 @@ export default function TaskPage() {
   const canRetry = ['failed', 'cancelled'].includes(t.status)
   const canDelete = !['in_progress', 'ci', 'deploying'].includes(t.status)
   const merged = MERGED.includes(t.status)
+  const waiting = t.waiting_for.length > 0
   const canFeedback = merged || (['ci', 'failed', 'cancelled'].includes(t.status) && t.pr_number) || (t.status === 'queued' && !t.branch)
 
   return (
@@ -123,10 +124,10 @@ export default function TaskPage() {
             </Button>
           </a>
         )}
-        {merged && (
+        {merged && !t.parent && (
           <Button
             size="sm"
-            disabled={busy}
+            disabled={busy || (waiting && !t.verified_at)}
             className={cx(t.verified_at && 'border-ok/40 text-ok')}
             onClick={() =>
               (!t.verified_at || confirm('Снять отметку «проверено»?')) &&
@@ -180,7 +181,29 @@ export default function TaskPage() {
         </Card>
       )}
 
-      {t.test_plan.length > 0 && (
+      {t.parent && (
+        <Link href={`/tasks/${t.parent.id}`} className="block">
+          <Card className="flex items-center gap-2 p-4 text-sm hover:bg-surface-2">
+            <CheckCircle2 size={15} className={cx('shrink-0', t.verified_at ? 'text-ok' : 'text-muted')} />
+            <span className="min-w-0 flex-1">
+              Проверяется вместе с основной задачей{' '}
+              <span className="font-medium">#{t.parent.ticket_number}</span> — по её общему плану
+            </span>
+          </Card>
+        </Link>
+      )}
+
+      {!t.parent && waiting && merged && (
+        <Card className="border-warn/40 p-4 text-sm">
+          <div className="mb-1 font-semibold">Ждёт доработок</div>
+          <p className="text-muted">
+            {t.waiting_for.map((w) => `#${w.ticket_number}`).join(', ')} ещё не на stage. Когда они выкатятся, план
+            обновится — проверить всё можно будет одним проходом.
+          </p>
+        </Card>
+      )}
+
+      {!t.parent && t.test_plan.length > 0 && (
         <TestPlan
           task={t}
           interactive={merged}

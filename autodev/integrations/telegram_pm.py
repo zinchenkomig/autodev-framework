@@ -278,6 +278,13 @@ class TelegramPMBot:
         if not tasks:
             await self.send_message(chat_id, "На stage нет невыпущенных задач")
             return
+        # Follow-ups are checked with their main task: one line for the main task.
+        listed = {t.id for t in tasks}
+        extra: dict = {}
+        for t in tasks:
+            if t.parent_id in listed:
+                extra[t.parent_id] = extra.get(t.parent_id, 0) + 1
+        tasks = [t for t in tasks if t.parent_id not in listed]
         text, current = "", None
         for t in tasks:
             if t.project_id != current:
@@ -286,7 +293,8 @@ class TelegramPMBot:
                 url = f' — <a href="{_esc(project.stage_url)}">stage</a>' if project and project.stage_url else ""
                 text += f"\n<b>{_esc(project.name if project else current or '?')}</b>{url}\n"
             mark = "✅" if (t.metadata_ or {}).get("verified_at") else "👀"
-            text += f"{mark} #{t.ticket_number} {_esc(t.title[:60])}\n"
+            more = f" <i>+{extra[t.id]} доработ.</i>" if t.id in extra else ""
+            text += f"{mark} #{t.ticket_number} {_esc(t.title[:60])}{more}\n"
         await self.send_message(chat_id, text.strip() + "\n\n✅ проверено · 👀 ждёт проверки")
 
     async def _ask_release(self, chat_id: str) -> None:
@@ -352,7 +360,7 @@ class TelegramPMBot:
 
         from autodev import notify, review
         from autodev.api.database import SessionLocal
-        from autodev.core.models import Task
+        from autodev.core.models import MERGED_STATUSES, Task
 
         async with SessionLocal() as session:
             try:
@@ -362,10 +370,12 @@ class TelegramPMBot:
             if task is None:
                 await self.answer_callback_query(callback_id, "Задача не найдена")
                 return
+            waiting = (await review.waiting_children(session, {task.id})).get(task.id, [])
             try:
-                review.set_verified(task, True)
-            except review.ReviewError:
-                await self.answer_callback_query(callback_id, "Задача уже не на stage")
+                review.set_verified(task, True, waiting)
+            except review.ReviewError as exc:
+                text = "Задача уже не на stage" if task.status not in MERGED_STATUSES else str(exc)
+                await self.answer_callback_query(callback_id, text[:190])
                 return
             await session.commit()
         await self.answer_callback_query(callback_id, "Отмечено")

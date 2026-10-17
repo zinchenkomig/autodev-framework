@@ -154,6 +154,8 @@ class TaskStatus(enum.StrEnum):
 
 #: Statuses meaning the change is merged into the stage branch.
 MERGED_STATUSES = frozenset({TaskStatus.DEPLOYING, TaskStatus.ON_STAGE, TaskStatus.RELEASED})
+#: Statuses of work that is still on its way to stage.
+OPEN_STATUSES = frozenset({TaskStatus.QUEUED, TaskStatus.IN_PROGRESS, TaskStatus.CI, TaskStatus.DEPLOYING})
 #: Statuses a task never leaves on its own.
 TERMINAL_STATUSES = frozenset({TaskStatus.RELEASED, TaskStatus.FAILED, TaskStatus.CANCELLED})
 
