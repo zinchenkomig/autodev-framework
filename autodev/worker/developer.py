@@ -79,7 +79,10 @@ async def develop(ctx: WorkerContext, task_id: uuid.UUID, slot: str) -> None:
 
         if need_agent:
             deps = await _load_deps(ctx, task)
-            result = await _run_agent(ctx, task, project, repo, deps, fix, existing, ws.path, log, cancelled)
+            # A follow-up/part is checked as part of its main task: the agent updates the main task's plan.
+            main = await store.get(task.parent_id) if task.parent_id else None
+            main_plan = list((main.metadata_ or {}).get("test_plan") or []) if main else []
+            result = await _run_agent(ctx, task, project, repo, deps, fix, existing, ws.path, log, cancelled, main)
             if result.cancelled:
                 await log("warning", "⏹ Cancelled")
                 return
@@ -116,7 +119,9 @@ async def develop(ctx: WorkerContext, task_id: uuid.UUID, slot: str) -> None:
             if paths:
                 metadata["check_paths"] = paths[:5]
             plan = _strings(result.data.get("test_plan"))
-            if plan and plan[:15] != metadata.get("test_plan"):
+            if plan and main is not None:
+                metadata["root_plan"] = {"base": main_plan, "plan": plan[: review.MAX_PLAN]}
+            elif plan and plan[:15] != metadata.get("test_plan"):
                 metadata = review.reset({**metadata, "test_plan": plan[:15]})
             if metadata != (task.metadata_ or {}):
                 fields["metadata_"] = metadata
@@ -183,7 +188,7 @@ async def _requeue_rate_limited(
     )
 
 
-async def _run_agent(ctx, task, project, repo, deps, fix, existing, cwd, log, cancelled) -> ClaudeResult:
+async def _run_agent(ctx, task, project, repo, deps, fix, existing, cwd, log, cancelled, main=None) -> ClaudeResult:
     runner = ClaudeRunner(
         cwd,
         model=project.model or ctx.settings.model,
@@ -194,7 +199,7 @@ async def _run_agent(ctx, task, project, repo, deps, fix, existing, cwd, log, ca
     if fix and existing and task.session_id:
         await log("info", f"🧠 Resuming session for {fix.get('kind')} fix")
         result = await runner.run(
-            prompts.fix(fix.get("kind", ""), fix.get("details", ""), task, project),
+            prompts.fix(fix.get("kind", ""), fix.get("details", ""), task, project, main),
             resume=task.session_id,
             on_log=log,
             should_cancel=cancelled,
@@ -204,9 +209,9 @@ async def _run_agent(ctx, task, project, repo, deps, fix, existing, cwd, log, ca
         await log("warning", "Previous session is gone — starting a fresh one")
 
     if fix and existing:
-        prompt = prompts.fix_fresh(fix.get("kind", ""), fix.get("details", ""), task, project, repo, deps)
+        prompt = prompts.fix_fresh(fix.get("kind", ""), fix.get("details", ""), task, project, repo, deps, main)
     else:
-        prompt = prompts.initial(task, project, repo, deps)
+        prompt = prompts.initial(task, project, repo, deps, main)
         if fix and fix.get("details"):
             prompt += "\n\n## Notes from the previous attempt\n" + fix["details"]
     await log("info", "🧠 Agent started")
@@ -289,7 +294,8 @@ async def _ensure_pr(ctx: WorkerContext, task: Task, repo: str, base: str, branc
     if task.pr_number and task.pr_url:
         return task.pr_number, task.pr_url
     body = (task.summary or task.description or task.title).strip()
-    plan = (task.metadata_ or {}).get("test_plan") or []
+    metadata = task.metadata_ or {}
+    plan = metadata.get("test_plan") or (metadata.get("root_plan") or {}).get("plan") or []
     if plan:
         body += "\n\n### Как проверить на stage\n" + "\n".join(f"{i}. {step}" for i, step in enumerate(plan, 1))
     body += f"\n\n---\nAutoDev task #{task.ticket_number}"

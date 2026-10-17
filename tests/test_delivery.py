@@ -323,6 +323,27 @@ async def test_failed_qa_queues_one_fix_task(session_factory, project, stub_qa) 
         assert len((await s.execute(select(Task).where(Task.created_by == "qa"))).scalars().all()) == 1
 
 
+async def test_follow_up_on_stage_updates_main_task_plan(session_factory, project, no_notifications) -> None:
+    main = await make_task(
+        session_factory,
+        status=TaskStatus.ON_STAGE,
+        metadata_={"test_plan": ["a"], "plan_checked": [0], "verified_at": "2026-10-17T00:00:00+00:00"},
+    )
+    child = await make_task(
+        session_factory,
+        status=TaskStatus.DEPLOYING,
+        merge_sha="m2",
+        parent_id=main.id,
+        metadata_={"root_plan": {"base": ["a"], "plan": ["a", "b"]}},
+    )
+    await Delivery(ctx(session_factory)).on_stage(child, "test")
+
+    main = await reload(session_factory, main.id)
+    assert main.metadata_["test_plan"] == ["a", "b"]
+    assert "plan_checked" not in main.metadata_ and "verified_at" not in main.metadata_
+    assert no_notifications.on_stage.await_args.kwargs["main"].id == main.id
+
+
 async def test_no_stage_url_skips_qa(session_factory, stub_qa) -> None:
     from tests.conftest import make_project
 

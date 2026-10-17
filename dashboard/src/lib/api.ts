@@ -43,6 +43,7 @@ export interface Task {
   test_plan: string[]
   plan_checked: number[]
   verified_at: string | null
+  waiting_for: TaskRef[]
   depends_on: string[]
   parent: TaskRef | null
   created_by: string | null

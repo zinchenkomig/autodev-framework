@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 
 from autodev.core.models import AgentLog, Task, TaskStatus
@@ -301,3 +303,39 @@ async def test_follow_up_in_multi_repo_project_goes_through_triage(client, sessi
     children = (await client.get("/api/tasks/", params={"parent_id": t["id"]})).json()
     assert [c["id"] for c in children] == [r["id"], again["id"]]
     assert (await client.get(f"/api/tasks/{t['id']}")).json()["parent"] is None
+
+
+async def test_follow_up_is_checked_with_its_main_task(client, project, session_factory) -> None:
+    from autodev.worker.store import Store
+
+    main = (await client.post("/api/tasks/", json={"title": "Экран"})).json()
+    plan = {"test_plan": ["Открой stage", "Нажми «Экран»"]}
+    await set_status(session_factory, main["id"], TaskStatus.ON_STAGE, metadata_=plan)
+    assert (await client.post(f"/api/tasks/{main['id']}/verify", json={"verified": True})).json()["verified_at"]
+
+    # Feedback → a follow-up in the queue; the main task is no longer verified and can't be until it lands.
+    child = (await client.post(f"/api/tasks/{main['id']}/feedback", json={"text": "ещё фильтр"})).json()
+    got = (await client.get(f"/api/tasks/{main['id']}")).json()
+    assert got["verified_at"] is None and [w["id"] for w in got["waiting_for"]] == [child["id"]]
+    r = await client.post(f"/api/tasks/{main['id']}/verify", json={"verified": True})
+    assert r.status_code == 409 and f"#{child['ticket_number']}" in r.json()["detail"]
+    for step in (0, 1):
+        r = (await client.post(f"/api/tasks/{main['id']}/plan/{step}", json={"done": True})).json()
+    assert r["plan_checked"] == [0, 1] and r["verified_at"] is None  # all ticked, still waiting
+
+    # The follow-up has no plan of its own; its agent proposed the main task's whole plan.
+    proposal = {"root_plan": {"base": plan["test_plan"], "plan": ["Открой stage", "Нажми «Экран»", "Фильтр"]}}
+    await set_status(session_factory, child["id"], TaskStatus.ON_STAGE, metadata_=proposal)
+    got_child = (await client.get(f"/api/tasks/{child['id']}")).json()
+    assert got_child["test_plan"] == [] and got_child["parent"]["id"] == main["id"]
+    assert (await client.post(f"/api/tasks/{child['id']}/verify", json={"verified": True})).status_code == 409
+
+    async with session_factory() as s:
+        child_task = await s.get(Task, uuid.UUID(child["id"]))
+    await Store(session_factory).adopt_child_plan(child_task)
+
+    got = (await client.get(f"/api/tasks/{main['id']}")).json()
+    assert got["test_plan"] == ["Открой stage", "Нажми «Экран»", "Фильтр"]
+    assert got["plan_checked"] == [] and got["waiting_for"] == []  # one check of everything, from the start
+    assert (await client.post(f"/api/tasks/{main['id']}/verify", json={"verified": True})).json()["verified_at"]
+    assert (await client.get(f"/api/tasks/{child['id']}")).json()["verified_at"]  # shows the main task's mark
