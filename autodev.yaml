@@ -10,24 +10,14 @@ projects:
     stage_url: https://staging.alerter.zinchenkomig.com
     smoke_paths: ["/"]
     repos:
-      - name: zinchenkomig/great_alerter_backend
-        role: backend
-        # Without version_url, "on stage" = the stage deploy workflow succeeded
-        # for the merge commit. Add e.g. https://staging.alerter.../api/version
-        # once the app exposes its GIT_SHA.
-
-      - name: zinchenkomig/great_alerter_frontend
-        role: frontend
-        # Regenerate the typed API client from the backend's OpenAPI schema so
-        # Claude works against the current backend contract.
+      # Monorepo: great_alerter_backend/ + great_alerter_frontend/. A full-stack
+      # task is one PR; without version_url, "on stage" = the stage deploy
+      # workflows succeeded for the merge commit.
+      - name: zinchenkomig/great_alerter
+        role: app
+        # Regenerate the frontend's typed API client from the backend code in
+        # the same checkout so Claude starts from a consistent contract.
         setup: |
           set -e
-          be=$(mktemp -d)
-          git clone -q --depth 1 -b stage https://github.com/zinchenkomig/great_alerter_backend.git "$be"
-          mkdir -p openapi
-          (cd "$be" && unset VIRTUAL_ENV && uv sync -q --frozen &&
-            POSTGRES__HOST=localhost POSTGRES__PORT=5432 POSTGRES__USER=x POSTGRES__PASSWORD=x POSTGRES__DB=x \
-            uv run python -c "import json; from src.backend.main import app; json.dump(app.openapi(), open('$AUTODEV_WORKDIR/openapi/openapi.json', 'w'), indent=2)")
-          rm -rf "$be"
-          npm install --silent
-          npm run gen:api
+          (cd great_alerter_frontend && npm install --silent)
+          ./scripts/gen-api.sh
