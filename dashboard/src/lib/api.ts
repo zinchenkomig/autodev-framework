@@ -178,6 +178,8 @@ export const api = {
 
   tasks: (projectId?: string) =>
     request<Task[]>(`/api/tasks/?limit=500${projectId ? `&project_id=${encodeURIComponent(projectId)}` : ''}`),
+  tasksIn: (statuses: TaskStatus[]) =>
+    request<Task[]>(`/api/tasks/?limit=500${statuses.map((s) => `&status=${s}`).join('')}`),
   task: (id: string) => request<Task>(`/api/tasks/${id}`),
   children: (id: string) => request<Task[]>(`/api/tasks/?parent_id=${encodeURIComponent(id)}`),
   createTask: (t: { title: string; description: string; project_id: string; repo?: string | null; priority: Priority }) =>
