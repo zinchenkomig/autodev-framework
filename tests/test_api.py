@@ -394,3 +394,23 @@ async def test_older_follow_up_keeps_its_own_plan(client, project, session_facto
     r = (await client.post(f"/api/tasks/{child['id']}/verify", json={"verified": True})).json()
     assert r["verified_at"]  # its own mark, not the main task's
     assert (await client.get(f"/api/tasks/{main['id']}")).json()["verified_at"] is None
+
+
+async def test_cross_origin_writes_are_rejected(client, project) -> None:
+    # A project app on a sibling subdomain is same-site: its requests carry the session cookie.
+    evil = {"origin": "https://notes.stage.example.com"}
+    assert (await client.post("/api/tasks/", json={"title": "x"}, headers=evil)).status_code == 403
+    assert (await client.get("/api/tasks/", headers=evil)).status_code == 200  # reads are guarded by CORS
+    assert "access-control-allow-origin" not in (await client.get("/api/tasks/", headers=evil)).headers
+
+    for ok in ({"origin": "http://test"}, {"origin": "http://localhost:3000"}, {}):
+        assert (await client.post("/api/tasks/", json={"title": "x"}, headers=ok)).status_code == 201
+    proxied = {"origin": "https://autodev.example.com", "x-forwarded-host": "autodev.example.com"}
+    assert (await client.post("/api/tasks/", json={"title": "x"}, headers=proxied)).status_code == 201
+
+
+async def test_cors_only_for_local_dev(client) -> None:
+    r = await client.get("/health", headers={"origin": "http://localhost:3000", "cookie": "a=b"})
+    assert r.headers["access-control-allow-origin"] == "http://localhost:3000"
+    r = await client.get("/health", headers={"origin": "https://evil.example.com", "cookie": "a=b"})
+    assert "access-control-allow-origin" not in r.headers

@@ -12,7 +12,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from autodev.api.middleware import ErrorAlertMiddleware
+from autodev.api.middleware import LOCAL_ORIGIN, ErrorAlertMiddleware, SameOriginMiddleware
 from autodev.api.routes import agents, auth, projects, releases, status, tasks, webhooks
 
 logger = logging.getLogger(__name__)
@@ -26,10 +26,13 @@ def create_app() -> FastAPI:
         version="2.0.0",
     )
 
-    # CORS
+    # The dashboard calls the API from its own origin; CORS is only for local
+    # development (next dev on another port). Project apps on sibling subdomains
+    # are same-site, so they must not get credentialed cross-origin access.
+    app.add_middleware(SameOriginMiddleware)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origin_regex=LOCAL_ORIGIN.pattern,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
