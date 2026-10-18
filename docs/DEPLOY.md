@@ -49,4 +49,12 @@ dashboard, or `UPDATE agents SET enabled=false WHERE id='developer'`.
 
 1. In the dashboard: Settings → Telegram → paste the bot token and your chat id.
 2. Press "Set webhook". It registers `https://autodev.zinchenkomig.com/api/webhooks/telegram`
-   with a secret token. That path is the only one exempt from basic auth.
+   with a secret token. That path is exempt from the login (as is `/api/auth/*`, the login itself).
+
+## Login
+
+Traefik's `forward-auth` middleware asks `/api/auth/check` about every request. It lets
+through the `autodev_session` cookie (set by the login form at `/api/auth/login`, lives a
+year, so the home-screen app stays signed in) or a basic-auth header (curl, scripts).
+Users and passwords are the htpasswd secret `autodev-basic-auth`, mounted into the API as
+`AUTODEV_HTPASSWD`; changing it signs every session out.

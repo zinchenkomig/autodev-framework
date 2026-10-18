@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from autodev.api.middleware import ErrorAlertMiddleware
-from autodev.api.routes import agents, projects, releases, status, tasks, webhooks
+from autodev.api.routes import agents, auth, projects, releases, status, tasks, webhooks
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,7 @@ def create_app() -> FastAPI:
     app.add_middleware(ErrorAlertMiddleware)
 
     # Routers
+    app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
     app.include_router(status.router, prefix="/api/status", tags=["status"])
     app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
     app.include_router(tasks.router, prefix="/api/tasks", tags=["tasks"])
