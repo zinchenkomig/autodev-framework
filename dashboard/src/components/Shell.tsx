@@ -1,14 +1,16 @@
 'use client'
 
-import { FolderGit2, LayoutGrid, Settings } from 'lucide-react'
+import { FolderGit2, Inbox, LayoutGrid, Settings } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { api } from '@/lib/api'
 import { cx, time } from '@/lib/format'
 import { usePoll } from '@/lib/hooks'
+import { fetchInbox } from '@/lib/inbox'
 
 const NAV = [
   { href: '/', label: 'Задачи', icon: LayoutGrid },
+  { href: '/inbox', label: 'Ждут меня', icon: Inbox },
   { href: '/projects', label: 'Проекты', icon: FolderGit2 },
   { href: '/settings', label: 'Настройки', icon: Settings },
 ]
@@ -44,8 +46,18 @@ function Dot({ tone, label }: { tone: 'ok' | 'warn' | 'bad'; label: string }) {
   )
 }
 
+/** How many things wait for the owner, on the "Ждут меня" nav item. */
+function Count({ n, className }: { n: number; className?: string }) {
+  if (!n) return null
+  return (
+    <span className={cx('rounded-full bg-bad px-1.5 text-[11px] font-semibold leading-4 text-white', className)}>{n}</span>
+  )
+}
+
 export function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
+  const inbox = usePoll(fetchInbox, 15000).data?.total ?? 0
+  const count = (href: string) => (href === '/inbox' ? inbox : 0)
   return (
     <div className="min-h-dvh">
       <header className="sticky top-0 z-30 border-b border-line bg-bg/85 pt-[env(safe-area-inset-top)] backdrop-blur">
@@ -66,6 +78,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 )}
               >
                 {label}
+                <Count n={count(href)} className="ml-1.5" />
               </Link>
             ))}
           </nav>
@@ -78,7 +91,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <main className="mx-auto max-w-7xl px-4 pb-28 pt-4 sm:pb-10">{children}</main>
 
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden">
-        <div className="grid grid-cols-3">
+        <div className="grid grid-cols-4">
           {NAV.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
@@ -88,7 +101,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 isActive(pathname, href) ? 'text-accent' : 'text-muted',
               )}
             >
-              <Icon size={22} />
+              <span className="relative">
+                <Icon size={22} />
+                <Count n={count(href)} className="absolute -right-2.5 -top-1.5" />
+              </span>
               {label}
             </Link>
           ))}
