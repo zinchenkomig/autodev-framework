@@ -62,6 +62,8 @@ class Settings(BaseSettings):
 
     # Public URL of the dashboard, used for links in notifications.
     public_url: str = Field(default="", validation_alias="AUTODEV_PUBLIC_URL")
+    # htpasswd file with the dashboard's users (see autodev/api/routes/auth.py).
+    htpasswd: str = Field(default="", validation_alias="AUTODEV_HTPASSWD")
 
 
 @lru_cache

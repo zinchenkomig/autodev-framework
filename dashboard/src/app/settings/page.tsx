@@ -1,6 +1,6 @@
 'use client'
 
-import { Pause, Play, Send } from 'lucide-react'
+import { LogOut, Pause, Play, Send } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Button, Card, ErrorNote, Field, inputClass } from '@/components/ui'
 import { api, type TelegramSettings } from '@/lib/api'
@@ -14,6 +14,12 @@ export default function SettingsPage() {
       <WorkerCard />
       <TelegramCard />
       <InstallHint />
+      {/* The session cookie lives a year; this ends it on this device. */}
+      <form method="post" action="/api/auth/logout">
+        <Button type="submit" variant="ghost" className="text-muted">
+          <LogOut size={16} /> Выйти
+        </Button>
+      </form>
     </div>
   )
 }

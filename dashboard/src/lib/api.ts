@@ -145,6 +145,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...init?.headers },
     cache: 'no-store',
   })
+  if (res.status === 401 && typeof window !== 'undefined') {
+    // The session is gone (signed out, or the password changed): back to the login form.
+    window.location.href = `/api/auth/login?next=${encodeURIComponent(location.pathname + location.search)}`
+  }
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`
     try {
