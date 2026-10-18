@@ -101,6 +101,12 @@ export interface Project {
 
 export type ProjectInput = Omit<Project, 'task_counts'>
 
+/** Create the repo on GitHub; a brief becomes the project's first task. */
+export interface NewRepo {
+  private: boolean
+  brief: string
+}
+
 export interface Release {
   id: string
   project_id: string | null
@@ -172,7 +178,8 @@ export const api = {
 
   projects: () => request<Project[]>('/api/projects/'),
   project: (id: string) => request<Project>(`/api/projects/${id}`),
-  createProject: (p: ProjectInput) => post<Project>('/api/projects/', p),
+  createProject: (p: ProjectInput, newRepo?: NewRepo) =>
+    post<Project>('/api/projects/', newRepo ? { ...p, new_repo: newRepo } : p),
   updateProject: (id: string, p: Omit<ProjectInput, 'id'>) =>
     request<Project>(`/api/projects/${id}`, { method: 'PUT', body: JSON.stringify(p) }),
   deleteProject: (id: string) => request<void>(`/api/projects/${id}`, { method: 'DELETE' }),

@@ -17,8 +17,8 @@ export default function NewProjectPage() {
       <ProjectForm
         initial={EMPTY_PROJECT}
         isNew
-        onSubmit={async (p) => {
-          await api.createProject(p)
+        onSubmit={async (p, newRepo) => {
+          await api.createProject(p, newRepo)
           router.push(`/projects/${p.id}`)
         }}
       />
