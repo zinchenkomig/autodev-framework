@@ -279,12 +279,15 @@ class TelegramPMBot:
             await self.send_message(chat_id, "На stage нет невыпущенных задач")
             return
         # Follow-ups are checked with their main task: one line for the main task.
+        from autodev import review
+
         listed = {t.id for t in tasks}
+        folded = {t.id for t in tasks if t.parent_id in listed and review.checked_with_main(t)}
         extra: dict = {}
         for t in tasks:
-            if t.parent_id in listed:
+            if t.id in folded:
                 extra[t.parent_id] = extra.get(t.parent_id, 0) + 1
-        tasks = [t for t in tasks if t.parent_id not in listed]
+        tasks = [t for t in tasks if t.id not in folded]
         text, current = "", None
         for t in tasks:
             if t.project_id != current:

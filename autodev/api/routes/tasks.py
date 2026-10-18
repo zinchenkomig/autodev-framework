@@ -134,7 +134,8 @@ def _ref(task: Task) -> TaskRef:
 
 def to_response(task: Task, parent: Task | None = None, waiting: list[Task] = ()) -> TaskResponse:
     fix = (task.metadata_ or {}).get("fix")
-    checked_on = parent if task.parent_id and parent is not None else task
+    with_main = review.checked_with_main(task)
+    checked_on = parent if with_main and parent is not None else task
     return TaskResponse(
         id=str(task.id),
         ticket_number=task.ticket_number,
@@ -154,8 +155,8 @@ def to_response(task: Task, parent: Task | None = None, waiting: list[Task] = ()
         attempts=task.attempts,
         pending_fix=fix.get("kind") if isinstance(fix, dict) else None,
         qa=(task.metadata_ or {}).get("qa"),
-        test_plan=[] if task.parent_id else (task.metadata_ or {}).get("test_plan") or [],
-        plan_checked=[] if task.parent_id else review.plan_checked(task),
+        test_plan=(task.metadata_ or {}).get("test_plan") or [],
+        plan_checked=review.plan_checked(task),
         verified_at=review.verified_at(checked_on),
         waiting_for=[_ref(t) for t in waiting],
         depends_on=[str(d) for d in task.depends_on or []],
