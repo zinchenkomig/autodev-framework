@@ -30,6 +30,12 @@ class ReviewError(ValueError):
     pass
 
 
+def checked_with_main(task: Task) -> bool:
+    """A follow-up/part checked as part of its main task. Children from before one-plan-per-task
+    keep a plan of their own and are still checked on their own."""
+    return bool(task.parent_id) and not (task.metadata_ or {}).get("test_plan")
+
+
 def plan_checked(task: Task) -> list[int]:
     plan = (task.metadata_ or {}).get("test_plan") or []
     checked = (task.metadata_ or {}).get("plan_checked") or []
@@ -64,7 +70,7 @@ def check_step(task: Task, step: int, done: bool, waiting: list[Task] = ()) -> N
 
 def set_verified(task: Task, verified: bool, waiting: list[Task] = ()) -> None:
     _require_on_stage(task)
-    if task.parent_id:
+    if checked_with_main(task):
         raise ReviewError("Проверяется в основной задаче")
     metadata = dict(task.metadata_ or {})
     if verified:

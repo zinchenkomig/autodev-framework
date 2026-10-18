@@ -66,6 +66,8 @@ export default function TaskPage() {
   const canDelete = !['in_progress', 'ci', 'deploying'].includes(t.status)
   const merged = MERGED.includes(t.status)
   const waiting = t.waiting_for.length > 0
+  // Follow-ups are checked with their main task; older ones still have a plan of their own.
+  const withMain = !!t.parent && t.test_plan.length === 0
   const canFeedback = merged || (['ci', 'failed', 'cancelled'].includes(t.status) && t.pr_number) || (t.status === 'queued' && !t.branch)
 
   return (
@@ -124,7 +126,7 @@ export default function TaskPage() {
             </Button>
           </a>
         )}
-        {merged && !t.parent && (
+        {merged && !withMain && (
           <Button
             size="sm"
             disabled={busy || (waiting && !t.verified_at)}
@@ -181,7 +183,7 @@ export default function TaskPage() {
         </Card>
       )}
 
-      {t.parent && (
+      {withMain && t.parent && (
         <Link href={`/tasks/${t.parent.id}`} className="block">
           <Card className="flex items-center gap-2 p-4 text-sm hover:bg-surface-2">
             <CheckCircle2 size={15} className={cx('shrink-0', t.verified_at ? 'text-ok' : 'text-muted')} />
@@ -203,7 +205,7 @@ export default function TaskPage() {
         </Card>
       )}
 
-      {!t.parent && t.test_plan.length > 0 && (
+      {!withMain && t.test_plan.length > 0 && (
         <TestPlan
           task={t}
           interactive={merged}
