@@ -179,7 +179,10 @@ async def check(request: Request) -> Response:
     uri = request.headers.get("x-forwarded-uri", "/")
     if uri.startswith("/api/"):
         return Response(status_code=401, content='{"detail":"Not signed in"}', media_type="application/json")
-    return RedirectResponse(f"{LOGIN_PATH}?next={quote(_safe_next(uri), safe='')}", status_code=302)
+    # Absolute: Traefik resolves a relative Location against the auth service's own address.
+    host = request.headers.get("x-forwarded-host")
+    origin = f"{request.headers.get('x-forwarded-proto', 'https')}://{host}" if host else ""
+    return RedirectResponse(f"{origin}{LOGIN_PATH}?next={quote(_safe_next(uri), safe='')}", status_code=302)
 
 
 @router.get("/login", summary="Login form", include_in_schema=False)

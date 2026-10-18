@@ -72,6 +72,9 @@ async def test_check_and_login(client, htpasswd) -> None:
     # No session: a page goes to the login form, the API answers 401.
     r = await client.get("/api/auth/check", headers={"X-Forwarded-Uri": "/inbox"})
     assert r.status_code == 302 and r.headers["location"] == "/api/auth/login?next=%2Finbox"
+    headers = {"X-Forwarded-Uri": "/inbox", "X-Forwarded-Host": "autodev.example", "X-Forwarded-Proto": "https"}
+    r = await client.get("/api/auth/check", headers=headers)
+    assert r.headers["location"] == "https://autodev.example/api/auth/login?next=%2Finbox"
     r = await client.get("/api/auth/check", headers={"X-Forwarded-Uri": "/api/tasks/"})
     assert r.status_code == 401 and "www-authenticate" not in r.headers
 
