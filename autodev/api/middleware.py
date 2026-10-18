@@ -3,15 +3,44 @@
 from __future__ import annotations
 
 import logging
+import re
 import traceback
 from collections.abc import Callable
 from datetime import UTC, datetime
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from fastapi import Request, Response
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 logger = logging.getLogger(__name__)
+
+LOCAL_ORIGIN = re.compile(r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$")
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+class SameOriginMiddleware(BaseHTTPMiddleware):
+    """Reject state-changing browser requests from other origins (CSRF).
+
+    Project apps live on sibling subdomains (``*.stage.<domain>``), which browsers
+    treat as same-site: SameSite=Lax doesn't stop them sending the session cookie.
+    Browsers always send ``Origin`` on such requests; clients without it (curl,
+    the Telegram webhook) are let through.
+    """
+
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        origin = request.headers.get("origin")
+        if request.method not in SAFE_METHODS and origin and not _allowed_origin(origin, request):
+            return JSONResponse({"detail": "Cross-origin request rejected"}, status_code=403)
+        return await call_next(request)
+
+
+def _allowed_origin(origin: str, request: Request) -> bool:
+    if LOCAL_ORIGIN.match(origin):
+        return True
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
+    return urlsplit(origin).netloc.lower() == host.split(",")[0].strip().lower()
 
 
 class ErrorAlertMiddleware(BaseHTTPMiddleware):

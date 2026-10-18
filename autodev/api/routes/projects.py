@@ -194,6 +194,9 @@ def _scaffold_description(brief: str) -> str:
         + "- тесты и линтер, и чтобы они проходили;\n"
         + "- GitHub Actions workflow, который запускает их на pull_request: CI проверяет каждый PR перед авто-merge;\n"
         + "- .gitignore.\n"
+        + "Если приложение ставит cookie — только host-only, без атрибута Domain, а сессионные — с префиксом "
+        + "__Host- (Secure, Path=/): stage и прод живут на соседних поддоменах одного домена. Запиши это правило "
+        + "в CLAUDE.md.\n"
         + "Деплой на stage не настраивай, если об этом не сказано выше."
     )
 
