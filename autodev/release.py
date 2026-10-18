@@ -1,4 +1,4 @@
-"""Starting a production release: open stage→prod PRs for every repo of a project.
+"""Starting a production release: open the project's stage→prod PR.
 
 The worker's delivery loop then merges them once checks pass
 (:func:`autodev.worker.delivery.advance_release`).
@@ -46,27 +46,20 @@ async def start_release(session: AsyncSession, gh: GitHubClient, project: Projec
     version = f"{today}-{(same_day or 0) + 1}"
     notes = "\n".join(f"- #{t.ticket_number} {t.title}" for t in tasks) or "- maintenance"
 
-    prs = []
-    for repo in project.repos:
-        name = repo["name"]
-        diff = await gh.compare(project.prod_branch, project.base_branch, repo=name)
-        if not diff.get("ahead_by"):
-            continue  # nothing to ship in this repo
-        title = f"Release {version}: {project.base_branch} → {project.prod_branch}"
-        try:
-            pr = await gh.create_pr(
-                title=title, head=project.base_branch, base=project.prod_branch, body=notes, repo=name
-            )
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code != 422:
-                raise
-            pr = await gh.find_open_pr(project.base_branch, project.prod_branch, name)
-            if pr is None:
-                raise ReleaseError(f"{name}: cannot open release PR: {exc.response.text[:300]}") from exc
-        prs.append({"repo": name, "pr_number": pr["number"], "pr_url": pr["html_url"], "merged": False})
-
-    if not prs:
+    name = project.repo()["name"]
+    diff = await gh.compare(project.prod_branch, project.base_branch, repo=name)
+    if not diff.get("ahead_by"):
         raise ReleaseError(f"{project.base_branch} has nothing new compared to {project.prod_branch}")
+    title = f"Release {version}: {project.base_branch} → {project.prod_branch}"
+    try:
+        pr = await gh.create_pr(title=title, head=project.base_branch, base=project.prod_branch, body=notes, repo=name)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code != 422:
+            raise
+        pr = await gh.find_open_pr(project.base_branch, project.prod_branch, name)
+        if pr is None:
+            raise ReleaseError(f"{name}: cannot open release PR: {exc.response.text[:300]}") from exc
+    prs = [{"repo": name, "pr_number": pr["number"], "pr_url": pr["html_url"], "merged": False}]
 
     release = Release(
         project_id=project.id,

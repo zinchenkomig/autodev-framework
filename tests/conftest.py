@@ -61,7 +61,7 @@ def make_project(slug: str = "shop", repos: list[dict] | None = None, **kwargs) 
     return Project(
         id=slug,
         name=slug.title(),
-        repos=repos if repos is not None else [{"name": f"acme/{slug}", "role": "app"}],
+        repos=repos if repos is not None else [{"name": f"acme/{slug}"}],
         stage_url=f"https://stage.{slug}.test",
         **kwargs,
     )

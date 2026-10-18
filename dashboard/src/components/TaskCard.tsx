@@ -18,7 +18,7 @@ export function TaskCard({ task, showProject }: { task: Task; showProject?: bool
       <div className="mb-1.5 flex items-center gap-2 text-xs text-muted">
         <span className="font-mono">#{task.ticket_number}</span>
         <span className="min-w-0 truncate">
-          {[showProject && task.project_id, task.repo?.split('/')[1]].filter(Boolean).join(' · ')}
+          {showProject && task.project_id}
         </span>
         <span className="ml-auto shrink-0">{ago(task.status_changed_at)}</span>
       </div>

@@ -5,7 +5,6 @@ import { api, type Priority, type Project, type Task } from '@/lib/api'
 import { PRIORITY } from '@/lib/format'
 import { Button, ErrorNote, Field, Sheet, inputClass } from './ui'
 
-const AUTO = ''
 
 export function NewTaskSheet({
   open,
@@ -21,7 +20,6 @@ export function NewTaskSheet({
   onCreated: (task: Task) => void
 }) {
   const [projectId, setProjectId] = useState('')
-  const [repo, setRepo] = useState(AUTO)
   const [text, setText] = useState('')
   const [priority, setPriority] = useState<Priority>('normal')
   const [busy, setBusy] = useState(false)
@@ -39,7 +37,6 @@ export function NewTaskSheet({
   }, [open])
 
   const project = ordered.find((p) => p.id === projectId)
-  useEffect(() => setRepo(AUTO), [projectId])
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -52,7 +49,7 @@ export function NewTaskSheet({
     setBusy(true)
     setError(null)
     try {
-      const task = await api.createTask({ title, description, project_id: project.id, repo: repo || null, priority })
+      const task = await api.createTask({ title, description, project_id: project.id, priority })
       setText('')
       setPriority('normal')
       onCreated(task)
@@ -105,18 +102,6 @@ export function NewTaskSheet({
               </select>
             </Field>
           </div>
-          {project && project.repos.length > 1 && (
-            <Field label="Репозиторий">
-              <select value={repo} onChange={(e) => setRepo(e.target.value)} className={inputClass}>
-                <option value={AUTO}>Авто — агент решит сам (может разбить на части)</option>
-                {project.repos.map((r) => (
-                  <option key={r.name} value={r.name}>
-                    {r.role} · {r.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          )}
           {project && !project.enabled && (
             <p className="text-sm text-warn">Проект на паузе — задача подождёт, пока его не включат.</p>
           )}

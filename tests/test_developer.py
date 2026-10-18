@@ -10,7 +10,7 @@ import pytest
 
 from autodev.core.claude import ClaudeResult
 from autodev.core.config import Settings
-from autodev.core.models import Project, Task, TaskStatus
+from autodev.core.models import Task, TaskStatus
 from autodev.worker import developer as dev_mod
 from autodev.worker.context import WorkerContext
 from autodev.worker.developer import develop
@@ -266,40 +266,6 @@ async def test_cancelled_while_running_keeps_cancelled(wired, session_factory, m
     monkeypatch.setattr(FakeRunner, "run", run_then_cancel)
     await develop(ctx, t.id, "developer-1")
     assert (await reload(session_factory, t.id)).status == TaskStatus.CANCELLED
-
-
-async def test_blocked_on_other_repo_queues_prerequisite(wired, session_factory, monkeypatch) -> None:
-    ctx, gh, _ = wired
-    async with session_factory() as s:
-        project = await s.get(Project, "shop")
-        project.repos = [{"name": "acme/shop", "role": "frontend"}, {"name": "acme/api", "role": "backend"}]
-        await s.commit()
-    monkeypatch.setattr(dev_mod.notify, "waiting", AsyncMock())
-    FakeRunner.behaviour = None
-    needs = {"repo": "acme/api", "title": "Квантили в baseline", "description": "Добавь baseline_quantile"}
-    FakeRunner.result = ClaudeResult(
-        ok=False, blocked=True, summary="Бэкенд не умеет", session_id="s", data={"status": "blocked", "needs": needs}
-    )
-    t = await new_task(session_factory)
-    await develop(ctx, t.id, "developer-1")
-
-    t = await reload(session_factory, t.id)
-    assert t.status == TaskStatus.QUEUED and len(t.depends_on) == 1
-    async with session_factory() as s:
-        pre = await s.get(Task, t.depends_on[0])
-    assert pre.repo == "acme/api" and pre.status == TaskStatus.QUEUED and pre.title == "Квантили в baseline"
-    assert "Добавь baseline_quantile" in pre.description and f"#{t.ticket_number}" in pre.description
-    assert pre.parent_id == t.id
-    dev_mod.notify.waiting.assert_awaited_once()
-    dev_mod.notify.blocked.assert_not_awaited()
-    assert not gh.prs
-
-    # Each round may spawn a prerequisite, but not forever.
-    for _ in range(dev_mod.MAX_PREREQUISITES):
-        await set_in_progress(session_factory, t.id)
-        await develop(ctx, t.id, "developer-1")
-    t = await reload(session_factory, t.id)
-    assert t.status == TaskStatus.FAILED and len(t.depends_on) == dev_mod.MAX_PREREQUISITES
 
 
 async def test_blocked_with_unknown_prerequisite_repo_fails(wired, session_factory) -> None:

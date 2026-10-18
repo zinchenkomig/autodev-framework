@@ -26,7 +26,8 @@ _SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 
 class ProjectBody(BaseModel):
     name: str = Field(min_length=1)
-    repos: list[RepoSpec] = Field(min_length=1)
+    # One repo per project — keep several apps in a monorepo. A list for API compatibility.
+    repos: list[RepoSpec] = Field(min_length=1, max_length=1)
     base_branch: str = "stage"
     prod_branch: str = "main"
     stage_url: str | None = None

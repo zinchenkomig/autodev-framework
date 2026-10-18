@@ -251,8 +251,9 @@ export default function TaskPage() {
 
 const CHILD_KIND: Record<string, string> = {
   feedback: 'доработка',
-  triage: 'часть задачи',
   qa: 'исправление после QA',
+  // from the multi-repo days
+  triage: 'часть задачи',
   developer: 'нужно для другой части',
 }
 
@@ -270,7 +271,7 @@ function Children({ taskId }: { taskId: string }) {
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[15px]">{c.title}</span>
               <span className="block truncate text-xs text-muted">
-                {[CHILD_KIND[c.created_by ?? ''], c.repo?.split('/')[1]].filter(Boolean).join(' · ')}
+                {CHILD_KIND[c.created_by ?? '']}
               </span>
             </span>
             {c.verified_at && <CheckCircle2 size={14} className="shrink-0 text-ok" />}

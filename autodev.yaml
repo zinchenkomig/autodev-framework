@@ -14,7 +14,6 @@ projects:
       # task is one PR; without version_url, "on stage" = the stage deploy
       # workflows succeeded for the merge commit.
       - name: zinchenkomig/great_alerter
-        role: app
         # Regenerate the frontend's typed API client from the backend code in
         # the same checkout so Claude starts from a consistent contract.
         setup: |
