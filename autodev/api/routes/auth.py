@@ -229,7 +229,7 @@ button{{font:inherit;font-weight:600;padding:12px;border:0;border-radius:12px;ba
 <form method="post" action="{LOGIN_PATH}">
 <h1>AutoDev</h1>{err}
 <input type="hidden" name="next" value="{html.escape(target)}">
-<label>Логин<input name="username" autocomplete="username" autocapitalize="none" required value="{html.escape(user)}"></label>
-<label>Пароль<input name="password" type="password" autocomplete="current-password" required></label>
+<label>Логин<input id="username" name="username" type="text" autocomplete="username" spellcheck="false" autocapitalize="none" required value="{html.escape(user)}"></label>
+<label>Пароль<input id="password" name="password" type="password" autocomplete="current-password" required></label>
 <button type="submit">Войти</button>
 </form></body></html>"""
