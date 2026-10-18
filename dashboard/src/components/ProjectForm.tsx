@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import type { ProjectInput, Repo } from '@/lib/api'
+import type { NewRepo, ProjectInput, Repo } from '@/lib/api'
+import { cx } from '@/lib/format'
 import { Button, ErrorNote, Field, inputClass } from './ui'
 
 export const EMPTY_PROJECT: ProjectInput = {
@@ -27,9 +28,11 @@ export function ProjectForm({
 }: {
   initial: ProjectInput
   isNew: boolean
-  onSubmit: (p: ProjectInput) => Promise<void>
+  onSubmit: (p: ProjectInput, newRepo?: NewRepo) => Promise<void>
 }) {
   const [p, setP] = useState<ProjectInput>(initial)
+  // A new project can start from an empty repo that the API creates on GitHub.
+  const [newRepo, setNewRepo] = useState<NewRepo | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const set = <K extends keyof ProjectInput>(key: K, value: ProjectInput[K]) => setP((prev) => ({ ...prev, [key]: value }))
@@ -42,10 +45,13 @@ export function ProjectForm({
     setBusy(true)
     setError(null)
     try {
-      await onSubmit({
-        ...p,
-        repos: [{ name: r.name.trim(), version_url: orNull(r.version_url ?? ''), setup: orNull(r.setup ?? '') }],
-      })
+      await onSubmit(
+        {
+          ...p,
+          repos: [{ name: r.name.trim(), version_url: orNull(r.version_url ?? ''), setup: orNull(r.setup ?? '') }],
+        },
+        newRepo ?? undefined,
+      )
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -72,7 +78,36 @@ export function ProjectForm({
       </div>
 
       <div className="space-y-3 rounded-2xl border border-line p-3">
-        <Field label="Репозиторий" hint="Один на проект — несколько приложений держите в монорепо.">
+        {isNew && (
+          <div className="flex flex-wrap gap-2">
+            {[
+              { label: 'Подключить существующий', value: null },
+              { label: 'Создать с нуля', value: { private: true, brief: '' } },
+            ].map((mode) => (
+              <button
+                key={mode.label}
+                type="button"
+                onClick={() => setNewRepo(mode.value)}
+                className={cx(
+                  'rounded-full border px-3 py-1.5 text-sm',
+                  (newRepo !== null) === (mode.value !== null)
+                    ? 'border-accent bg-accent text-accent-fg'
+                    : 'border-line bg-surface text-muted',
+                )}
+              >
+                {mode.label}
+              </button>
+            ))}
+          </div>
+        )}
+        <Field
+          label="Репозиторий"
+          hint={
+            newRepo
+              ? 'Создадим на GitHub с ветками stage и прода. Владелец — ваш аккаунт или организация.'
+              : 'Один на проект — несколько приложений держите в монорепо.'
+          }
+        >
           <input
             required
             placeholder="owner/repo"
@@ -81,22 +116,47 @@ export function ProjectForm({
             className={inputClass}
           />
         </Field>
-        <Field label="URL версии на stage" hint="Отдаёт SHA задеплоенного коммита. Без него ждём успешных workflow на stage.">
-          <input
-            placeholder="https://stage.example.com/api/version"
-            value={r.version_url ?? ''}
-            onChange={(e) => setRepo({ version_url: e.target.value })}
-            className={inputClass}
-          />
-        </Field>
-        <Field label="Setup-скрипт" hint="Выполняется в свежем чекауте до старта агента (кодген и т.п.).">
-          <textarea
-            rows={2}
-            value={r.setup ?? ''}
-            onChange={(e) => setRepo({ setup: e.target.value })}
-            className={`${inputClass} font-mono text-sm`}
-          />
-        </Field>
+        {newRepo ? (
+          <>
+            <Field label="Что строим" hint="Станет первой задачей: агент выберет стек и заложит каркас — код, тесты, CI, CLAUDE.md.">
+              <textarea
+                rows={5}
+                placeholder="Сервис заметок с тегами и поиском. Бэкенд на FastAPI, фронт на Next.js."
+                value={newRepo.brief}
+                onChange={(e) => setNewRepo({ ...newRepo, brief: e.target.value })}
+                className={inputClass}
+              />
+            </Field>
+            <label className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                checked={newRepo.private}
+                onChange={(e) => setNewRepo({ ...newRepo, private: e.target.checked })}
+                className="h-5 w-5 accent-[var(--accent)]"
+              />
+              <span className="text-sm">Приватный репозиторий</span>
+            </label>
+          </>
+        ) : (
+          <>
+            <Field label="URL версии на stage" hint="Отдаёт SHA задеплоенного коммита. Без него ждём успешных workflow на stage.">
+              <input
+                placeholder="https://stage.example.com/api/version"
+                value={r.version_url ?? ''}
+                onChange={(e) => setRepo({ version_url: e.target.value })}
+                className={inputClass}
+              />
+            </Field>
+            <Field label="Setup-скрипт" hint="Выполняется в свежем чекауте до старта агента (кодген и т.п.).">
+              <textarea
+                rows={2}
+                value={r.setup ?? ''}
+                onChange={(e) => setRepo({ setup: e.target.value })}
+                className={`${inputClass} font-mono text-sm`}
+              />
+            </Field>
+          </>
+        )}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">

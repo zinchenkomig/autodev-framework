@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 
+import httpx
 import pytest
 
 from autodev.core.models import AgentLog, Task, TaskStatus
@@ -31,6 +32,78 @@ async def test_project_crud(client) -> None:
     assert r.json()["stage_url"] == "https://stage.shop"
     assert [p["id"] for p in (await client.get("/api/projects/")).json()] == ["shop"]
     assert (await client.delete("/api/projects/shop")).status_code == 204
+
+
+class FakeRepoGitHub:
+    """GitHub that creates repos (default branch main) and records new branches."""
+
+    def __init__(self, exists: bool = False) -> None:
+        self.exists = exists
+        self.created: list[tuple[str, bool]] = []
+        self.refs: list[tuple[str, str, str]] = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return None
+
+    async def create_repo(self, full_name, *, private=True, description=""):
+        if self.exists:
+            request = httpx.Request("POST", "https://api.github.com/user/repos")
+            response = httpx.Response(422, text='{"errors":[{"message":"name already exists"}]}', request=request)
+            raise httpx.HTTPStatusError("422", request=request, response=response)
+        self.created.append((full_name, private))
+        return {"full_name": full_name, "default_branch": "main"}
+
+    async def get_branch_sha(self, branch, repo=None):
+        return "init1"
+
+    async def create_ref(self, ref, sha, repo=None):
+        self.refs.append((repo, ref, sha))
+        return {}
+
+
+async def test_create_project_from_scratch(client, monkeypatch) -> None:
+    import autodev.api.routes.projects as projects_mod
+
+    gh = FakeRepoGitHub()
+    monkeypatch.setattr(projects_mod, "GitHubClient", lambda token: gh)
+    body = {
+        "id": "notes",
+        "name": "Notes",
+        "repos": [{"name": "acme/notes"}],
+        "new_repo": {"private": False, "brief": "Заметки с тегами и поиском"},
+    }
+    r = await client.post("/api/projects/", json=body)
+    assert r.status_code == 201, r.text
+    assert r.json()["task_counts"] == {"queued": 1}
+    assert gh.created == [("acme/notes", False)]
+    assert gh.refs == [("acme/notes", "refs/heads/stage", "init1")]  # main already exists
+
+    (task,) = (await client.get("/api/tasks/", params={"project_id": "notes"})).json()
+    assert task["repo"] == "acme/notes" and task["status"] == "queued"
+    assert task["description"].startswith("Заметки с тегами и поиском") and "CLAUDE.md" in task["description"]
+
+
+async def test_create_project_from_scratch_without_brief(client, monkeypatch) -> None:
+    import autodev.api.routes.projects as projects_mod
+
+    monkeypatch.setattr(projects_mod, "GitHubClient", lambda token: FakeRepoGitHub())
+    body = {"id": "notes", "name": "Notes", "repos": [{"name": "acme/notes"}], "new_repo": {}}
+    r = await client.post("/api/projects/", json=body)
+    assert r.status_code == 201, r.text
+    assert r.json()["task_counts"] == {}
+
+
+async def test_create_project_from_scratch_repo_exists(client, monkeypatch) -> None:
+    import autodev.api.routes.projects as projects_mod
+
+    monkeypatch.setattr(projects_mod, "GitHubClient", lambda token: FakeRepoGitHub(exists=True))
+    body = {"id": "notes", "name": "Notes", "repos": [{"name": "acme/notes"}], "new_repo": {}}
+    r = await client.post("/api/projects/", json=body)
+    assert r.status_code == 409 and "already exists" in r.json()["detail"]
+    assert (await client.get("/api/projects/notes")).status_code == 404
 
 
 @pytest.mark.parametrize(

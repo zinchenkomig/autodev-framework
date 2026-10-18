@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import datetime
 from typing import Annotated
@@ -15,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from autodev.api.database import get_session
 from autodev.api.routes.releases import ReleaseResponse, release_to_response
 from autodev.core.config import RepoSpec, get_settings
-from autodev.core.models import Project, Task
+from autodev.core.models import Project, Task, TaskStatus
 from autodev.integrations.github import GitHubClient
 from autodev.release import ReleaseError, start_release
 
@@ -46,8 +47,17 @@ class ProjectBody(BaseModel):
         return repos
 
 
+class NewRepo(BaseModel):
+    """Create the project's repo on GitHub instead of connecting an existing one."""
+
+    private: bool = True
+    # What to build. Becomes the project's first task: the agent lays the groundwork.
+    brief: str = ""
+
+
 class ProjectCreate(ProjectBody):
     id: str
+    new_repo: NewRepo | None = None
 
     @field_validator("id")
     @classmethod
@@ -94,7 +104,7 @@ def to_response(project: Project, counts: dict[str, int] | None = None) -> Proje
 
 
 def _apply(project: Project, body: ProjectBody) -> None:
-    data = body.model_dump(exclude={"repos"})
+    data = body.model_dump(exclude={"repos", "new_repo"})
     for key, value in data.items():
         setattr(project, key, value)
     project.repos = [r.model_dump(exclude_none=True) for r in body.repos]
@@ -120,12 +130,72 @@ async def create_project(
 ) -> ProjectResponse:
     if await session.get(Project, body.id) is not None:
         raise HTTPException(409, f"Project {body.id} already exists")
+    if body.new_repo is not None:
+        await _create_repo(body, body.new_repo)
     project = Project(id=body.id)
     _apply(project, body)
     session.add(project)
     await session.flush()
+    if body.new_repo is not None and body.new_repo.brief.strip():
+        session.add(
+            Task(
+                title="Каркас проекта",
+                description=_scaffold_description(body.new_repo.brief),
+                project_id=project.id,
+                repo=body.repos[0].name,
+                created_by="dashboard",
+                status=TaskStatus.QUEUED,
+                metadata_={},
+            )
+        )
+        await session.flush()
     await session.refresh(project)
-    return to_response(project)
+    return to_response(project, (await _counts(session)).get(project.id))
+
+
+async def _create_repo(body: ProjectBody, spec: NewRepo) -> None:
+    """Create the repo with its stage and prod branches, all at the initial commit."""
+    name = body.repos[0].name
+    async with GitHubClient(token=get_settings().github_token) as gh:
+        try:
+            repo = await gh.create_repo(name, private=spec.private, description=body.name)
+            default = repo.get("default_branch") or "main"
+            sha = await _branch_sha(gh, name, default)
+            for branch in sorted({body.base_branch, body.prod_branch} - {default}):
+                await gh.create_ref(f"refs/heads/{branch}", sha, name)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 422 and "already exists" in exc.response.text:
+                raise HTTPException(409, f"{name} already exists on GitHub — connect it as an existing repo") from exc
+            raise HTTPException(502, f"GitHub: {exc.response.status_code} {exc.response.text[:300]}") from exc
+
+
+async def _branch_sha(gh: GitHubClient, repo: str, branch: str) -> str:
+    # The initial commit of a just-created repo can take a moment to show up.
+    for _ in range(4):
+        try:
+            return await gh.get_branch_sha(branch, repo)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code not in (404, 409):
+                raise
+        await asyncio.sleep(1)
+    return await gh.get_branch_sha(branch, repo)
+
+
+def _scaffold_description(brief: str) -> str:
+    return (
+        brief.strip()
+        + "\n\n---\n"
+        + "Репозиторий только что создан и пуст (в нём только README). Это первая задача проекта — заложи основу:\n"
+        + "- выбери стек (если в описании его нет — простой и распространённый) и сделай рабочую первую версию "
+        + "описанного;\n"
+        + "- README: что это и как запустить локально;\n"
+        + "- CLAUDE.md: стек, структура, команды запуска, тестов и линтеров, соглашения — по нему будут работать "
+        + "следующие задачи;\n"
+        + "- тесты и линтер, и чтобы они проходили;\n"
+        + "- GitHub Actions workflow, который запускает их на pull_request: CI проверяет каждый PR перед авто-merge;\n"
+        + "- .gitignore.\n"
+        + "Деплой на stage не настраивай, если об этом не сказано выше."
+    )
 
 
 @router.get("/{project_id}", summary="Get a project")

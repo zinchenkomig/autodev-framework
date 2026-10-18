@@ -311,6 +311,24 @@ class GitHubClient:
         return response.json()
 
     # ------------------------------------------------------------------
+    # Repositories
+    # ------------------------------------------------------------------
+
+    async def create_repo(self, full_name: str, *, private: bool = True, description: str = "") -> dict:
+        """Create ``owner/name`` with an initial commit on its default branch.
+
+        *owner* is the token's own account or an organization the token can create repos in.
+        """
+        owner, name = full_name.split("/", 1)
+        me = await self._client.get("/user")
+        me.raise_for_status()
+        path = "/user/repos" if me.json()["login"].lower() == owner.lower() else f"/orgs/{owner}/repos"
+        payload = {"name": name, "private": private, "description": description, "auto_init": True}
+        response = await self._client.post(path, json=payload)
+        response.raise_for_status()
+        return response.json()
+
+    # ------------------------------------------------------------------
     # CI / Check Runs
     # ------------------------------------------------------------------
 
