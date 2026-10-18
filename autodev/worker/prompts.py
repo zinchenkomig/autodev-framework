@@ -24,11 +24,8 @@ Rules:
   merge PRs, do NOT switch branches — the orchestrator does that.
 - If the task is impossible or too ambiguous to do safely, make no changes and
   return status "blocked" with the reason.
-- If the task needs a change in another repository of the project first (e.g. the
-  backend lacks a field the UI must send), make no changes, return status "blocked"
-  and describe that change in `needs` (repo, title, description with the exact
-  contract). AutoDev creates it as a task there and retries this one once it is
-  merged — so don't give up on the task, and don't fake the missing part.
+- The repository holds the whole project: when a change spans several apps in it
+  (e.g. a backend field and the UI that uses it), make all of it here, in one change.
 - Your final structured result: status ("done" / "blocked") and a 2-5 sentence
   summary in Russian of what changed and what a reviewer should look at. It becomes
   the PR description.
@@ -60,18 +57,15 @@ def initial(task: Task, project: Project, repo: dict, deps: list[Task], main: Ta
         (task.description or "").strip() or "(no description — infer the intent from the title)",
         "",
         "## Context",
-        f"- Project: {project.name}; this repository: {repo['name']} (role: {repo.get('role', 'app')})",
+        f"- Project: {project.name}; repository: {repo['name']}",
         f"- You are on branch `{task.branch}`, created from `{project.base_branch}`.",
     ]
-    others = [r["name"] for r in project.repos if r["name"] != repo["name"]]
-    if others:
-        parts.append(f"- Other repos of this project: {', '.join(others)} (read-only for you; use `gh` to look).")
     if project.stage_url:
         parts.append(f"- After merge the change is deployed to {project.stage_url}.")
     if deps:
         parts += ["", "## Related tasks (already merged into the base branch)"]
         for dep in deps:
-            line = f"- #{dep.ticket_number} {dep.title} [{dep.repo}]"
+            line = f"- #{dep.ticket_number} {dep.title}"
             if dep.pr_url:
                 line += f" — {dep.pr_url} (see it with `gh pr diff {dep.pr_url}`)"
             parts.append(line)

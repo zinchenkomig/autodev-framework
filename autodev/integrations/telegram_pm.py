@@ -238,7 +238,7 @@ class TelegramPMBot:
                 title=title[:200],
                 description=rest.strip() or (title if len(title) > 200 else ""),
                 project_id=project.id,
-                repo=project.repos[0]["name"] if len(project.repos) == 1 else None,
+                repo=project.repos[0]["name"],
                 created_by="telegram",
                 status=TaskStatus.QUEUED,
                 metadata_={},

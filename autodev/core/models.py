@@ -195,13 +195,13 @@ class ReleaseStatus(enum.StrEnum):
 
 
 class Project(Base):
-    """A product the agents work on: one or more repos sharing a stage."""
+    """A product the agents work on: one repo (a monorepo for several apps) and its stage."""
 
     __tablename__ = "projects"
 
     id: Mapped[str] = mapped_column(String(100), primary_key=True)  # slug
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    # [{"name": "owner/repo", "role": "backend", "version_url": "...", "setup": "..."}]
+    # [{"name": "owner/repo", "version_url": "...", "setup": "..."}] — exactly one entry
     repos: Mapped[list[dict]] = mapped_column(_JSONEncodedDict(), nullable=False, default=list)
     base_branch: Mapped[str] = mapped_column(String(100), nullable=False, default="stage")
     prod_branch: Mapped[str] = mapped_column(String(100), nullable=False, default="main")
@@ -221,14 +221,14 @@ class Project(Base):
         nullable=False,
     )
 
-    def repo(self, name_or_role: str | None) -> dict | None:
-        """Find a repo entry by full name, bare name or role; default to the only repo."""
-        if not name_or_role:
-            return self.repos[0] if len(self.repos) == 1 else None
-        for entry in self.repos:
-            if name_or_role in (entry["name"], entry["name"].split("/")[-1], entry.get("role")):
-                return entry
-        return None
+    def repo(self, name: str | None = None) -> dict | None:
+        """The project's repo entry; with *name* (full or bare), only if it is that repo."""
+        if not self.repos:
+            return None
+        entry = self.repos[0]
+        if name and name not in (entry["name"], entry["name"].split("/")[-1]):
+            return None
+        return entry
 
     def __repr__(self) -> str:
         return f"<Project id={self.id!r}>"
@@ -271,7 +271,7 @@ class Task(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     release_id: Mapped[uuid.UUID | None] = mapped_column(_UUID(), nullable=True)
     depends_on: Mapped[list[uuid.UUID] | None] = mapped_column(_JSONEncodedList(), nullable=True, default=list)
-    # The main task this one belongs to (follow-ups, triage parts, QA fixes, prerequisites).
+    # The main task this one belongs to (follow-ups, QA fixes).
     # Always the root, so the hierarchy is one level deep.
     parent_id: Mapped[uuid.UUID | None] = mapped_column(
         _UUID(), ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, index=True

@@ -197,12 +197,8 @@ async def respond_one(session: AsyncSession, task: Task) -> TaskResponse:
     return (await respond(session, [task]))[0]
 
 
-async def resolve_target(session: AsyncSession, project_id: str | None, repo: str | None) -> tuple[Project, str | None]:
-    """Validate project/repo for a new task.
-
-    Repo may stay None for a multi-repo project: the worker then triages the
-    task (picks the repo, or splits it into one task per repo).
-    """
+async def resolve_target(session: AsyncSession, project_id: str | None, repo: str | None) -> tuple[Project, str]:
+    """Validate project/repo for a new task; the repo is always the project's one."""
     if project_id:
         project = await session.get(Project, project_id)
         if project is None:
@@ -216,9 +212,9 @@ async def resolve_target(session: AsyncSession, project_id: str | None, repo: st
         project = projects[0]
 
     entry = project.repo(repo)
-    if repo and entry is None:
-        raise HTTPException(422, f"Repo {repo!r} is not part of project {project.id}")
-    return project, entry["name"] if entry else None
+    if entry is None:
+        raise HTTPException(422, f"Repo {repo!r} is not the repo of project {project.id}")
+    return project, entry["name"]
 
 
 def move(session: AsyncSession, task: Task, to: str, reason: str, by: str = "dashboard", **fields: Any) -> None:
@@ -338,15 +334,11 @@ async def feedback(
     text = body.text.strip()
 
     if task.status in MERGED_STATUSES:
-        # In a multi-repo project the follow-up may need another repo (or several):
-        # leave the repo open so triage decides, like for a new task.
-        project = await session.get(Project, task.project_id) if task.project_id else None
-        multi_repo = project is not None and len(project.repos) > 1
         follow_up = Task(
             title=f"{task.title.removesuffix(' — доработка')} — доработка",
-            description=f"{text}\n\n---\nFollow-up to #{task.ticket_number} [{task.repo}] ({task.pr_url or 'no PR'}).",
+            description=f"{text}\n\n---\nFollow-up to #{task.ticket_number} ({task.pr_url or 'no PR'}).",
             project_id=task.project_id,
-            repo=None if multi_repo else task.repo,
+            repo=task.repo,
             priority=task.priority,
             depends_on=[task.id],
             parent_id=task.root_id,

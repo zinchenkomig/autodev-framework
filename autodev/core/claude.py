@@ -66,21 +66,6 @@ RESULT_SCHEMA: dict[str, Any] = {
             "what result to expect. Cover the main scenario and the important edge cases. "
             "Empty only when status is blocked.",
         },
-        "needs": {
-            "type": "object",
-            "description": "Only with status blocked, when the task can't be done here until another repository "
-            "of this project changes first (e.g. the backend must expose a field). That change becomes a "
-            "separate task; this one is retried after it is merged.",
-            "properties": {
-                "repo": {"type": "string", "description": "full name of the other repository"},
-                "title": {"type": "string", "description": "short imperative title in Russian"},
-                "description": {
-                    "type": "string",
-                    "description": "what to change there, incl. the exact contract this task relies on",
-                },
-            },
-            "required": ["repo", "title", "description"],
-        },
     },
     "required": ["status", "summary", "test_plan"],
 }

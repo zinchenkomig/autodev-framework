@@ -12,13 +12,9 @@ projects:
     # model: opus                   # override AUTODEV_MODEL for this project
     instructions: |
       Extra rules for this project that are not in CLAUDE.md.
-    repos:
-      - name: acme/shop-api
-        role: backend
+    repos:                          # exactly one: keep several apps in a monorepo
+      - name: acme/shop
         # Returns the deployed commit SHA, as JSON ({"sha": "..."}) or plain text.
         version_url: https://stage.shop.example.com/api/version
-      - name: acme/shop-web
-        role: frontend
-        version_url: https://stage.shop.example.com/version.json
         setup: |                    # runs in the fresh checkout before Claude
-          npm ci
+          (cd web && npm ci)

@@ -40,7 +40,13 @@ def test_defaults(tmp_path: Path) -> None:
     assert project.prod_branch == "main"
     assert project.max_parallel == 1
     assert project.enabled is True
-    assert project.repos[0].role == "app"
+
+
+def test_one_repo_per_project(tmp_path: Path) -> None:
+    f = tmp_path / "a.yaml"
+    f.write_text("projects:\n  - slug: p\n    name: P\n    repos: [{name: o/a}, {name: o/b}]\n")
+    with pytest.raises(ValueError):
+        load_config(f)
 
 
 def test_env_expansion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

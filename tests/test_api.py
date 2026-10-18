@@ -19,7 +19,7 @@ async def test_project_crud(client) -> None:
     body = {
         "id": "shop",
         "name": "Shop",
-        "repos": [{"name": "acme/api", "role": "backend"}, {"name": "acme/web", "role": "frontend"}],
+        "repos": [{"name": "acme/shop"}],
     }
     r = await client.post("/api/projects/", json=body)
     assert r.status_code == 201, r.text
@@ -39,6 +39,7 @@ async def test_project_crud(client) -> None:
         {"id": "Bad Slug", "name": "x", "repos": [{"name": "a/b"}]},
         {"id": "ok", "name": "x", "repos": []},
         {"id": "ok", "name": "x", "repos": [{"name": "no-owner"}]},
+        {"id": "ok", "name": "x", "repos": [{"name": "a/b"}, {"name": "a/c"}]},  # one repo per project
     ],
 )
 async def test_project_validation(client, body) -> None:
@@ -51,18 +52,6 @@ async def test_create_task_single_project_single_repo(client, project) -> None:
     t = r.json()
     assert t["project_id"] == "shop" and t["repo"] == "acme/shop" and t["status"] == "queued"
     assert t["ticket_number"] >= 1
-
-
-async def test_create_task_multi_repo_leaves_repo_for_triage(client, session_factory) -> None:
-    async with session_factory() as s:
-        s.add(make_project(repos=[{"name": "acme/api", "role": "backend"}, {"name": "acme/web", "role": "frontend"}]))
-        await s.commit()
-    r = await client.post("/api/tasks/", json={"title": "Add search", "project_id": "shop"})
-    assert r.json()["repo"] is None
-    r = await client.post("/api/tasks/", json={"title": "Fix", "project_id": "shop", "repo": "frontend"})
-    assert r.json()["repo"] == "acme/web"
-    r = await client.post("/api/tasks/", json={"title": "Fix", "project_id": "shop", "repo": "mobile"})
-    assert r.status_code == 422
 
 
 async def test_create_task_needs_project_when_ambiguous(client, session_factory, project) -> None:
@@ -282,27 +271,6 @@ async def test_test_plan_checklist_and_verify(client, project, session_factory) 
     assert (await client.get(f"/api/tasks/{t['id']}")).json()["verified_at"] == r["verified_at"]
     r = (await client.post(f"/api/tasks/{t['id']}/verify", json={"verified": False})).json()
     assert r["verified_at"] is None
-
-
-async def test_follow_up_in_multi_repo_project_goes_through_triage(client, session_factory) -> None:
-    repos = [{"name": "acme/web", "role": "frontend"}, {"name": "acme/api", "role": "backend"}]
-    async with session_factory() as s:
-        s.add(make_project("alerter", repos=repos))
-        await s.commit()
-    t = (await client.post("/api/tasks/", json={"title": "Экран", "project_id": "alerter", "repo": "acme/web"})).json()
-    await set_status(session_factory, t["id"], TaskStatus.ON_STAGE, pr_url="https://pr/1")
-
-    r = (await client.post(f"/api/tasks/{t['id']}/feedback", json={"text": "добавь квантили"})).json()
-    assert r["repo"] is None and r["title"] == "Экран — доработка" and "[acme/web]" in r["description"]
-    await set_status(session_factory, r["id"], TaskStatus.ON_STAGE)
-    again = (await client.post(f"/api/tasks/{r['id']}/feedback", json={"text": "ещё"})).json()
-    assert again["title"] == "Экран — доработка"  # no "— доработка — доработка"
-
-    # Both follow-ups hang under the main task, not under each other.
-    assert r["parent"]["id"] == t["id"] and again["parent"]["ticket_number"] == t["ticket_number"]
-    children = (await client.get("/api/tasks/", params={"parent_id": t["id"]})).json()
-    assert [c["id"] for c in children] == [r["id"], again["id"]]
-    assert (await client.get(f"/api/tasks/{t['id']}")).json()["parent"] is None
 
 
 async def test_follow_up_is_checked_with_its_main_task(client, project, session_factory) -> None:

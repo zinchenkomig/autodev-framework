@@ -14,7 +14,7 @@ async def test_seed_inserts_missing_and_keeps_existing(session_factory) -> None:
     await seed_projects(session_factory, cfg)
     async with session_factory() as s:
         p = await s.get(Project, "shop")
-        assert p.repos == [{"name": "acme/shop", "role": "app", "setup": "npm ci"}]
+        assert p.repos == [{"name": "acme/shop", "setup": "npm ci"}]
         p.name = "Edited in dashboard"
         await s.commit()
 

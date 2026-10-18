@@ -1,6 +1,5 @@
 'use client'
 
-import { Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import type { ProjectInput, Repo } from '@/lib/api'
 import { Button, ErrorNote, Field, inputClass } from './ui'
@@ -8,7 +7,7 @@ import { Button, ErrorNote, Field, inputClass } from './ui'
 export const EMPTY_PROJECT: ProjectInput = {
   id: '',
   name: '',
-  repos: [{ name: '', role: 'app' }],
+  repos: [{ name: '' }],
   base_branch: 'stage',
   prod_branch: 'main',
   stage_url: null,
@@ -34,11 +33,9 @@ export function ProjectForm({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const set = <K extends keyof ProjectInput>(key: K, value: ProjectInput[K]) => setP((prev) => ({ ...prev, [key]: value }))
-  const setRepo = (i: number, patch: Partial<Repo>) =>
-    set(
-      'repos',
-      p.repos.map((r, j) => (j === i ? { ...r, ...patch } : r)),
-    )
+  // One repo per project (several apps live in a monorepo); the API keeps it as a one-item list.
+  const r = p.repos[0] ?? { name: '' }
+  const setRepo = (patch: Partial<Repo>) => set('repos', [{ ...r, ...patch }])
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -47,14 +44,7 @@ export function ProjectForm({
     try {
       await onSubmit({
         ...p,
-        repos: p.repos
-          .filter((r) => r.name.trim())
-          .map((r) => ({
-            name: r.name.trim(),
-            role: r.role.trim() || 'app',
-            version_url: orNull(r.version_url ?? ''),
-            setup: orNull(r.setup ?? ''),
-          })),
+        repos: [{ name: r.name.trim(), version_url: orNull(r.version_url ?? ''), setup: orNull(r.setup ?? '') }],
       })
     } catch (err) {
       setError((err as Error).message)
@@ -81,51 +71,32 @@ export function ProjectForm({
         </Field>
       </div>
 
-      <div className="space-y-3">
-        <div className="text-sm font-medium">Репозитории</div>
-        {p.repos.map((r, i) => (
-          <div key={i} className="space-y-3 rounded-2xl border border-line p-3">
-            <div className="flex gap-2">
-              <input
-                required
-                placeholder="owner/repo"
-                value={r.name}
-                onChange={(e) => setRepo(i, { name: e.target.value })}
-                className={inputClass}
-              />
-              <input
-                placeholder="роль"
-                value={r.role}
-                onChange={(e) => setRepo(i, { role: e.target.value })}
-                className={`${inputClass} max-w-[7.5rem]`}
-              />
-              {p.repos.length > 1 && (
-                <Button type="button" variant="ghost" onClick={() => set('repos', p.repos.filter((_, j) => j !== i))} aria-label="Убрать">
-                  <Trash2 size={16} />
-                </Button>
-              )}
-            </div>
-            <Field label="URL версии на stage" hint="Отдаёт SHA задеплоенного коммита. Без него ждём успешных workflow на stage.">
-              <input
-                placeholder="https://stage.example.com/api/version"
-                value={r.version_url ?? ''}
-                onChange={(e) => setRepo(i, { version_url: e.target.value })}
-                className={inputClass}
-              />
-            </Field>
-            <Field label="Setup-скрипт" hint="Выполняется в свежем чекауте до старта агента (кодген и т.п.).">
-              <textarea
-                rows={2}
-                value={r.setup ?? ''}
-                onChange={(e) => setRepo(i, { setup: e.target.value })}
-                className={`${inputClass} font-mono text-sm`}
-              />
-            </Field>
-          </div>
-        ))}
-        <Button type="button" size="sm" onClick={() => set('repos', [...p.repos, { name: '', role: 'app' }])}>
-          <Plus size={15} /> Репозиторий
-        </Button>
+      <div className="space-y-3 rounded-2xl border border-line p-3">
+        <Field label="Репозиторий" hint="Один на проект — несколько приложений держите в монорепо.">
+          <input
+            required
+            placeholder="owner/repo"
+            value={r.name}
+            onChange={(e) => setRepo({ name: e.target.value })}
+            className={inputClass}
+          />
+        </Field>
+        <Field label="URL версии на stage" hint="Отдаёт SHA задеплоенного коммита. Без него ждём успешных workflow на stage.">
+          <input
+            placeholder="https://stage.example.com/api/version"
+            value={r.version_url ?? ''}
+            onChange={(e) => setRepo({ version_url: e.target.value })}
+            className={inputClass}
+          />
+        </Field>
+        <Field label="Setup-скрипт" hint="Выполняется в свежем чекауте до старта агента (кодген и т.п.).">
+          <textarea
+            rows={2}
+            value={r.setup ?? ''}
+            onChange={(e) => setRepo({ setup: e.target.value })}
+            className={`${inputClass} font-mono text-sm`}
+          />
+        </Field>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">

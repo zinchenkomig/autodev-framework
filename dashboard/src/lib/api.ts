@@ -80,7 +80,6 @@ export interface Transition {
 
 export interface Repo {
   name: string
-  role: string
   version_url?: string | null
   setup?: string | null
 }

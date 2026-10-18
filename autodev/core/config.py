@@ -75,10 +75,9 @@ def get_settings() -> Settings:
 
 
 class RepoSpec(BaseModel):
-    """One repository of a project."""
+    """The repository of a project (a monorepo when the project has several apps)."""
 
     name: str  # owner/repo
-    role: str = "app"  # e.g. backend / frontend; used to route tasks
     # URL on stage that returns the deployed commit SHA (JSON or plain text).
     version_url: str | None = None
     # Shell run in the fresh checkout before Claude starts (codegen etc.).
@@ -86,11 +85,11 @@ class RepoSpec(BaseModel):
 
 
 class ProjectSpec(BaseModel):
-    """A project: repos that share one stage environment."""
+    """A project: one repo and its stage environment."""
 
     slug: str
     name: str
-    repos: list[RepoSpec]
+    repos: list[RepoSpec] = Field(min_length=1, max_length=1)
     base_branch: str = "stage"
     prod_branch: str = "main"
     stage_url: str | None = None
