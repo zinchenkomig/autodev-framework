@@ -19,6 +19,10 @@ hurt the node or other workloads.
   AUTODEV_WORKDIR=/var/lib/autodev/work
   AUTODEV_PUBLIC_URL=https://autodev.zinchenkomig.com
   AUTODEV_WORKER_SLOTS=2
+  # Projects started from scratch: repo in this org, deployed by hetzner-gitops
+  # argocd/appset-projects.yaml (the API deployment sets the same two).
+  AUTODEV_PROJECTS_ORG=Autodev-Zinchenkomig
+  AUTODEV_APPS_DOMAIN=zinchenkomig.com
   ```
 - `/etc/autodev/secrets.env` (0600) — the generated DB password and the dashboard login.
 - Claude Code auth: root's `~/.claude` login, or `CLAUDE_CODE_OAUTH_TOKEN` in `worker.env`.
