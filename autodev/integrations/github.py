@@ -401,6 +401,14 @@ class GitHubClient:
         status = (await self.compare(sha, ref, repo)).get("status")
         return status in ("ahead", "identical")
 
+    async def dispatch_workflow(self, workflow: str, ref: str, repo: str | None = None) -> None:
+        """Start *workflow* (file name or id) on *ref*; it needs a ``workflow_dispatch`` trigger."""
+        resolved = self._resolve_repo(repo)
+        response = await self._client.post(
+            f"/repos/{resolved}/actions/workflows/{workflow}/dispatches", json={"ref": ref}
+        )
+        response.raise_for_status()
+
     async def list_workflow_runs(
         self,
         repo: str | None = None,

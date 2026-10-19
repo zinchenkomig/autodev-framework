@@ -62,6 +62,9 @@ class FakeGitHub:
         self.prs[number].update(merged=True, state="closed", merge_commit_sha=f"merge{number}")
         return {"sha": f"merge{number}", "merged": True}
 
+    async def dispatch_workflow(self, workflow, ref, repo=None):
+        self.dispatched = [*getattr(self, "dispatched", []), (repo, workflow, ref)]
+
     async def compare(self, base, head, repo=None):
         return {"ahead_by": self.ahead_by.get(repo or "", 0), "status": "ahead"}
 

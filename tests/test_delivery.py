@@ -356,3 +356,32 @@ async def test_no_stage_url_skips_qa(session_factory, stub_qa) -> None:
     await Delivery(ctx(session_factory)).on_stage(t, "test")
     stub_qa.assert_not_awaited()
     assert "qa" not in (await reload(session_factory, t.id)).metadata_
+
+
+async def test_image_build_started_for_deployed_repos(session_factory, project, no_notifications) -> None:
+    # Repos in the projects org get their image built by AutoDev after each merge
+    # (push events don't reliably start workflows there).
+    settings = {"AUTODEV_PROJECTS_ORG": "ACME", "AUTODEV_APPS_DOMAIN": "example.com"}
+    gh = FakeGitHub()
+    gh.add_pr(number=1, head_sha="h1")
+    gh.check_runs["h1"] = [run("test")]
+    t = await make_task(session_factory)
+    await Delivery(ctx(session_factory, **settings)).check_pr(gh, t)
+    assert gh.dispatched == [("acme/shop", "image.yml", "stage")]
+
+    gh.add_pr(number=7, head_sha="r1")
+    gh.check_runs["r1"] = [run("test")]
+    rel = Release(project_id="shop", version="v1", tasks=[], release_prs=[{"repo": "acme/shop", "pr_number": 7}])
+    async with session_factory() as s:
+        s.add(rel)
+        await s.commit()
+    await advance_release(ctx(session_factory, **settings), gh, rel.id)
+    assert gh.dispatched[-1] == ("acme/shop", "image.yml", "main")
+
+    other = FakeGitHub()  # outside the org: nothing to build
+    other.add_pr(number=1, head_sha="h1")
+    other.check_runs["h1"] = [run("test")]
+    await Delivery(ctx(session_factory, AUTODEV_PROJECTS_ORG="other", AUTODEV_APPS_DOMAIN="x")).check_pr(
+        other, await make_task(session_factory)
+    )
+    assert not hasattr(other, "dispatched")

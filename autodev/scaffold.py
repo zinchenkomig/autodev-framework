@@ -10,7 +10,14 @@ scaffold task that tells the agent the rest of the contract.
 
 from __future__ import annotations
 
+import logging
+
+import httpx
+
 from autodev.core.config import Settings
+from autodev.integrations.github import GitHubClient
+
+logger = logging.getLogger(__name__)
 
 IMAGE_WORKFLOW_PATH = ".github/workflows/image.yml"
 
@@ -21,9 +28,16 @@ IMAGE_WORKFLOW = """\
 # main heads (stage -> https://<repo>.stage..., main -> https://<repo>.prod...).
 name: Image
 
+# AutoDev also starts it by hand (workflow_dispatch) after merging into stage or main:
+# push events don't reliably start workflows in the projects organization.
 on:
   push:
     branches: [stage, main]
+  workflow_dispatch:
+
+# A push run and AutoDev's dispatch for the same commit don't race; the second is a cached rebuild.
+concurrency:
+  group: image-${{ github.sha }}
 
 permissions:
   contents: read
@@ -58,6 +72,21 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 """
+
+
+IMAGE_WORKFLOW_FILE = IMAGE_WORKFLOW_PATH.rsplit("/", 1)[1]
+
+
+async def build_image(gh: GitHubClient, repo: str, branch: str, settings: Settings) -> bool:
+    """Start the image build for *branch* of a deployed repo. False if not applicable or refused."""
+    if not deployed(repo, settings):
+        return False
+    try:
+        await gh.dispatch_workflow(IMAGE_WORKFLOW_FILE, branch, repo)
+    except httpx.HTTPStatusError as exc:  # no workflow (yet) or no dispatch trigger in it
+        logger.warning("image build for %s@%s refused: %s", repo, branch, exc.response.text[:200])
+        return False
+    return True
 
 
 def deployed(repo: str, settings: Settings) -> bool:
