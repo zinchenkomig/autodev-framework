@@ -104,13 +104,13 @@ export function ProjectForm({
           label="Репозиторий"
           hint={
             newRepo
-              ? 'Создадим на GitHub с ветками stage и прода. Владелец — ваш аккаунт или организация.'
+              ? 'Создадим на GitHub с ветками stage и прода. Пусто или просто имя — в организации проектов: там stage и прод разворачиваются сами. Или owner/repo.'
               : 'Один на проект — несколько приложений держите в монорепо.'
           }
         >
           <input
-            required
-            placeholder="owner/repo"
+            required={!newRepo}
+            placeholder={newRepo ? p.id || 'имя репозитория' : 'owner/repo'}
             value={r.name}
             onChange={(e) => setRepo({ name: e.target.value })}
             className={inputClass}
@@ -160,7 +160,7 @@ export function ProjectForm({
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="URL stage">
+        <Field label="URL stage" hint={newRepo ? 'пусто — выдадим для проекта в организации' : undefined}>
           <input
             type="url"
             placeholder="https://stage.example.com"

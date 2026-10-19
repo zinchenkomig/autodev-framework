@@ -1,0 +1,107 @@
+"""Projects started from scratch: the deploy contract and the first task.
+
+Repos in the projects organization (``AUTODEV_PROJECTS_ORG``) are deployed by the
+cluster with one shared chart (hetzner-gitops: ``charts/project``): a repo with
+``deploy/values.yaml`` gets a stage (branch stage) and a prod (branch main), each
+running ``ghcr.io/<org>/<repo>:<sha of the branch head>``. This module holds what
+a new repo needs to fit that: the image workflow committed at creation and the
+scaffold task that tells the agent the rest of the contract.
+"""
+
+from __future__ import annotations
+
+from autodev.core.config import Settings
+
+IMAGE_WORKFLOW_PATH = ".github/workflows/image.yml"
+
+# Committed with the repo: builds the image the cluster deploys. Skips until the
+# scaffold task adds a Dockerfile.
+IMAGE_WORKFLOW = """\
+# Managed by AutoDev: the cluster deploys ghcr.io/<org>/<repo>:<sha> of the stage and
+# main heads (stage -> https://<repo>.stage..., main -> https://<repo>.prod...).
+name: Image
+
+on:
+  push:
+    branches: [stage, main]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: image
+        run: |
+          if [ -f Dockerfile ]; then
+            echo "tag=ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          else
+            echo "No Dockerfile yet — nothing to build"
+          fi
+      - if: steps.image.outputs.tag
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - if: steps.image.outputs.tag
+        uses: docker/setup-buildx-action@v3
+      - if: steps.image.outputs.tag
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.image.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+"""
+
+
+def deployed(repo: str, settings: Settings) -> bool:
+    """True if the cluster deploys *repo* (it is in the projects organization)."""
+    owner = repo.split("/", 1)[0]
+    return bool(settings.projects_org and settings.apps_domain) and owner.lower() == settings.projects_org.lower()
+
+
+def stage_url(repo: str, settings: Settings) -> str:
+    return f"https://{repo.split('/', 1)[1].lower()}.stage.{settings.apps_domain}"
+
+
+def task_description(brief: str, with_deploy: bool) -> str:
+    lines = [
+        brief.strip(),
+        "",
+        "---",
+        "Репозиторий только что создан и пуст. Это первая задача проекта — заложи основу:",
+        "- выбери стек (если в описании его нет — простой и распространённый) и сделай рабочую первую версию "
+        "описанного;",
+        "- README: что это и как запустить локально;",
+        "- CLAUDE.md: стек, структура, команды запуска, тестов и линтеров, соглашения — по нему будут работать "
+        "следующие задачи;",
+        "- тесты и линтер, и чтобы они проходили;",
+        "- GitHub Actions workflow, который запускает их на pull_request: CI проверяет каждый PR перед авто-merge;",
+        "- .gitignore.",
+        "Cookie — только host-only, без атрибута Domain, а сессионные — с префиксом __Host- (Secure, Path=/): "
+        "stage и прод живут на соседних поддоменах одного домена. Запиши это правило в CLAUDE.md.",
+    ]
+    if with_deploy:
+        lines += [
+            "",
+            "Деплой уже настроен платформой — подстройся под её контракт и опиши его в CLAUDE.md:",
+            "- один `Dockerfile` в корне собирает всё приложение в один образ (если есть фронт и бэк — бэк "
+            "отдаёт собранный фронт); образ собирает уже лежащий в репо `.github/workflows/image.yml`, не меняй его;",
+            "- контейнер слушает порт из env `PORT` (8000), `GET /healthz` отвечает 200, `GET /version` отдаёт "
+            '`{"sha": "<env GIT_SHA>"}` — по нему проверяется, что коммит доехал до stage;',
+            "- в env также приходят `APP_ENV` (stage / prod) и `PUBLIC_URL`; нужна БД — Postgres, адрес в env "
+            "`DATABASE_URL`;",
+            "- создай `deploy/values.yaml` — с ним проект начинает деплоиться. Возможные ключи: "
+            "`port`, `healthPath`, `env` (KEY: value), `migrate.command` (список: команда миграций до старта), "
+            "`postgres.enabled` (true, если нужна БД), `resources`. Отличия prod — в `deploy/values-prod.yaml`.",
+            "Секреты в репозиторий не клади.",
+        ]
+    else:
+        lines.append("Деплой на stage не настраивай, если об этом не сказано выше.")
+    return "\n".join(lines)

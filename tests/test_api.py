@@ -63,6 +63,39 @@ class FakeRepoGitHub:
         self.refs.append((repo, ref, sha))
         return {}
 
+    async def put_file(self, path, content, message, branch, repo=None):
+        self.files = [*getattr(self, "files", []), (repo, branch, path)]
+        return "wf1"
+
+
+async def test_create_project_in_deployed_org(client, monkeypatch) -> None:
+    import autodev.api.routes.projects as projects_mod
+    from autodev.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "projects_org", "Apps-Org")
+    monkeypatch.setattr(get_settings(), "apps_domain", "example.com")
+    gh = FakeRepoGitHub()
+    monkeypatch.setattr(projects_mod, "GitHubClient", lambda token: gh)
+    body = {"id": "notes", "name": "Notes", "repos": [{"name": ""}], "new_repo": {"brief": "Заметки"}}
+    r = await client.post("/api/projects/", json=body)
+    assert r.status_code == 201, r.text
+    p = r.json()
+    assert p["repos"] == [
+        {"name": "Apps-Org/notes", "version_url": "https://notes.stage.example.com/version", "setup": None}
+    ]
+    assert p["stage_url"] == "https://notes.stage.example.com"
+    # The image workflow is committed first, so both branches start with it.
+    assert gh.files == [("Apps-Org/notes", "main", ".github/workflows/image.yml")]
+    assert gh.refs == [("Apps-Org/notes", "refs/heads/stage", "wf1")]
+    (task,) = (await client.get("/api/tasks/", params={"project_id": "notes"})).json()
+    assert "deploy/values.yaml" in task["description"] and "/version" in task["description"]
+
+    # An explicit owner/repo outside the org is created as is, without deploy wiring.
+    other = {**body, "id": "blog", "repos": [{"name": "someone/blog"}]}
+    p = (await client.post("/api/projects/", json=other)).json()
+    assert p["repos"][0]["name"] == "someone/blog" and p["stage_url"] is None
+    assert len(gh.files) == 1
+
 
 async def test_create_project_from_scratch(client, monkeypatch) -> None:
     import autodev.api.routes.projects as projects_mod
