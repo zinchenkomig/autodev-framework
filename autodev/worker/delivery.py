@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 import httpx
 from sqlalchemy import select
 
-from autodev import notify
+from autodev import notify, scaffold
 from autodev.core.models import Project, Release, ReleaseStatus, Task, TaskArtifact, TaskStatus
 from autodev.integrations.github import GitHubClient
 from autodev.worker import qa
@@ -98,7 +98,7 @@ class Delivery:
         pr = await gh.get_pr(task.pr_number, repo=task.repo)
 
         if pr.get("merged"):
-            await self.merged(task, pr.get("merge_commit_sha"), "merged outside AutoDev")
+            await self.merged(gh, task, pr.get("merge_commit_sha"), "merged outside AutoDev")
             return
         if pr.get("state") == "closed":
             await self.fail(task, f"PR {task.pr_url} was closed without merging")
@@ -149,12 +149,14 @@ class Delivery:
                 await self.store.log(task.id, f"⛔ {note}", level="warning")
             return
         await self.merged(
-            task, result.get("sha"), f"merged into {task.project.base_branch if task.project else 'base'}"
+            gh, task, result.get("sha"), f"merged into {task.project.base_branch if task.project else 'base'}"
         )
 
-    async def merged(self, task: Task, sha: str | None, reason: str) -> None:
+    async def merged(self, gh: GitHubClient, task: Task, sha: str | None, reason: str) -> None:
         metadata = dict(task.metadata_ or {})
         metadata.pop("merge_blocked", None)
+        if task.project and await scaffold.build_image(gh, task.repo, task.project.base_branch, self.ctx.settings):
+            await self.store.log(task.id, f"🐳 Image build started for {task.project.base_branch}")
         await self.store.transition(
             task.id,
             TaskStatus.DEPLOYING,
@@ -368,6 +370,8 @@ async def advance_release(ctx: WorkerContext, gh: GitHubClient, release_id) -> N
                 # every later stage→main PR conflict.
                 await gh.merge_pr(entry["pr_number"], merge_method="merge", repo=entry["repo"])
                 entry["merged"] = True
+                if project is not None:
+                    await scaffold.build_image(gh, entry["repo"], project.prod_branch, ctx.settings)
             except httpx.HTTPStatusError as exc:
                 problem = f"Merge of {entry['pr_url']} refused: {exc.response.text[:300]}"
                 break
