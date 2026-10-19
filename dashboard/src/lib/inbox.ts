@@ -17,7 +17,7 @@ export async function fetchInbox(): Promise<Inbox> {
     api.projects(),
     api.releases(),
   ])
-  const onStage = tasks.filter((t) => t.status === 'on_stage' && !(t.parent && t.test_plan.length === 0))
+  const onStage = tasks.filter((t) => t.status === 'on_stage' && !t.parent)
   const check = onStage.filter((t) => !t.verified_at && t.waiting_for.length === 0)
   const failed = tasks.filter((t) => t.status === 'failed')
   const releasing = new Set(releases.filter((r) => r.status === 'pending').map((r) => r.project_id))

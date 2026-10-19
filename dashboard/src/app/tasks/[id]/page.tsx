@@ -66,8 +66,8 @@ export default function TaskPage() {
   const canDelete = !['in_progress', 'ci', 'deploying'].includes(t.status)
   const merged = MERGED.includes(t.status)
   const waiting = t.waiting_for.length > 0
-  // Follow-ups are checked with their main task; older ones still have a plan of their own.
-  const withMain = !!t.parent && t.test_plan.length === 0
+  // Follow-ups are checked with their main task, by its one plan.
+  const withMain = !!t.parent
   const canFeedback = merged || (['ci', 'failed', 'cancelled'].includes(t.status) && t.pr_number) || (t.status === 'queued' && !t.branch)
 
   return (
@@ -217,7 +217,7 @@ export default function TaskPage() {
         />
       )}
 
-      {!t.parent && <Children taskId={t.id} />}
+      {!t.parent && <FollowUps taskId={t.id} />}
 
       {t.description && (
         <Card className="p-4">
@@ -252,38 +252,52 @@ export default function TaskPage() {
 }
 
 const CHILD_KIND: Record<string, string> = {
-  feedback: 'доработка',
-  qa: 'исправление после QA',
+  feedback: 'Доработка',
+  qa: 'Исправление после QA',
   // from the multi-repo days
-  triage: 'часть задачи',
-  developer: 'нужно для другой части',
+  triage: 'Часть задачи',
+  developer: 'Нужно для другой части',
 }
 
-function Children({ taskId }: { taskId: string }) {
+/** What the owner asked for: a follow-up's description without the "Follow-up to #N" footer. */
+function request(task: Task): string {
+  return (task.description ?? '').split('\n\n---\n')[0].trim()
+}
+
+/** The main task's history: each follow-up with what was asked and what the agent did. */
+function FollowUps({ taskId }: { taskId: string }) {
   const { data } = usePoll(() => api.children(taskId), 8000, [taskId])
   if (!data?.length) return null
   return (
     <Card className="p-2">
-      <div className="px-2 pb-1 pt-2 text-sm font-semibold">Подзадачи и доработки · {data.length}</div>
-      {data.map((c) => {
-        const s = STATUS[c.status]
-        return (
-          <Link key={c.id} href={`/tasks/${c.id}`} className="flex items-center gap-2 rounded-xl px-2 py-2.5 hover:bg-surface-2">
-            <span className="shrink-0 font-mono text-xs text-muted">#{c.ticket_number}</span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[15px]">{c.title}</span>
-              <span className="block truncate text-xs text-muted">
-                {CHILD_KIND[c.created_by ?? '']}
-              </span>
-            </span>
-            {c.verified_at && <CheckCircle2 size={14} className="shrink-0 text-ok" />}
-            <Badge tone={s.tone}>
-              {c.status === 'in_progress' && <Loader2 size={12} className="animate-spin" />}
-              {s.label}
-            </Badge>
-          </Link>
-        )
-      })}
+      <div className="px-2 pb-1 pt-2 text-sm font-semibold">История доработок · {data.length}</div>
+      <ol>
+        {data.map((c) => {
+          const s = STATUS[c.status]
+          const asked = request(c)
+          return (
+            <li key={c.id} className="border-t border-line first:border-t-0">
+              <Link href={`/tasks/${c.id}`} className="block space-y-1 rounded-xl px-2 py-2.5 hover:bg-surface-2">
+                <div className="flex items-center gap-2 text-xs text-muted">
+                  <span className="font-mono">#{c.ticket_number}</span>
+                  <span className="truncate">{CHILD_KIND[c.created_by ?? ''] ?? 'Доработка'}</span>
+                  <span>· {dateTime(c.created_at)}</span>
+                  <Badge tone={s.tone} className="ml-auto shrink-0 whitespace-nowrap">
+                    {c.status === 'in_progress' && <Loader2 size={12} className="animate-spin" />}
+                    {s.label}
+                  </Badge>
+                </div>
+                <p className="line-clamp-4 whitespace-pre-wrap break-words text-[15px] leading-snug">{asked || c.title}</p>
+                {c.summary && (
+                  <p className="line-clamp-3 whitespace-pre-wrap break-words text-xs leading-relaxed text-muted">
+                    {c.summary}
+                  </p>
+                )}
+              </Link>
+            </li>
+          )
+        })}
+      </ol>
     </Card>
   )
 }

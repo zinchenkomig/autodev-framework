@@ -415,7 +415,8 @@ async def test_follow_up_is_checked_with_its_main_task(client, project, session_
     assert (await client.get(f"/api/tasks/{child['id']}")).json()["verified_at"]  # shows the main task's mark
 
 
-async def test_older_follow_up_keeps_its_own_plan(client, project, session_factory) -> None:
+async def test_older_follow_up_plan_is_ignored(client, project, session_factory) -> None:
+    """A follow-up from before one-plan-per-task still holds a plan: it's checked with the main task anyway."""
     main = (await client.post("/api/tasks/", json={"title": "Экран"})).json()
     await set_status(session_factory, main["id"], TaskStatus.ON_STAGE)
     child = (await client.post(f"/api/tasks/{main['id']}/feedback", json={"text": "ещё"})).json()
@@ -423,10 +424,9 @@ async def test_older_follow_up_keeps_its_own_plan(client, project, session_facto
         session_factory, child["id"], TaskStatus.ON_STAGE, metadata_={"test_plan": ["свой шаг"], "plan_checked": [0]}
     )
     got = (await client.get(f"/api/tasks/{child['id']}")).json()
-    assert got["test_plan"] == ["свой шаг"] and got["plan_checked"] == [0] and got["verified_at"] is None
-    r = (await client.post(f"/api/tasks/{child['id']}/verify", json={"verified": True})).json()
-    assert r["verified_at"]  # its own mark, not the main task's
-    assert (await client.get(f"/api/tasks/{main['id']}")).json()["verified_at"] is None
+    assert got["test_plan"] == [] and got["plan_checked"] == []
+    assert (await client.post(f"/api/tasks/{child['id']}/plan/0", json={"done": True})).status_code == 409
+    assert (await client.post(f"/api/tasks/{child['id']}/verify", json={"verified": True})).status_code == 409
 
 
 async def test_cross_origin_writes_are_rejected(client, project) -> None:
