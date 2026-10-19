@@ -9,6 +9,7 @@ import { Empty, ErrorNote } from '@/components/ui'
 import { api, type Task, type TaskStatus } from '@/lib/api'
 import { cx } from '@/lib/format'
 import { usePoll, useStoredState } from '@/lib/hooks'
+import { stack, stackStatus } from '@/lib/stack'
 
 const COLUMNS: { key: string; title: string; statuses: TaskStatus[]; limit?: number }[] = [
   { key: 'queue', title: 'Очередь', statuses: ['queued'] },
@@ -31,11 +32,12 @@ export default function Board() {
   const tasks = usePoll(() => api.tasks(filter), 5000, [filter])
 
   const columns = useMemo(() => {
-    const list = tasks.data ?? []
+    // Follow-ups stack into their main task's card, which stands where the work on it is.
+    const stacks = stack(tasks.data ?? [])
     return COLUMNS.map((c) => {
-      const items = list.filter((t) => c.statuses.includes(t.status))
+      const items = stacks.filter((s) => c.statuses.includes(stackStatus(s)))
       // On stage: what still needs a look first, already checked ones below.
-      if (c.key === 'stage') items.sort((a, b) => Number(!!a.verified_at) - Number(!!b.verified_at))
+      if (c.key === 'stage') items.sort((a, b) => Number(!!a.task.verified_at) - Number(!!b.task.verified_at))
       return { ...c, items: c.limit ? items.slice(0, c.limit) : items, total: items.length }
     })
   }, [tasks.data])
@@ -44,7 +46,7 @@ export default function Board() {
   const current = projectList.find((p) => p.id === filter)
   const stage = columns.find((c) => c.key === 'stage')
   const onStage = stage?.total ?? 0
-  const verified = stage?.items.filter((t) => t.verified_at).length ?? 0
+  const verified = stage?.items.filter((s) => s.task.verified_at).length ?? 0
   const loading = tasks.data === null && !tasks.error
 
   function added(task: Task) {
@@ -117,8 +119,8 @@ export default function Board() {
           .filter((c) => c.key === tab)
           .map((c) => (
             <div key={c.key} className="space-y-2">
-              {c.items.map((t) => (
-                <TaskCard key={t.id} task={t} showProject={!filter} />
+              {c.items.map((s) => (
+                <TaskCard key={s.task.id} {...s} showProject={!filter} />
               ))}
               {!loading && c.items.length === 0 && <Empty>Пусто</Empty>}
             </div>
@@ -133,8 +135,8 @@ export default function Board() {
               {c.title}
               <span className="text-xs font-normal">{c.total || ''}</span>
             </h2>
-            {c.items.map((t) => (
-              <TaskCard key={t.id} task={t} showProject={!filter} />
+            {c.items.map((s) => (
+              <TaskCard key={s.task.id} {...s} showProject={!filter} />
             ))}
           </section>
         ))}

@@ -10,6 +10,7 @@ import { Badge, Button, Card, Empty, ErrorNote } from '@/components/ui'
 import { api, type Release } from '@/lib/api'
 import { dateTime, plural } from '@/lib/format'
 import { usePoll } from '@/lib/hooks'
+import { stack } from '@/lib/stack'
 
 export default function ProjectPage() {
   const { id } = useParams<{ id: string }>()
@@ -25,9 +26,10 @@ export default function ProjectPage() {
   if (project.error && !p) return <ErrorNote error={project.error} />
   if (!p) return <Loader2 className="mx-auto mt-16 animate-spin text-muted" />
 
-  const onStage = (tasks.data ?? []).filter((t) => t.status === 'on_stage')
+  // Follow-ups go out with their main task and are checked in it.
+  const onStage = stack((tasks.data ?? []).filter((t) => t.status === 'on_stage'))
   const pending = releases.data?.find((r) => r.status === 'pending')
-  const unchecked = onStage.filter((t) => !t.verified_at).length
+  const unchecked = onStage.filter((s) => !s.task.verified_at).length
 
   async function release() {
     const warning = unchecked ? `\n\nНе проверено на stage: ${unchecked}.` : ''
@@ -92,8 +94,8 @@ export default function ProjectPage() {
             Попадут в релиз
             {unchecked > 0 && <span className="font-normal text-warn"> · не проверено {unchecked}</span>}
           </h2>
-          {onStage.map((t) => (
-            <TaskCard key={t.id} task={t} />
+          {onStage.map((s) => (
+            <TaskCard key={s.task.id} task={s.task} followUps={s.followUps} />
           ))}
         </section>
       )}

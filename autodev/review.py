@@ -31,9 +31,8 @@ class ReviewError(ValueError):
 
 
 def checked_with_main(task: Task) -> bool:
-    """A follow-up/part checked as part of its main task. Children from before one-plan-per-task
-    keep a plan of their own and are still checked on their own."""
-    return bool(task.parent_id) and not (task.metadata_ or {}).get("test_plan")
+    """A follow-up/part: checked as part of its main task, by the main task's one plan."""
+    return bool(task.parent_id)
 
 
 def plan_checked(task: Task) -> list[int]:
@@ -52,6 +51,8 @@ def check_step(task: Task, step: int, done: bool, waiting: list[Task] = ()) -> N
     While *waiting* (open children) is not empty the steps can be ticked, but the task isn't verified yet.
     """
     _require_on_stage(task)
+    if checked_with_main(task):
+        raise ReviewError("Проверяется в основной задаче")
     plan = (task.metadata_ or {}).get("test_plan") or []
     if not 0 <= step < len(plan):
         raise ReviewError(f"No step {step + 1} in the test plan")
