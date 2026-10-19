@@ -8,15 +8,16 @@ from __future__ import annotations
 
 import logging
 import re
+import uuid
 from datetime import UTC, datetime
 
 import httpx
 from sqlalchemy import select
 
 from autodev import notify, scaffold
-from autodev.core.models import Project, Release, ReleaseStatus, Task, TaskArtifact, TaskStatus
+from autodev.core.models import OPEN_STATUSES, Project, Release, ReleaseStatus, Task, TaskArtifact, TaskStatus
 from autodev.integrations.github import GitHubClient
-from autodev.worker import qa
+from autodev.worker import cluster, qa
 from autodev.worker.context import WorkerContext
 
 logger = logging.getLogger(__name__)
@@ -209,6 +210,8 @@ class Delivery:
             if deployed and await gh.contains_commit(deployed, task.merge_sha, repo=task.repo):
                 await self.on_stage(task, f"stage runs {deployed[:7]}")
                 return
+            if scaffold.deployed(task.repo, self.ctx.settings) and await self.check_cluster(gh, task, project):
+                return
         else:
             verdict = await self._workflows_verdict(gh, task, project.base_branch)
             if verdict == "deployed":
@@ -223,6 +226,60 @@ class Delivery:
 
         if _age(task.status_changed_at) > self.ctx.settings.deploy_timeout:
             await self.fail(task, f"Change did not reach stage within {self.ctx.settings.deploy_timeout // 60} min")
+
+    async def check_cluster(self, gh: GitHubClient, task: Task, project: Project) -> bool:
+        """Fix a broken stage deploy forward instead of waiting for the timeout. True if handled.
+
+        A failed image build, migration or crash-looping app that includes this task's
+        merge becomes a fix task with the logs. This task keeps waiting in DEPLOYING:
+        the fix's commit contains its change, so it reaches stage together with the fix.
+        """
+        fix_id = (task.metadata_ or {}).get("deploy_fix")
+        if fix_id:
+            fix = await self.store.get(uuid.UUID(fix_id))
+            return fix is not None and fix.status in OPEN_STATUSES  # waiting for the fix, no timeout
+        failure = await self._image_build_failure(gh, task, project.base_branch) or await cluster.diagnose(task.repo)
+        if failure is None or not await gh.contains_commit(failure.sha, task.merge_sha, repo=task.repo):
+            return False
+        if task.created_by == "deploy":  # a deploy fix that broke stage again: stop, the owner looks
+            await self.fail(task, failure.text)
+            return True
+        fix = Task(
+            title=f"Stage: деплой упал после #{task.ticket_number}",
+            description=failure.text
+            + f"\n\nИзменение, после которого упало: #{task.ticket_number} {task.title} ({task.pr_url or 'no PR'})."
+            + "\nПочини так, чтобы stage снова поднялся. Если упала миграция, учти, что на stage-базе она "
+            + "могла выполниться частично.",
+            project_id=task.project_id,
+            repo=task.repo,
+            priority="high",
+            depends_on=[task.id],
+            parent_id=task.root_id,
+            created_by="deploy",
+            status=TaskStatus.QUEUED,
+            metadata_={},
+        )
+        async with self.ctx.session_factory() as session:
+            session.add(fix)
+            await session.commit()
+            await session.refresh(fix)
+        await self.store.update(task.id, metadata_={**(task.metadata_ or {}), "deploy_fix": str(fix.id)})
+        await self.store.log(
+            task.id, f"💥 Деплой на stage упал — исправление #{fix.ticket_number}", level="error", details=failure.text
+        )
+        await notify.failed(task, f"Деплой на stage упал, исправление #{fix.ticket_number}:\n{failure.text[:500]}")
+        return True
+
+    async def _image_build_failure(self, gh: GitHubClient, task: Task, branch: str) -> cluster.DeployFailure | None:
+        runs = await gh.list_workflow_runs(task.repo, branch=branch, per_page=10)
+        builds = [r for r in runs if r.get("path", "").endswith(scaffold.IMAGE_WORKFLOW_PATH)]
+        latest = max(builds, key=lambda r: r.get("created_at") or "", default=None)
+        if latest is None or latest.get("conclusion") not in FAILED_CONCLUSIONS:
+            return None
+        return cluster.DeployFailure(
+            sha=latest["head_sha"],
+            text=f"Сборка образа упала: {latest.get('html_url')} (смотри `gh run view {latest.get('id')} --log-failed`).",
+        )
 
     async def _deployed_sha(self, url: str) -> str | None:
         try:

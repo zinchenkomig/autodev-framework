@@ -385,3 +385,88 @@ async def test_image_build_started_for_deployed_repos(session_factory, project, 
         other, await make_task(session_factory)
     )
     assert not hasattr(other, "dispatched")
+
+
+async def test_broken_stage_deploy_becomes_a_fix_task(session_factory, project, monkeypatch, no_notifications) -> None:
+    settings = {"AUTODEV_PROJECTS_ORG": "acme", "AUTODEV_APPS_DOMAIN": "example.com"}
+    async with session_factory() as s:
+        p = await s.get(type(project), "shop")
+        p.repos = [{"name": "acme/shop", "version_url": "https://shop.stage.example.com/version"}]
+        await s.commit()
+    monkeypatch.setattr(Delivery, "_deployed_sha", AsyncMock(return_value="old0"))
+    failure = delivery_mod.cluster.DeployFailure(sha="m1", text="Миграции упали. Лог:\nboom")
+    diagnose = AsyncMock(return_value=failure)
+    monkeypatch.setattr(delivery_mod.cluster, "diagnose", diagnose)
+    gh = FakeGitHub()
+    gh.ancestry.add(("m1", "m1"))
+    t = await make_task(session_factory, status=TaskStatus.DEPLOYING, merge_sha="m1")
+    d = Delivery(ctx(session_factory, **settings))
+
+    await d.check_deploy(gh, await reload(session_factory, t.id))
+    t = await reload(session_factory, t.id)
+    assert t.status == TaskStatus.DEPLOYING  # waits for the fix instead of failing
+    async with session_factory() as s:
+        from sqlalchemy import select
+
+        fix = (await s.execute(select(Task).where(Task.created_by == "deploy"))).scalar_one()
+    assert "boom" in fix.description and fix.depends_on == [t.id] and t.metadata_["deploy_fix"] == str(fix.id)
+
+    # Past the deploy timeout the task keeps waiting while its fix is open, and is not diagnosed again.
+    diagnose.reset_mock()
+    await d.check_deploy(gh, await reload(session_factory, t.id))
+    assert (await reload(session_factory, t.id)).status == TaskStatus.DEPLOYING and not diagnose.called
+
+    # The fix reached stage: its commit contains the task's change, so the task is on stage too.
+    gh.ancestry.add(("fix1", "m1"))
+    Delivery._deployed_sha.return_value = "fix1"
+    await d.check_deploy(gh, await reload(session_factory, t.id))
+    assert (await reload(session_factory, t.id)).status == TaskStatus.ON_STAGE
+
+
+async def test_failed_deploy_fix_does_not_spawn_another(
+    session_factory, project, monkeypatch, no_notifications
+) -> None:
+    settings = {"AUTODEV_PROJECTS_ORG": "acme", "AUTODEV_APPS_DOMAIN": "example.com"}
+    async with session_factory() as s:
+        p = await s.get(type(project), "shop")
+        p.repos = [{"name": "acme/shop", "version_url": "https://shop.stage.example.com/version"}]
+        await s.commit()
+    monkeypatch.setattr(Delivery, "_deployed_sha", AsyncMock(return_value=None))
+    failure = delivery_mod.cluster.DeployFailure(sha="m1", text="still broken")
+    monkeypatch.setattr(delivery_mod.cluster, "diagnose", AsyncMock(return_value=failure))
+    gh = FakeGitHub()
+    gh.ancestry.add(("m1", "m1"))
+    t = await make_task(session_factory, status=TaskStatus.DEPLOYING, merge_sha="m1", created_by="deploy")
+    await Delivery(ctx(session_factory, **settings)).check_deploy(gh, t)
+    t = await reload(session_factory, t.id)
+    assert t.status == TaskStatus.FAILED and t.error == "still broken"
+
+
+async def test_failed_image_build_becomes_a_fix_task(session_factory, project, monkeypatch, no_notifications) -> None:
+    settings = {"AUTODEV_PROJECTS_ORG": "acme", "AUTODEV_APPS_DOMAIN": "example.com"}
+    async with session_factory() as s:
+        p = await s.get(type(project), "shop")
+        p.repos = [{"name": "acme/shop", "version_url": "https://shop.stage.example.com/version"}]
+        await s.commit()
+    monkeypatch.setattr(Delivery, "_deployed_sha", AsyncMock(return_value=None))
+    monkeypatch.setattr(delivery_mod.cluster, "diagnose", AsyncMock(return_value=None))
+    gh = FakeGitHub()
+    gh.workflow_runs = [
+        {"path": ".github/workflows/image.yml", "conclusion": "success", "head_sha": "old", "created_at": "1"},
+        {
+            "path": ".github/workflows/image.yml",
+            "conclusion": "failure",
+            "head_sha": "m1",
+            "created_at": "2",
+            "html_url": "https://github.com/acme/shop/actions/runs/9",
+            "id": 9,
+        },
+        {"path": ".github/workflows/ci.yml", "conclusion": "success", "head_sha": "m1", "created_at": "3"},
+    ]
+    t = await make_task(session_factory, status=TaskStatus.DEPLOYING, merge_sha="m1")
+    await Delivery(ctx(session_factory, **settings)).check_deploy(gh, t)
+    async with session_factory() as s:
+        from sqlalchemy import select
+
+        fix = (await s.execute(select(Task).where(Task.created_by == "deploy"))).scalar_one()
+    assert "actions/runs/9" in fix.description and "gh run view 9 --log-failed" in fix.description
