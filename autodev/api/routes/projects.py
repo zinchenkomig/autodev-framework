@@ -5,14 +5,15 @@ from __future__ import annotations
 import asyncio
 import re
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from autodev import scaffold
 from autodev.api.database import get_session
 from autodev.api.routes.releases import ReleaseResponse, release_to_response
 from autodev.core.config import RepoSpec, get_settings
@@ -58,6 +59,20 @@ class NewRepo(BaseModel):
 class ProjectCreate(ProjectBody):
     id: str
     new_repo: NewRepo | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _new_repo_in_org(cls, data: Any) -> Any:
+        """A new repo given by bare name (or none: the project id) goes to the projects organization."""
+        org = get_settings().projects_org
+        if not (isinstance(data, dict) and data.get("new_repo") is not None and org):
+            return data
+        repos = data.get("repos") or [{}]
+        if isinstance(repos, list) and len(repos) == 1 and isinstance(repos[0], dict):
+            name = (repos[0].get("name") or "").strip() or str(data.get("id", ""))
+            if "/" not in name:
+                data = {**data, "repos": [{**repos[0], "name": f"{org}/{name}"}]}
+        return data
 
     @field_validator("id")
     @classmethod
@@ -130,8 +145,15 @@ async def create_project(
 ) -> ProjectResponse:
     if await session.get(Project, body.id) is not None:
         raise HTTPException(409, f"Project {body.id} already exists")
+    settings = get_settings()
+    deployed = body.new_repo is not None and scaffold.deployed(body.repos[0].name, settings)
     if body.new_repo is not None:
-        await _create_repo(body, body.new_repo)
+        await _create_repo(body, body.new_repo, deployed)
+    if deployed:
+        # The cluster deploys the org's repos: stage is known up front, /version is in the contract.
+        url = body.stage_url or scaffold.stage_url(body.repos[0].name, settings)
+        repo = body.repos[0].model_copy(update={"version_url": body.repos[0].version_url or f"{url}/version"})
+        body = body.model_copy(update={"stage_url": url, "repos": [repo]})
     project = Project(id=body.id)
     _apply(project, body)
     session.add(project)
@@ -140,7 +162,7 @@ async def create_project(
         session.add(
             Task(
                 title="Каркас проекта",
-                description=_scaffold_description(body.new_repo.brief),
+                description=scaffold.task_description(body.new_repo.brief, with_deploy=deployed),
                 project_id=project.id,
                 repo=body.repos[0].name,
                 created_by="dashboard",
@@ -153,14 +175,18 @@ async def create_project(
     return to_response(project, (await _counts(session)).get(project.id))
 
 
-async def _create_repo(body: ProjectBody, spec: NewRepo) -> None:
-    """Create the repo with its stage and prod branches, all at the initial commit."""
+async def _create_repo(body: ProjectBody, spec: NewRepo, deployed: bool) -> None:
+    """Create the repo with its stage and prod branches, all at the same first commit(s)."""
     name = body.repos[0].name
     async with GitHubClient(token=get_settings().github_token) as gh:
         try:
             repo = await gh.create_repo(name, private=spec.private, description=body.name)
             default = repo.get("default_branch") or "main"
             sha = await _branch_sha(gh, name, default)
+            if deployed:
+                sha = await gh.put_file(
+                    scaffold.IMAGE_WORKFLOW_PATH, scaffold.IMAGE_WORKFLOW, "ci: build the deploy image", default, name
+                )
             for branch in sorted({body.base_branch, body.prod_branch} - {default}):
                 await gh.create_ref(f"refs/heads/{branch}", sha, name)
         except httpx.HTTPStatusError as exc:
@@ -179,26 +205,6 @@ async def _branch_sha(gh: GitHubClient, repo: str, branch: str) -> str:
                 raise
         await asyncio.sleep(1)
     return await gh.get_branch_sha(branch, repo)
-
-
-def _scaffold_description(brief: str) -> str:
-    return (
-        brief.strip()
-        + "\n\n---\n"
-        + "Репозиторий только что создан и пуст (в нём только README). Это первая задача проекта — заложи основу:\n"
-        + "- выбери стек (если в описании его нет — простой и распространённый) и сделай рабочую первую версию "
-        + "описанного;\n"
-        + "- README: что это и как запустить локально;\n"
-        + "- CLAUDE.md: стек, структура, команды запуска, тестов и линтеров, соглашения — по нему будут работать "
-        + "следующие задачи;\n"
-        + "- тесты и линтер, и чтобы они проходили;\n"
-        + "- GitHub Actions workflow, который запускает их на pull_request: CI проверяет каждый PR перед авто-merge;\n"
-        + "- .gitignore.\n"
-        + "Если приложение ставит cookie — только host-only, без атрибута Domain, а сессионные — с префиксом "
-        + "__Host- (Secure, Path=/): stage и прод живут на соседних поддоменах одного домена. Запиши это правило "
-        + "в CLAUDE.md.\n"
-        + "Деплой на stage не настраивай, если об этом не сказано выше."
-    )
 
 
 @router.get("/{project_id}", summary="Get a project")

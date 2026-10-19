@@ -10,6 +10,7 @@ TODO: Add retry logic with exponential backoff for rate limit handling.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import logging
@@ -327,6 +328,14 @@ class GitHubClient:
         response = await self._client.post(path, json=payload)
         response.raise_for_status()
         return response.json()
+
+    async def put_file(self, path: str, content: str, message: str, branch: str, repo: str | None = None) -> str:
+        """Create *path* on *branch* in one commit. Returns the commit SHA."""
+        resolved = self._resolve_repo(repo)
+        payload = {"message": message, "content": base64.b64encode(content.encode()).decode(), "branch": branch}
+        response = await self._client.put(f"/repos/{resolved}/contents/{path}", json=payload)
+        response.raise_for_status()
+        return response.json()["commit"]["sha"]
 
     # ------------------------------------------------------------------
     # CI / Check Runs

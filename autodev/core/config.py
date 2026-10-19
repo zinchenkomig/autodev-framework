@@ -60,6 +60,12 @@ class Settings(BaseSettings):
     ci_timeout: int = Field(default=60 * 60, validation_alias="AUTODEV_CI_TIMEOUT")
     deploy_timeout: int = Field(default=20 * 60, validation_alias="AUTODEV_DEPLOY_TIMEOUT")
 
+    # Projects started from scratch get their repo in this GitHub organization, whose
+    # repos the cluster deploys with one chart (hetzner-gitops: argocd/appset-projects.yaml):
+    # branch stage -> https://<repo>.stage.<apps_domain>, main -> https://<repo>.prod.<apps_domain>.
+    projects_org: str = Field(default="", validation_alias="AUTODEV_PROJECTS_ORG")
+    apps_domain: str = Field(default="", validation_alias="AUTODEV_APPS_DOMAIN")
+
     # Public URL of the dashboard, used for links in notifications.
     public_url: str = Field(default="", validation_alias="AUTODEV_PUBLIC_URL")
     # htpasswd file with the dashboard's users (see autodev/api/routes/auth.py).
