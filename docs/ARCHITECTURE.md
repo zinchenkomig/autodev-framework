@@ -18,6 +18,7 @@
 │                       checkout → Claude → push/PR          │
 │  delivery        ── every 2×poll: CI → merge → stage → ✅  │
 │                     + pending releases (stage→main merge)  │
+│  planner         ── requested test-plan rebuilds           │
 └────────────────────────────────────────────────────────────┘
              │ GitHub REST (polling)       │ Claude Agent SDK
 ```
@@ -33,6 +34,7 @@
 | `autodev/worker/loop.py` | slots, claiming, recovery after restart |
 | `autodev/worker/developer.py` | one development round: checkout → agent → commit → push → PR |
 | `autodev/worker/workspace.py` | per-task clone at `$AUTODEV_WORKDIR/tasks/<task id>` |
+| `autodev/worker/planner.py` | rebuild a main task's test plan from the task, its follow-ups and stage |
 | `autodev/worker/delivery.py` | CI/merge/stage verification, fix rounds, release merging |
 | `autodev/release.py` | start a release: the stage→prod PR |
 | `autodev/notify.py` | Telegram notifications |
@@ -76,7 +78,14 @@
 - **Feedback**:
   - before merge — another round on the same PR
   - after merge — a follow-up task that depends on the original
-- **Pause everything**: toggle the `developer` agent off in the dashboard.
+- **Rebuild the test plan** («Пересобрать» on the plan, `POST /api/tasks/{id}/plan/refresh`,
+  `autodev task refresh-plan <n>…`): main tasks on stage or released. The plan normally grows as
+  follow-ups land; a rebuild is for when it didn't (tasks from before one-plan-per-task, bugs or
+  changes in that mechanism). The `planner` loop clones the stage branch of every repo the task and
+  its landed follow-ups changed, and a read-only Claude session writes the whole plan again. The new
+  plan resets the ticked steps; on failure the old plan stays. A follow-up landing meanwhile keeps
+  its new steps.
+- **Pause everything**: toggle the `developer` agent off in the dashboard (pauses the planner too).
 
 ## Subscription limits
 

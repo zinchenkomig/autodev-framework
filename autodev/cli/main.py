@@ -111,6 +111,19 @@ def task_list(
     console.print(table)
 
 
+@task_app.command("refresh-plan")
+def task_refresh_plan(tickets: list[int] = typer.Argument(..., help="Ticket numbers of main tasks")) -> None:
+    """Rebuild the test plan of main tasks from the task, its follow-ups and the code on stage."""
+    by_number = {t["ticket_number"]: t for t in api_get("/api/tasks/", limit=1000)}
+    for number in tickets:
+        task = by_number.get(number)
+        if task is None:
+            console.print(f"[red]#{number}: no such task[/red]")
+            raise typer.Exit(code=1)
+        api_post(f"/api/tasks/{task['id']}/plan/refresh")
+        console.print(f"[green]✓[/green] #{number} {task['title'][:60]}: plan rebuild queued")
+
+
 @app.command()
 def release(project: str = typer.Argument(..., help="Project id")) -> None:
     """Open stage→prod PRs; the worker merges them when checks pass."""

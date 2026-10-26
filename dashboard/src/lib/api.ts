@@ -43,6 +43,7 @@ export interface Task {
   test_plan: string[]
   plan_checked: number[]
   verified_at: string | null
+  plan_refreshing: boolean
   waiting_for: TaskRef[]
   depends_on: string[]
   parent: TaskRef | null
@@ -202,6 +203,7 @@ export const api = {
   retryTask: (id: string) => post<Task>(`/api/tasks/${id}/retry`),
   feedback: (id: string, text: string) => post<Task>(`/api/tasks/${id}/feedback`, { text }),
   checkStep: (id: string, step: number, done: boolean) => post<Task>(`/api/tasks/${id}/plan/${step}`, { done }),
+  refreshPlan: (id: string) => post<Task>(`/api/tasks/${id}/plan/refresh`),
   verifyTask: (id: string, verified: boolean) => post<Task>(`/api/tasks/${id}/verify`, { verified }),
   logs: (id: string, after?: string) =>
     request<LogEntry[]>(`/api/tasks/${id}/logs${after ? `?after=${encodeURIComponent(after)}` : ''}`),

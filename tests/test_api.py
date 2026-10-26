@@ -429,6 +429,23 @@ async def test_older_follow_up_plan_is_ignored(client, project, session_factory)
     assert (await client.post(f"/api/tasks/{child['id']}/verify", json={"verified": True})).status_code == 409
 
 
+async def test_plan_refresh_request(client, project, session_factory) -> None:
+    main = (await client.post("/api/tasks/", json={"title": "Экран"})).json()
+    assert (await client.post(f"/api/tasks/{main['id']}/plan/refresh")).status_code == 409  # not on stage yet
+
+    await set_status(session_factory, main["id"], TaskStatus.ON_STAGE, metadata_={"test_plan": ["шаг"]})
+    r = await client.post(f"/api/tasks/{main['id']}/plan/refresh")
+    assert r.status_code == 200 and r.json()["plan_refreshing"] is True
+    assert r.json()["test_plan"] == ["шаг"]  # the old plan stays until the new one is written
+    assert (await client.post(f"/api/tasks/{main['id']}/plan/refresh")).status_code == 409  # already queued
+
+    child = (await client.post(f"/api/tasks/{main['id']}/feedback", json={"text": "ещё"})).json()
+    await set_status(session_factory, child["id"], TaskStatus.ON_STAGE)
+    r = await client.post(f"/api/tasks/{child['id']}/plan/refresh")
+    assert r.status_code == 409 and "основной" in r.json()["detail"]
+    assert (await client.get(f"/api/tasks/{child['id']}")).json()["plan_refreshing"] is False
+
+
 async def test_cross_origin_writes_are_rejected(client, project) -> None:
     # A project app on a sibling subdomain is same-site: its requests carry the session cookie.
     evil = {"origin": "https://notes.stage.example.com"}

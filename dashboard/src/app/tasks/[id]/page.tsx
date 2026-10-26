@@ -205,10 +205,18 @@ export default function TaskPage() {
         </Card>
       )}
 
-      {!withMain && t.test_plan.length > 0 && (
+      {!withMain && (t.test_plan.length > 0 || merged) && (
         <TestPlan
           task={t}
           interactive={merged}
+          onRefresh={
+            merged
+              ? () =>
+                  confirm('Пересобрать план по задаче, её доработкам и коду на stage? Отметки шагов сбросятся.') &&
+                  act(() => api.refreshPlan(t.id), (r) => r && task.setData(r))
+              : undefined
+          }
+          busy={busy}
           onToggle={(step, done) => {
             const checked = done ? [...t.plan_checked, step] : t.plan_checked.filter((i) => i !== step)
             task.setData({ ...t, plan_checked: checked })
@@ -226,7 +234,7 @@ export default function TaskPage() {
         </Card>
       )}
 
-      <TaskLog key={t.id} taskId={t.id} live={['queued', 'in_progress', 'ci', 'deploying'].includes(t.status)} />
+      <TaskLog key={t.id} taskId={t.id} live={['queued', 'in_progress', 'ci', 'deploying'].includes(t.status) || t.plan_refreshing} />
 
       <FeedbackSheet
         open={feedbackOpen}
@@ -305,24 +313,45 @@ function FollowUps({ taskId }: { taskId: string }) {
 function TestPlan({
   task,
   interactive,
+  busy,
   onToggle,
+  onRefresh,
 }: {
   task: Task
   interactive: boolean
+  busy: boolean
   onToggle: (step: number, done: boolean) => void
+  onRefresh?: () => void
 }) {
   const checked = new Set(task.plan_checked)
   const next = interactive ? task.test_plan.findIndex((_, i) => !checked.has(i)) : -1
+  const empty = task.test_plan.length === 0
   return (
     <Card className="p-2">
-      <div className="flex items-center justify-between px-2 pb-1 pt-2">
+      <div className="flex items-center justify-between gap-2 px-2 pb-1 pt-2">
         <span className="text-sm font-semibold">Как проверить на stage</span>
-        {interactive && (
-          <span className={cx('text-xs', checked.size === task.test_plan.length ? 'text-ok' : 'text-muted')}>
-            {checked.size} / {task.test_plan.length}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {interactive && !empty && (
+            <span className={cx('text-xs', checked.size === task.test_plan.length ? 'text-ok' : 'text-muted')}>
+              {checked.size} / {task.test_plan.length}
+            </span>
+          )}
+          {onRefresh && (
+            <Button size="sm" variant="ghost" disabled={busy || task.plan_refreshing} onClick={onRefresh}>
+              {task.plan_refreshing ? <Loader2 size={14} className="animate-spin" /> : <RotateCw size={14} />}
+              {task.plan_refreshing ? 'Пересобираю…' : 'Пересобрать'}
+            </Button>
+          )}
+        </div>
       </div>
+      {task.plan_refreshing && (
+        <p className="px-2 pb-1 text-xs text-muted">
+          Агент собирает план заново по задаче, её доработкам и коду на stage — ход видно в логе ниже.
+        </p>
+      )}
+      {empty && !task.plan_refreshing && (
+        <p className="px-2 pb-2 text-sm text-muted">Плана нет. Нажмите «Пересобрать», чтобы агент его написал.</p>
+      )}
       <ol>
         {task.test_plan.map((step, i) => {
           const done = checked.has(i)
@@ -353,7 +382,7 @@ function TestPlan({
           )
         })}
       </ol>
-      {!interactive && <p className="px-2 pb-2 pt-1 text-xs text-muted">Отмечать шаги можно, когда задача попадёт на stage.</p>}
+      {!interactive && !empty && <p className="px-2 pb-2 pt-1 text-xs text-muted">Отмечать шаги можно, когда задача попадёт на stage.</p>}
     </Card>
   )
 }
