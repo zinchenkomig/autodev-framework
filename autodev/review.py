@@ -2,7 +2,7 @@
 
 Both live in task metadata: ``plan_checked`` (indices of ticked ``test_plan``
 steps) and ``verified_at`` (ISO time the owner accepted the change). A new
-test plan resets them.
+test plan resets them. ``plan_refresh`` marks a requested rebuild of the plan.
 
 The owner checks a main task as a whole: its follow-ups, parts and fixes have no
 plan of their own. Their agent proposes the main task's updated plan
@@ -24,6 +24,8 @@ from autodev.core.models import MERGED_STATUSES, OPEN_STATUSES, Task
 
 #: Longest plan kept for a main task (it grows with follow-ups).
 MAX_PLAN = 20
+#: Metadata key of a pending plan rebuild (``autodev.worker.planner``): ``{"requested_at": iso}``.
+REFRESH = "plan_refresh"
 
 
 class ReviewError(ValueError):
@@ -81,6 +83,16 @@ def set_verified(task: Task, verified: bool, waiting: list[Task] = ()) -> None:
     else:
         metadata.pop("verified_at", None)
     task.metadata_ = metadata
+
+
+def request_refresh(task: Task) -> None:
+    """Ask the planner to write the main task's plan again from the task, its follow-ups and stage."""
+    if checked_with_main(task):
+        raise ReviewError("План собирается в основной задаче")
+    _require_on_stage(task)
+    if REFRESH in (task.metadata_ or {}):
+        raise ReviewError("План уже пересобирается")
+    task.metadata_ = {**(task.metadata_ or {}), REFRESH: {"requested_at": _now()}}
 
 
 def reset(metadata: dict) -> dict:

@@ -93,6 +93,7 @@ class TaskResponse(BaseModel):
     test_plan: list[str]  # manual check steps for the owner, from the developer agent
     plan_checked: list[int]  # indices of the test_plan steps the owner has ticked
     verified_at: datetime | None  # when the owner accepted the change on stage
+    plan_refreshing: bool  # the owner asked to rebuild the plan; the planner agent hasn't finished yet
     waiting_for: list[TaskRef]  # follow-ups/parts not on stage yet; the check waits for them
     depends_on: list[str]
     parent: TaskRef | None  # the main task, for follow-ups and parts
@@ -158,6 +159,7 @@ def to_response(task: Task, parent: Task | None = None, waiting: list[Task] = ()
         test_plan=[] if with_main else (task.metadata_ or {}).get("test_plan") or [],
         plan_checked=[] if with_main else review.plan_checked(task),
         verified_at=review.verified_at(checked_on),
+        plan_refreshing=review.REFRESH in (task.metadata_ or {}),
         waiting_for=[_ref(t) for t in waiting],
         depends_on=[str(d) for d in task.depends_on or []],
         parent=_ref(parent) if parent is not None else None,
@@ -367,6 +369,19 @@ async def feedback(
         return await respond_one(session, task)
 
     raise HTTPException(409, f"Can't take feedback while the task is {task.status}")
+
+
+# Before /plan/{step}, which would take "refresh" for a step number.
+@router.post("/{task_id}/plan/refresh", summary="Rebuild the test plan from the task, its follow-ups and stage")
+async def refresh_plan(task_id: str, session: Annotated[AsyncSession, Depends(get_session)]) -> TaskResponse:
+    """Queue a rebuild of the main task's one plan; the worker's planner agent writes it again."""
+    task = await load_task(session, task_id, lock=True)
+    try:
+        review.request_refresh(task)
+    except review.ReviewError as exc:
+        raise HTTPException(409, str(exc)) from None
+    session.add(AgentLog(agent_id="dashboard", task_id=task.id, level="info", message="🧭 Запрошена пересборка плана"))
+    return await respond_one(session, task)
 
 
 @router.post("/{task_id}/plan/{step}", summary="Tick or untick a test-plan step")

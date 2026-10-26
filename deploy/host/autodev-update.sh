@@ -45,11 +45,16 @@ busy=$(uv run --no-sync python - <<'PY'
 import asyncio
 from sqlalchemy import func, select
 from autodev.api.database import SessionLocal
-from autodev.core.models import Task, TaskStatus
+from autodev.core.models import Agent, AgentStatus, Task, TaskStatus
 
 async def main():
     async with SessionLocal() as s:
-        print(await s.scalar(select(func.count()).select_from(Task).where(Task.status == TaskStatus.IN_PROGRESS)))
+        tasks = await s.scalar(select(func.count()).select_from(Task).where(Task.status == TaskStatus.IN_PROGRESS))
+        # The planner rebuilds a test plan without moving the task to in_progress.
+        planner = await s.scalar(
+            select(func.count()).select_from(Agent).where(Agent.id == "planner", Agent.status == AgentStatus.WORKING)
+        )
+        print(tasks + planner)
 
 asyncio.run(main())
 PY

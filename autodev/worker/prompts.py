@@ -1,10 +1,32 @@
-"""Prompts for the developer agent."""
+"""Prompts for the developer agent and the test-plan writer."""
 
 from __future__ import annotations
 
 from autodev.core.models import Project, Task
 
-SYSTEM = """\
+TEST_PLAN_RULES = """\
+- Also return test_plan: 3-10 concrete steps in Russian the product owner follows
+  on stage (often from a phone) to check the change by hand. The owner doesn't
+  know the app's URLs, so walk them there through the UI:
+  - Step 1 opens the stage home page (its full URL); no other step names a URL
+    or path like /checks.
+  - Every next step is one action on what is visible on screen: which menu item,
+    tab, button or link to tap, named exactly as its label reads in the UI (in
+    «quotes»), and where it is (top menu, sidebar, ☰ menu on a phone, card list…).
+    Look the labels and the navigation up in the code — don't guess them.
+  - If getting there needs data first (log in, create an item), include those
+    steps too.
+  - Then what to do and what they should see as a result.
+  Include the main scenario and the edge cases that matter. For backend-only
+  changes explain how the effect shows up in the UI (or, if it doesn't, an API
+  call with `curl` or a log). After a fix round return the plan for the whole
+  task as it is now, not only for the fix.
+  When the task is a follow-up or part of a main task, the owner checks the main
+  task as a whole with one plan: return that whole plan, updated for your change.
+"""
+
+SYSTEM = (
+    """\
 You are AutoDev, an autonomous senior developer. Tasks come from the product
 owner's phone; nobody will answer questions while you work, so make sensible
 decisions yourself and mention them in your summary.
@@ -29,25 +51,9 @@ Rules:
 - Your final structured result: status ("done" / "blocked") and a 2-5 sentence
   summary in Russian of what changed and what a reviewer should look at. It becomes
   the PR description.
-- Also return test_plan: 3-10 concrete steps in Russian the product owner follows
-  on stage (often from a phone) to check the change by hand. The owner doesn't
-  know the app's URLs, so walk them there through the UI:
-  - Step 1 opens the stage home page (its full URL); no other step names a URL
-    or path like /checks.
-  - Every next step is one action on what is visible on screen: which menu item,
-    tab, button or link to tap, named exactly as its label reads in the UI (in
-    «quotes»), and where it is (top menu, sidebar, ☰ menu on a phone, card list…).
-    Look the labels and the navigation up in the code — don't guess them.
-  - If getting there needs data first (log in, create an item), include those
-    steps too.
-  - Then what to do and what they should see as a result.
-  Include the main scenario and the edge cases that matter. For backend-only
-  changes explain how the effect shows up in the UI (or, if it doesn't, an API
-  call with `curl` or a log). After a fix round return the plan for the whole
-  task as it is now, not only for the fix.
-  When the task is a follow-up or part of a main task, the owner checks the main
-  task as a whole with one plan: return that whole plan, updated for your change.
 """
+    + TEST_PLAN_RULES
+)
 
 
 def initial(task: Task, project: Project, repo: dict, deps: list[Task], main: Task | None = None) -> str:
@@ -129,3 +135,64 @@ def fix_fresh(
         + f"(see `git log origin/{project.base_branch}..HEAD`).\n\n"
         + fix(kind, details, task, project)
     )
+
+
+PLANNER_SYSTEM = (
+    """\
+You are AutoDev's test-plan writer. The product owner checks a main task on stage
+as a whole — the task itself and all its follow-ups and parts — by one manual test
+plan. Your job: write that one plan as the code on stage is now. Nobody will answer
+questions while you work.
+
+Rules:
+- The current directory holds a read-only checkout of the stage branch of every
+  repository involved, one subdirectory per repo. Read code, `git log` and
+  `gh pr diff <url>`; don't change files, commit, push or touch anything outside.
+- Describe what is on stage now: a later follow-up may have changed or replaced
+  what an earlier one did; the plan follows the latest behaviour.
+- Plans written earlier for the task or its follow-ups are hints, not truth: check
+  every label and every navigation step against the code.
+- Return status "done", a 1-3 sentence summary in Russian of what the plan covers,
+  and test_plan. Return "blocked" with the reason only if no plan can be written.
+- The plan covers the whole main task, so it may be longer than 10 steps
+  (at most 20): group related checks into one step rather than dropping them.
+"""
+    + TEST_PLAN_RULES
+)
+
+
+def plan_refresh(main: Task, children: list[Task], project: Project, repos: list[str]) -> str:
+    """Prompt for rebuilding a main task's one test plan from the task and its landed follow-ups."""
+    parts = [f"# Test plan for main task #{main.ticket_number}: {main.title}", ""]
+    if project.stage_url:
+        parts.append(f"Stage: {project.stage_url}")
+    parts.append("Checkouts here (stage branch): " + ", ".join(f"`{r.split('/')[-1]}/` = {r}" for r in repos))
+    parts += ["", _task_section("The main task", main)]
+    for child in children:
+        parts += ["", _task_section(f"Follow-up / part #{child.ticket_number}", child)]
+    plan = (main.metadata_ or {}).get("test_plan") or []
+    if plan:
+        parts += ["", "## The main task's current plan (may be outdated or incomplete)"]
+        parts += [f"{i}. {step}" for i, step in enumerate(plan, 1)]
+    parts += [
+        "",
+        "Return test_plan: the one plan for the main task with all of the above, as it works on stage now.",
+    ]
+    if project.instructions:
+        parts += ["", "## Project instructions", project.instructions.strip()]
+    return "\n".join(parts)
+
+
+def _task_section(heading: str, task: Task) -> str:
+    lines = [f"## {heading}: {task.title}"]
+    if task.repo:
+        lines.append(f"Repository: {task.repo}" + (f"; PR {task.pr_url}" if task.pr_url else ""))
+    lines += ["", "What the owner asked:", (task.description or "").strip()[:4000] or "(only the title)"]
+    if task.summary:
+        lines += ["", "What the agent did:", task.summary.strip()[:3000]]
+    metadata = task.metadata_ or {}
+    proposal = metadata.get("root_plan")
+    plan = metadata.get("test_plan") or (proposal.get("plan") if isinstance(proposal, dict) else None) or []
+    if task.parent_id and plan:
+        lines += ["", "The plan its agent wrote then:"] + [f"{i}. {step}" for i, step in enumerate(plan, 1)]
+    return "\n".join(lines)

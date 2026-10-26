@@ -20,6 +20,7 @@ from autodev.core.models import (
     TaskStatus,
     TaskTransition,
 )
+from autodev.worker import planner
 from autodev.worker.context import WorkerContext
 from autodev.worker.delivery import Delivery
 from autodev.worker.developer import develop
@@ -62,7 +63,7 @@ class Worker:
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, self.stop)
         logger.info("worker started: %d developer slot(s)", len(slots))
-        await asyncio.gather(*(self.slot_loop(name) for name in slots), self.delivery_loop())
+        await asyncio.gather(*(self.slot_loop(name) for name in slots), self.delivery_loop(), self.planner_loop())
         logger.info("worker stopped")
 
     def stop(self) -> None:
@@ -92,6 +93,7 @@ class Worker:
                 (DEVELOPER_SWITCH, "developer"),
                 *((s, "developer") for s in slots),
                 ("delivery", "delivery"),
+                (planner.AGENT, "planner"),
             ]:
                 agent = await session.get(Agent, agent_id)
                 if agent is None:
@@ -139,6 +141,24 @@ class Worker:
                     await self._agent_status(name, AgentStatus.IDLE, None)
             except Exception:
                 logger.exception("slot %s crashed — continuing", name)
+                await self._sleep(5)
+
+    async def planner_loop(self) -> None:
+        """Test-plan refreshes the owner asked for, one at a time, beside the developer slots."""
+        while not self.stopping.is_set():
+            try:
+                runnable = not self.ctx.paused() and not self.draining() and await self.developers_enabled()
+                task_id = await planner.next_request(self.ctx) if runnable else None
+                if task_id is None:
+                    await self._sleep(self.ctx.settings.poll_interval)
+                    continue
+                await self._agent_status(planner.AGENT, AgentStatus.WORKING, task_id)
+                try:
+                    await planner.refresh_plan(self.ctx, task_id)
+                finally:
+                    await self._agent_status(planner.AGENT, AgentStatus.IDLE, None)
+            except Exception:
+                logger.exception("planner crashed — continuing")
                 await self._sleep(5)
 
     async def delivery_loop(self) -> None:
