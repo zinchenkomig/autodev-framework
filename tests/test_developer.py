@@ -84,7 +84,14 @@ def wired(monkeypatch, remote, tmp_path, session_factory, project):
 
 async def new_task(session_factory, **kw) -> Task:
     t = Task(
-        title="Add feature", project_id="shop", repo="acme/shop", status=TaskStatus.IN_PROGRESS, metadata_={}, **kw
+        **{
+            "title": "Add feature",
+            "project_id": "shop",
+            "repo": "acme/shop",
+            "status": TaskStatus.IN_PROGRESS,
+            "metadata_": {},
+            **kw,
+        }
     )
     async with session_factory() as s:
         s.add(t)
@@ -134,6 +141,41 @@ async def test_test_plan_is_stored_and_put_into_pr(wired, session_factory) -> No
     assert t.metadata_["test_plan"] == ["Открой /users", "Введи «ann» — останется Ann"]
     assert t.metadata_["check_paths"] == ["/users"]
     assert "### Как проверить на stage\n1. Открой /users\n2. Введи «ann»" in gh.prs[1]["body"]
+
+
+async def test_agent_names_the_task_and_its_pr(wired, session_factory) -> None:
+    ctx, gh, _ = wired
+    FakeRunner.result = ClaudeResult(
+        ok=True, summary="s", session_id="sess-1", data={"title": " «Поиск  по пользователям». "}
+    )
+    t = await new_task(session_factory)
+    await develop(ctx, t.id, "developer-1")
+
+    t = await reload(session_factory, t.id)
+    assert t.title == "Поиск по пользователям" and gh.prs[1]["title"] == "Поиск по пользователям"
+    assert t.branch == branch_name(t.ticket_number, "Add feature")  # named before the agent ran
+
+
+async def test_owner_title_and_open_pr_keep_their_title(wired, session_factory) -> None:
+    ctx, gh, _ = wired
+    FakeRunner.result = ClaudeResult(ok=True, summary="s", session_id="sess-1", data={"title": "От агента"})
+    mine = await new_task(session_factory, metadata_={"title_by_owner": True})
+    await develop(ctx, mine.id, "developer-1")
+    assert (await reload(session_factory, mine.id)).title == "Add feature"
+
+    # A fix round on an open PR: the PR already carries the title.
+    t = await new_task(session_factory)
+    FakeRunner.result = ClaudeResult(ok=True, summary="s", session_id="sess-1")
+    await develop(ctx, t.id, "developer-1")
+    async with session_factory() as s:
+        task = await s.get(Task, t.id)
+        task.status = TaskStatus.IN_PROGRESS
+        task.metadata_ = {"fix": {"kind": "ci", "details": "x"}}
+        await s.commit()
+    FakeRunner.result = ClaudeResult(ok=True, summary="s", session_id="sess-1", data={"title": "Другое"})
+    FakeRunner.behaviour = lambda cwd: None
+    await develop(ctx, t.id, "developer-1")
+    assert (await reload(session_factory, t.id)).title == "Add feature"
 
 
 async def test_new_test_plan_resets_owner_check(wired, session_factory) -> None:

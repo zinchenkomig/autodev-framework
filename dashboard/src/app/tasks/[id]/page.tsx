@@ -340,7 +340,7 @@ function PullRequests({ task, followUps }: { task: Task; followUps: Task[] }) {
                 className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2"
               >
                 <span className="shrink-0 font-mono text-xs text-muted">#{t.pr_number}</span>
-                <span className="min-w-0 flex-1 truncate">{t.id === task.id ? 'Основная задача' : request(t) || t.title}</span>
+                <span className="min-w-0 flex-1 truncate">{t.id === task.id ? 'Основная задача' : t.title}</span>
                 <ExternalLink size={12} className="shrink-0 text-muted" />
               </a>
             ))}

@@ -52,6 +52,11 @@ RESULT_SCHEMA: dict[str, Any] = {
             "there were any — «**Ключевые решения**» with 1-4 bullets on important architectural/product "
             "decisions. No lists of endpoints, migrations or files. When blocked: why.",
         },
+        "title": {
+            "type": "string",
+            "description": "Task title in Russian, 3-8 words: what now works differently, as for a PR title "
+            "(e.g. «Подтверждение удаления в карточке задачи»). No ticket number, no trailing period.",
+        },
         "check_paths": {
             "type": "array",
             "items": {"type": "string"},
