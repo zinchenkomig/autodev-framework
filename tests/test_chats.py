@@ -49,14 +49,22 @@ async def open_chat(client, task: Task) -> dict:
 # ---------------------------------------------------------------------------
 
 
-async def test_one_chat_per_task(client, project, session_factory) -> None:
+async def test_a_chat_per_question(client, project, session_factory) -> None:
     task = await add_task(session_factory)
-    first = await open_chat(client, task)
-    assert first["title"] == f"#{task.ticket_number} Фильтр по дате"
-    assert first["project_id"] == "shop" and first["state"] == "idle" and first["messages"] == []
-    assert (await open_chat(client, task))["id"] == first["id"]
+    r = await client.post(
+        "/api/chats/",
+        json={"subject": "task", "subject_id": str(task.id), "text": "Что такое «Дата»?", "quote": "Шаг 2"},
+    )
+    first = r.json()
+    assert first["title"] == f"#{task.ticket_number} Фильтр по дате" and first["project_id"] == "shop"
+    assert first["state"] == "queued" and first["question"] == "Что такое «Дата»?"
+    assert [(m["role"], m["quote"]) for m in first["messages"]] == [("user", "Шаг 2")]
+    assert first["outcome"] == [] and first["pending"] == 0
+
+    second = await open_chat(client, task)  # no question yet: an empty idle chat
+    assert second["id"] != first["id"] and second["state"] == "idle" and second["question"] is None
     found = (await client.get("/api/chats/", params={"subject": "task", "subject_id": str(task.id)})).json()
-    assert [c["id"] for c in found] == [first["id"]]
+    assert [c["id"] for c in found] == [second["id"], first["id"]]  # newest first
 
     r = await client.post("/api/chats/", json={"subject": "task", "subject_id": str(uuid.uuid4())})
     assert r.status_code == 404
@@ -122,6 +130,7 @@ async def test_approve_follow_up_creates_it_under_the_main_task(client, project,
     )
     url = f"/api/chats/{chat['id']}/messages/{mid}/proposals"
 
+    assert (await client.get(f"/api/chats/{chat['id']}")).json()["pending"] == 2
     body = (await client.post(f"{url}/0", json={"approve": True})).json()
     proposal = body["messages"][0]["proposals"][0]
     assert proposal["state"] == "applied" and proposal["label"] == "Доработать"
@@ -131,6 +140,11 @@ async def test_approve_follow_up_creates_it_under_the_main_task(client, project,
 
     body = (await client.post(f"{url}/1", json={"approve": False})).json()
     assert body["messages"][0]["proposals"][1]["state"] == "rejected"
+    assert body["pending"] == 0
+    assert [(o["label"], o["state"], o["ticket_number"]) for o in body["outcome"]] == [
+        ("Доработать", "applied", proposal["result"]["ticket_number"]),
+        ("Создать задачу", "rejected", None),
+    ]
     assert body["messages"][-1]["text"] == "Отклонено: Экспорт в CSV"
     assert (await client.post(f"{url}/2", json={"approve": True})).status_code == 404
 
@@ -392,3 +406,26 @@ def test_sweep_removes_idle_checkouts(tmp_path) -> None:
     os.utime(old, (week_ago, week_ago))
     chat_mod.sweep(str(tmp_path))
     assert not old.exists() and fresh.exists()
+
+
+async def test_next_chat_knows_what_earlier_chats_decided(client, project, session_factory, ctx) -> None:
+    task = await add_task(session_factory)
+    earlier = await open_chat(client, task)
+    mid = await add_proposal(
+        session_factory,
+        earlier["id"],
+        {"action": "new_task", "title": "Экспорт в CSV", "description": "Кнопка"},
+        {"action": "follow_up", "title": "Сброс фильтра", "description": "…"},
+    )
+    url = f"/api/chats/{earlier['id']}/messages/{mid}/proposals"
+    ticket = (await client.post(f"{url}/0", json={"approve": True})).json()["outcome"][0]["ticket_number"]
+    await client.post(f"{url}/1", json={"approve": False})
+
+    r = await client.post("/api/chats/", json={"subject": "task", "subject_id": str(task.id), "text": "Новый вопрос"})
+    assert r.json()["id"] != earlier["id"]
+    FakeRunner.results = [reply()]
+    await turn(ctx)
+    prompt = FakeRunner.calls[0]["prompt"]
+    assert f"- approved new_task «Экспорт в CSV» → task #{ticket}" in prompt
+    assert "- rejected follow_up «Сброс фильтра»" in prompt
+    assert "Owner: Новый вопрос" in prompt and "Похоже на баг" not in prompt  # not the other chat's talk

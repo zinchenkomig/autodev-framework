@@ -21,6 +21,9 @@ router = APIRouter()
 class ChatCreate(BaseModel):
     subject: str
     subject_id: str | None = None
+    # The first question: a chat is created when the owner asks, not when they open the sheet.
+    text: str | None = Field(default=None, max_length=20000)
+    quote: str | None = Field(default=None, max_length=4000)
 
 
 class MessageCreate(BaseModel):
@@ -50,12 +53,25 @@ class MessageResponse(BaseModel):
     created_at: datetime
 
 
+class Outcome(BaseModel):
+    """A decided proposal, for the list of chats: what the conversation came to."""
+
+    label: str
+    title: str
+    state: str  # applied | rejected
+    task_id: str | None
+    ticket_number: int | None
+
+
 class ChatResponse(BaseModel):
     id: str
     subject: str
     subject_id: str | None
     project_id: str | None
     title: str
+    question: str | None  # the owner's first message: the chat's name in a list
+    outcome: list[Outcome]
+    pending: int  # proposals waiting for the owner
     state: str  # idle | queued | answering
     activity: str | None  # what the agent is doing right now
     stopping: bool
@@ -98,16 +114,31 @@ async def respond(session: AsyncSession, chat: Chat) -> ChatResponse:
         select(ChatMessage).where(ChatMessage.chat_id == chat.id).order_by(ChatMessage.created_at)
     )
     subject = chats.SUBJECTS.get(chat.subject)
+    messages = [_message(m, subject) for m in rows.scalars()]
+    proposals = [p for m in messages for p in m.proposals]
     return ChatResponse(
         id=str(chat.id),
         subject=chat.subject,
         subject_id=chat.subject_id,
         project_id=chat.project_id,
         title=chat.title,
+        question=next((m.text[:300] for m in messages if m.role == "user"), None),
+        outcome=[
+            Outcome(
+                label=p.label,
+                title=p.title,
+                state=p.state,
+                task_id=(p.result or {}).get("task_id"),
+                ticket_number=(p.result or {}).get("ticket_number"),
+            )
+            for p in proposals
+            if p.state != chats.PENDING
+        ],
+        pending=sum(p.state == chats.PENDING for p in proposals),
         state=chat.state,
         activity=chat.activity,
         stopping="stop" in (chat.metadata_ or {}),
-        messages=[_message(m, subject) for m in rows.scalars()],
+        messages=messages,
         created_at=chat.created_at,
         updated_at=chat.updated_at,
     )
@@ -141,16 +172,22 @@ async def list_chats(
     return [await respond(session, c) for c in (await session.execute(stmt)).scalars()]
 
 
-@router.post("/", summary="Start a chat (or get the one there is, for subjects with one chat)")
+@router.post("/", summary="Start a chat, with its first question (for subjects with one chat: get that one)")
 async def create_chat(body: ChatCreate, session: Annotated[AsyncSession, Depends(get_session)]) -> ChatResponse:
     subject = _subject(body.subject)
     if subject.single:
         existing = (
             await session.execute(
-                select(Chat).where(Chat.subject == body.subject, Chat.subject_id == body.subject_id).limit(1)
+                select(Chat)
+                .where(Chat.subject == body.subject, Chat.subject_id == body.subject_id)
+                .limit(1)
+                .with_for_update()
             )
         ).scalar_one_or_none()
         if existing is not None:
+            if body.text and body.text.strip():
+                _ask(session, existing, body.text, body.quote)
+                await session.flush()
             return await respond(session, existing)
     topic = await subject.topic(session, body.subject_id)
     if topic is None:
@@ -165,6 +202,9 @@ async def create_chat(body: ChatCreate, session: Annotated[AsyncSession, Depends
     )
     session.add(chat)
     await session.flush()
+    if body.text and body.text.strip():
+        _ask(session, chat, body.text, body.quote)
+        await session.flush()
     return await respond(session, chat)
 
 
@@ -187,15 +227,19 @@ async def post_message(
 ) -> ChatResponse:
     """Queue the message for the agent. While it is answering, the message waits for the next turn."""
     chat = await load_chat(session, chat_id, lock=True)
-    text = body.text.strip()
-    if not text:
+    if not body.text.strip():
         raise HTTPException(422, "Empty message")
-    session.add(ChatMessage(chat_id=chat.id, role="user", text=text, quote=(body.quote or "").strip() or None))
+    _ask(session, chat, body.text, body.quote)
+    await session.flush()
+    return await respond(session, chat)
+
+
+def _ask(session: AsyncSession, chat: Chat, text: str, quote: str | None) -> None:
+    """The owner's message, for the agent's next turn."""
+    session.add(ChatMessage(chat_id=chat.id, role="user", text=text.strip(), quote=(quote or "").strip() or None))
     if chat.state == ChatState.IDLE:
         chat.state = ChatState.QUEUED
     chat.updated_at = datetime.now(UTC)
-    await session.flush()
-    return await respond(session, chat)
 
 
 @router.post("/{chat_id}/stop", summary="Stop the agent's answer")
