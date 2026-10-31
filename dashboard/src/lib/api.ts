@@ -130,6 +130,41 @@ export interface SystemStatus {
   slots: { id: string; status: string; task_id: string | null; task_ticket: number | null; task_title: string | null }[]
 }
 
+/** What a chat is about; decides the agent's context and the actions it may propose. */
+export type ChatSubject = 'task'
+
+export interface ChatProposal {
+  action: string
+  label: string
+  title: string
+  description: string
+  state: 'pending' | 'applied' | 'rejected'
+  result: { task_id?: string; ticket_number?: number } | null
+}
+
+export interface ChatMessage {
+  id: string
+  role: 'user' | 'assistant' | 'event' | 'error'
+  text: string
+  quote: string | null
+  proposals: ChatProposal[]
+  created_at: string
+}
+
+export interface Chat {
+  id: string
+  subject: ChatSubject
+  subject_id: string | null
+  project_id: string | null
+  title: string
+  state: 'idle' | 'queued' | 'answering'
+  activity: string | null
+  stopping: boolean
+  messages: ChatMessage[]
+  created_at: string
+  updated_at: string
+}
+
 export interface TelegramSettings {
   bot_token: string
   owner_chat_id: string
@@ -210,6 +245,17 @@ export const api = {
   artifacts: (id: string) => request<Artifact[]>(`/api/tasks/${id}/artifacts`),
   artifactUrl: (path: string) => `${BASE}${path}`,
   transitions: (id: string) => request<Transition[]>(`/api/tasks/${id}/transitions`),
+
+  chats: (subject: ChatSubject, subjectId: string) =>
+    request<Chat[]>(`/api/chats/?subject=${subject}&subject_id=${encodeURIComponent(subjectId)}`),
+  openChat: (subject: ChatSubject, subjectId: string) => post<Chat>('/api/chats/', { subject, subject_id: subjectId }),
+  chat: (id: string) => request<Chat>(`/api/chats/${id}`),
+  deleteChat: (id: string) => request<void>(`/api/chats/${id}`, { method: 'DELETE' }),
+  sendChat: (id: string, text: string, quote?: string | null) =>
+    post<Chat>(`/api/chats/${id}/messages`, { text, quote: quote ?? null }),
+  stopChat: (id: string) => post<Chat>(`/api/chats/${id}/stop`),
+  decideProposal: (id: string, messageId: string, index: number, approve: boolean) =>
+    post<Chat>(`/api/chats/${id}/messages/${messageId}/proposals/${index}`, { approve }),
 
   toggleDevelopers: () => post<{ enabled: boolean }>('/api/agents/developer/toggle'),
 

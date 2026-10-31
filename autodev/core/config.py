@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     poll_interval: float = Field(default=10.0, validation_alias="AUTODEV_POLL_INTERVAL")
     # While this file exists no new tasks are started (autodev-update.sh drains before restarting).
     drain_file: str = Field(default="/run/autodev/drain", validation_alias="AUTODEV_DRAIN_FILE")
+    # Chats: agents answering the owner's questions, beside the developer slots.
+    chat_slots: int = Field(default=2, validation_alias="AUTODEV_CHAT_SLOTS")
+    chat_timeout: int = Field(default=10 * 60, validation_alias="AUTODEV_CHAT_TIMEOUT")
     max_fix_attempts: int = Field(default=3, validation_alias="AUTODEV_MAX_FIX_ATTEMPTS")
     # How long a PR may sit without any check run before it is merged anyway.
     checks_grace_seconds: int = Field(default=120, validation_alias="AUTODEV_CHECKS_GRACE")

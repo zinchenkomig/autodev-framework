@@ -181,6 +181,7 @@ class ClaudeRunner:
         max_budget_usd: float | None = None,
         cli_path: str | None = None,
         schema: dict[str, Any] | None = None,
+        disallowed_tools: list[str] | None = None,
     ) -> None:
         self.cwd = cwd
         self.model = model or None
@@ -190,6 +191,7 @@ class ClaudeRunner:
         self.max_budget_usd = max_budget_usd
         self.cli_path = cli_path
         self.schema = schema or RESULT_SCHEMA
+        self.disallowed_tools = disallowed_tools or []
 
     def options(self, resume: str | None = None) -> ClaudeAgentOptions:
         system_prompt: Any = None
@@ -207,6 +209,7 @@ class ClaudeRunner:
             max_budget_usd=self.max_budget_usd,
             cli_path=self.cli_path,
             hooks={"PreToolUse": [HookMatcher(matcher="Bash", hooks=[_guard_hook])]},
+            disallowed_tools=self.disallowed_tools,
         )
 
     async def run(

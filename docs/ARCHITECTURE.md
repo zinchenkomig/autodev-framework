@@ -19,6 +19,7 @@
 │  delivery        ── every 2×poll: CI → merge → stage → ✅  │
 │                     + pending releases (stage→main merge)  │
 │  planner         ── requested test-plan rebuilds           │
+│  chat-1..N       ── answer the owner in chats (read-only)  │
 └────────────────────────────────────────────────────────────┘
              │ GitHub REST (polling)       │ Claude Agent SDK
 ```
@@ -34,6 +35,8 @@
 | `autodev/worker/loop.py` | slots, claiming, recovery after restart |
 | `autodev/worker/developer.py` | one development round: checkout → agent → commit → push → PR |
 | `autodev/worker/workspace.py` | per-task clone at `$AUTODEV_WORKDIR/tasks/<task id>` |
+| `autodev/chats.py` | chat subjects: the agent's context and the actions it may propose |
+| `autodev/worker/chat.py` | chat slots: one read-only Claude turn per owner message |
 | `autodev/worker/planner.py` | rebuild a main task's test plan from the task, its follow-ups and stage |
 | `autodev/worker/delivery.py` | CI/merge/stage verification, fix rounds, release merging |
 | `autodev/release.py` | start a release: the stage→prod PR |
@@ -86,6 +89,26 @@
   plan resets the ticked steps; on failure the old plan stays. A follow-up landing meanwhile keeps
   its new steps.
 - **Pause everything**: toggle the `developer` agent off in the dashboard (pauses the planner too).
+
+## Chats
+
+A chat is a conversation with an agent about a *subject* (`autodev/chats.py`). Today the subject is a
+task: «Спросить» on the task page, or ❔ next to a test-plan step, which quotes the step.
+
+- The API stores the owner's message and marks the chat `queued`. A chat slot in the worker
+  (`AUTODEV_CHAT_SLOTS`, default 2; not paused with the developers) claims it and runs one Claude turn.
+- The agent is read-only: a checkout of the project's stage branch at `$AUTODEV_WORKDIR/chats/<chat id>`,
+  refreshed before every turn (removed after 3 idle days), no Edit/Write tools. It reads code,
+  `gh pr diff`, the stage site.
+- One Claude session per chat (`--resume`). The subject's context (task, its plan with ticks,
+  follow-ups, QA, project) goes in the first turn, and again whenever it changed. If the session is
+  gone, a fresh one gets the context plus the conversation so far.
+- Messages written while the agent answers are answered in the next turn. «Стоп» stops the turn.
+- The agent never changes anything itself: it returns `{reply, proposals}`. A proposal (a follow-up to
+  the task, a new task) waits in its message until the owner taps approve; then the API applies it
+  and adds an event message the agent sees next turn.
+- To chat about something else (a project's planning chat…), add a `Subject` with its `topic()` and
+  actions to `SUBJECTS`; the API, the chat slots and the dashboard's `<ChatSheet>` work as they are.
 
 ## Subscription limits
 
