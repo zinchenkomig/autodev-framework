@@ -48,8 +48,9 @@ RESULT_SCHEMA: dict[str, Any] = {
         },
         "summary": {
             "type": "string",
-            "description": "2-5 sentences in Russian: what changed and what a reviewer should check, "
-            "or why the task is blocked",
+            "description": "Short Markdown in Russian: one sentence with the gist of the change, then — only if "
+            "there were any — «**Ключевые решения**» with 1-4 bullets on important architectural/product "
+            "decisions. No lists of endpoints, migrations or files. When blocked: why.",
         },
         "check_paths": {
             "type": "array",
