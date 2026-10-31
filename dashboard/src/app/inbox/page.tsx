@@ -2,20 +2,53 @@
 
 import { AlertTriangle, Eye, Globe, Rocket } from 'lucide-react'
 import Link from 'next/link'
+import { useMemo } from 'react'
+import { ProjectChips } from '@/components/ProjectChips'
 import { TaskCard } from '@/components/TaskCard'
 import { Card, Empty, ErrorNote } from '@/components/ui'
 import { plural } from '@/lib/format'
-import { usePoll } from '@/lib/hooks'
+import { usePoll, useStoredState } from '@/lib/hooks'
 import { fetchInbox } from '@/lib/inbox'
 
+const ALL = '*'
+
 export default function InboxPage() {
-  const { data, error } = usePoll(fetchInbox, 8000)
-  const multiProject = new Set([...(data?.check ?? []), ...(data?.failed ?? [])].map((t) => t.project_id)).size > 1
+  const { data: inbox, error } = usePoll(fetchInbox, 8000)
+  const [stored, setProject] = useStoredState<string>('autodev.inbox.project', ALL)
+
+  // Projects that have something waiting, with how much, in the order projects are listed.
+  const chips = useMemo(() => {
+    if (!inbox) return []
+    const counts = new Map<string, number>()
+    const bump = (id: string | null) => id && counts.set(id, (counts.get(id) ?? 0) + 1)
+    inbox.check.forEach((t) => bump(t.project_id))
+    inbox.failed.forEach((t) => bump(t.project_id))
+    inbox.release.forEach((r) => bump(r.project.id))
+    return inbox.projects.filter((p) => counts.has(p.id)).map((p) => ({ id: p.id, name: p.name, count: counts.get(p.id)! }))
+  }, [inbox])
+
+  // A project whose queue emptied out falls back to all of them.
+  const project = chips.some((c) => c.id === stored) ? stored : ALL
+  const data = useMemo(() => {
+    if (!inbox || project === ALL) return inbox
+    const check = inbox.check.filter((t) => t.project_id === project)
+    const failed = inbox.failed.filter((t) => t.project_id === project)
+    const release = inbox.release.filter((r) => r.project.id === project)
+    return { ...inbox, check, failed, release, total: check.length + failed.length + release.length }
+  }, [inbox, project])
+  const multiProject = project === ALL && chips.length > 1
 
   return (
     <div className="mx-auto max-w-3xl space-y-5">
       <h1 className="text-xl font-semibold">Ждут меня</h1>
       <ErrorNote error={error} />
+      {chips.length > 1 && (
+        <ProjectChips
+          items={[{ id: ALL, name: 'Все проекты', count: inbox?.total }, ...chips]}
+          value={project}
+          onChange={setProject}
+        />
+      )}
       {data?.total === 0 && <Empty>Ничего не ждёт — всё идёт само</Empty>}
 
       {data && data.check.length > 0 && (

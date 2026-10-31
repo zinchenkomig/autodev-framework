@@ -8,6 +8,8 @@ export interface Inbox {
   failed: Task[]
   /** Projects whose every change on stage is checked and no release is open yet. */
   release: { project: Project; tasks: number }[]
+  /** All projects, to name and order the per-project filter. */
+  projects: Project[]
   total: number
 }
 
@@ -29,5 +31,5 @@ export async function fetchInbox(): Promise<Inbox> {
     })
     .filter((r) => r.ready)
     .map(({ project, tasks }) => ({ project, tasks }))
-  return { check, failed, release, total: check.length + failed.length + release.length }
+  return { check, failed, release, projects, total: check.length + failed.length + release.length }
 }
