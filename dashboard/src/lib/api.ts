@@ -152,12 +152,23 @@ export interface ChatMessage {
   created_at: string
 }
 
+export interface ChatOutcome {
+  label: string
+  title: string
+  state: 'applied' | 'rejected'
+  task_id: string | null
+  ticket_number: number | null
+}
+
 export interface Chat {
   id: string
   subject: ChatSubject
   subject_id: string | null
   project_id: string | null
   title: string
+  question: string | null // the owner's first message
+  outcome: ChatOutcome[] // decided proposals: what the chat came to
+  pending: number // proposals waiting for the owner
   state: 'idle' | 'queued' | 'answering'
   activity: string | null
   stopping: boolean
@@ -249,7 +260,9 @@ export const api = {
 
   chats: (subject: ChatSubject, subjectId: string) =>
     request<Chat[]>(`/api/chats/?subject=${subject}&subject_id=${encodeURIComponent(subjectId)}`),
-  openChat: (subject: ChatSubject, subjectId: string) => post<Chat>('/api/chats/', { subject, subject_id: subjectId }),
+  /** A new chat with its first question. */
+  createChat: (subject: ChatSubject, subjectId: string, text: string, quote?: string | null) =>
+    post<Chat>('/api/chats/', { subject, subject_id: subjectId, text, quote: quote ?? null }),
   chat: (id: string) => request<Chat>(`/api/chats/${id}`),
   deleteChat: (id: string) => request<void>(`/api/chats/${id}`, { method: 'DELETE' }),
   sendChat: (id: string, text: string, quote?: string | null) =>

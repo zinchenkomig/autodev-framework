@@ -97,7 +97,10 @@
 ## Chats
 
 A chat is a conversation with an agent about a *subject* (`autodev/chats.py`). Today the subject is a
-task: «Спросить» on the task page, or ❔ next to a test-plan step, which quotes the step.
+task: «Спросить» on the task page lists its chats, a chat per question («Новый вопрос»; ❔ next to a
+test-plan step starts one quoting the step). A finished chat stays in the list with what it came to
+(«доработать → #N»), and a new one starts without its conversation: what earlier chats decided
+reaches it through the task's context (its follow-ups, and every approved or rejected proposal).
 
 - The API stores the owner's message and marks the chat `queued`. A chat slot in the worker
   (`AUTODEV_CHAT_SLOTS`, default 2; not paused with the developers) claims it and runs one Claude turn.

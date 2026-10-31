@@ -1,17 +1,21 @@
 'use client'
 
-import { ArrowUp, Check, Loader2, Quote, RotateCcw, Square, X } from 'lucide-react'
+import { ArrowLeft, ArrowUp, Check, ChevronRight, Loader2, Plus, Quote, Square, Trash2, X } from 'lucide-react'
 import Link from 'next/link'
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Button, ErrorNote } from '@/components/ui'
+import { Badge, Button, ErrorNote } from '@/components/ui'
 import { api, type Chat, type ChatMessage, type ChatProposal, type ChatSubject } from '@/lib/api'
-import { cx, time } from '@/lib/format'
+import { ago, cx, time } from '@/lib/format'
+
+/** The list of chats, or one chat (`id` null: a new question, created when it is sent). */
+type View = { kind: 'list' } | { kind: 'chat'; id: string | null }
 
 /**
- * A chat with an agent about a subject (a task now; a project or anything later), in a
- * bottom sheet. The agent answers read-only; actions it proposes wait for the owner's
- * approval right here. `quote` is what the question is about, e.g. a test-plan step.
+ * Chats with an agent about a subject (a task now; a project or anything later), in a
+ * bottom sheet: a chat per question, the earlier ones listed with what they came to.
+ * The agent answers read-only; actions it proposes wait for the owner's approval right
+ * here. `quote` (e.g. a test-plan step) opens a new question about it.
  */
 export function ChatSheet({
   open,
@@ -21,7 +25,7 @@ export function ChatSheet({
   title,
   hint,
   quote,
-  onApplied,
+  onChange,
 }: {
   open: boolean
   onClose: () => void
@@ -30,13 +34,19 @@ export function ChatSheet({
   title: string
   hint: string
   quote?: string | null
-  onApplied?: () => void
+  /** Something changed outside the chat: a proposal was applied, a chat created or deleted. */
+  onChange?: () => void
 }) {
-  const { chat, setChat, error, setError } = useChat(open, subject, subjectId)
+  const [view, setView] = useState<View>({ kind: 'list' })
+  const [chats, setChats] = useState<Chat[] | null>(null)
+  const [chat, setChat] = useState<Chat | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [text, setText] = useState('')
   const [pendingQuote, setPendingQuote] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const boxRef = useRef<HTMLDivElement>(null)
+  // With no chats yet, opening the sheet goes straight to a new question.
+  const startNew = useRef(false)
 
   const closeRef = useRef(onClose)
   useEffect(() => {
@@ -44,9 +54,15 @@ export function ChatSheet({
   })
 
   useEffect(() => {
-    // Opened for a new question about something else: take its quote.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (open) setPendingQuote(quote ?? null)
+    if (!open) return
+    // A quote means a new question about it; otherwise the list of earlier ones.
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setPendingQuote(quote ?? null)
+    setChat(null)
+    setError(null)
+    setView(quote ? { kind: 'chat', id: null } : { kind: 'list' })
+    /* eslint-enable react-hooks/set-state-in-effect */
+    startNew.current = !quote
   }, [open, quote])
 
   useEffect(() => {
@@ -61,12 +77,51 @@ export function ChatSheet({
     }
   }, [open])
 
+  // Fetched every 2 s while the agent works, else every 15 s.
+  const chatId = view.kind === 'chat' ? view.id : null
+  const fast = view.kind === 'chat' ? !!chat && chat.state !== 'idle' : !!chats?.some((c) => c.state !== 'idle')
+  useEffect(() => {
+    if (!open || (view.kind === 'chat' && !chatId)) return
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    async function tick() {
+      try {
+        if (chatId) {
+          const next = await api.chat(chatId)
+          if (!cancelled) setChat(next)
+        } else {
+          const list = await api.chats(subject, subjectId)
+          if (cancelled) return
+          setChats(list)
+          if (startNew.current && list.length === 0) setView({ kind: 'chat', id: null })
+          startNew.current = false
+        }
+        if (!cancelled) setError(null)
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      }
+      if (!cancelled) timer = setTimeout(tick, fast ? 2000 : 15000)
+    }
+    tick()
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [open, subject, subjectId, view.kind, chatId, fast])
+
   const count = chat?.messages.length ?? 0
   const busy = !!chat && chat.state !== 'idle'
   useEffect(() => {
     const box = boxRef.current
-    if (box) box.scrollTop = box.scrollHeight
-  }, [count, busy, open])
+    if (box && view.kind === 'chat') box.scrollTop = box.scrollHeight
+  }, [count, busy, view.kind])
+
+  function show(next: View) {
+    setChat(null)
+    setError(null)
+    if (next.kind === 'list') setPendingQuote(null)
+    setView(next)
+  }
 
   async function run(fn: () => Promise<Chat | void>) {
     setError(null)
@@ -82,9 +137,16 @@ export function ChatSheet({
 
   async function send() {
     const body = text.trim()
-    if (!chat || !body || sending) return
+    if (!body || sending) return
     setSending(true)
-    if (await run(() => api.sendChat(chat.id, body, pendingQuote))) {
+    const ok = await run(async () => {
+      if (chat) return api.sendChat(chat.id, body, pendingQuote)
+      const created = await api.createChat(subject, subjectId, body, pendingQuote)
+      setView({ kind: 'chat', id: created.id })
+      onChange?.()
+      return created
+    })
+    if (ok) {
       setText('')
       setPendingQuote(null)
     }
@@ -92,30 +154,38 @@ export function ChatSheet({
   }
 
   if (!open) return null
+  const listing = view.kind === 'list'
+  const heading = listing ? title : chat?.question ? 'Вопрос' : 'Новый вопрос'
   // On <body>: above the bottom tab bar whatever stacking context the page creates.
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label={title}>
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative flex h-[90dvh] w-full flex-col rounded-t-3xl border border-line bg-surface shadow-2xl sm:h-[80dvh] sm:max-w-lg sm:rounded-3xl">
-        <div className="flex items-center gap-2 border-b border-line px-4 py-3">
-          <div className="min-w-0 flex-1">
-            <h2 className="truncate text-base font-semibold">{title}</h2>
-            {chat && <p className="truncate text-xs text-muted">{chat.title}</p>}
+        <div className="flex items-center gap-1 border-b border-line px-2 py-3">
+          {!listing && (
+            <button onClick={() => show({ kind: 'list' })} className="rounded-full p-2 hover:bg-surface-2" aria-label="Все вопросы">
+              <ArrowLeft size={18} />
+            </button>
+          )}
+          <div className={cx('min-w-0 flex-1', listing && 'pl-2')}>
+            <h2 className="truncate text-base font-semibold">{heading}</h2>
+            <p className="truncate text-xs text-muted">{listing ? (chats?.[0]?.title ?? '') : (chat?.title ?? title)}</p>
           </div>
-          {chat && count > 0 && !busy && (
+          {chat && !busy && (
             <button
               onClick={() =>
-                confirm('Начать разговор заново? История удалится.') &&
+                confirm('Удалить этот вопрос вместе с ответами?') &&
                 run(async () => {
                   await api.deleteChat(chat.id)
-                  return api.openChat(subject, subjectId)
+                  onChange?.()
+                  show({ kind: 'list' })
                 })
               }
               className="rounded-full p-2 text-muted hover:bg-surface-2 hover:text-fg"
-              aria-label="Начать заново"
-              title="Начать заново"
+              aria-label="Удалить вопрос"
+              title="Удалить вопрос"
             >
-              <RotateCcw size={16} />
+              <Trash2 size={16} />
             </button>
           )}
           <button onClick={onClose} className="rounded-full p-2 hover:bg-surface-2" aria-label="Закрыть">
@@ -124,35 +194,41 @@ export function ChatSheet({
         </div>
 
         <div ref={boxRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
-          {!chat && !error && <Loader2 className="mx-auto mt-10 animate-spin text-muted" />}
-          {chat && count === 0 && <p className="px-2 py-6 text-center text-sm text-muted">{hint}</p>}
-          {chat?.messages.map((m) => (
-            <Message
-              key={m.id}
-              message={m}
-              onDecide={(index, approve) =>
-                run(() => api.decideProposal(chat.id, m.id, index, approve)).then((ok) => ok && approve && onApplied?.())
-              }
-            />
-          ))}
-          {busy && chat && (
-            <div className="flex items-center gap-2 px-1 text-sm text-muted">
-              <Loader2 size={14} className="shrink-0 animate-spin" />
-              <span className="min-w-0 flex-1 truncate">
-                {chat.stopping ? 'Останавливаю…' : chat.state === 'queued' ? (chat.activity ?? 'Сейчас отвечу…') : (chat.activity ?? 'Думаю…')}
-              </span>
-              {!chat.stopping && (
-                <Button size="sm" variant="ghost" onClick={() => run(() => api.stopChat(chat.id))}>
-                  <Square size={12} /> Стоп
-                </Button>
+          {listing ? (
+            <ChatList chats={chats} onOpen={(id) => show({ kind: 'chat', id })} onNew={() => show({ kind: 'chat', id: null })} />
+          ) : (
+            <>
+              {chatId && !chat && !error && <Loader2 className="mx-auto mt-10 animate-spin text-muted" />}
+              {!chatId && <p className="px-2 py-6 text-center text-sm text-muted">{hint}</p>}
+              {chat?.messages.map((m) => (
+                <Message
+                  key={m.id}
+                  message={m}
+                  onDecide={(index, approve) =>
+                    run(() => api.decideProposal(chat.id, m.id, index, approve)).then((ok) => ok && onChange?.())
+                  }
+                />
+              ))}
+              {busy && chat && (
+                <div className="flex items-center gap-2 px-1 text-sm text-muted">
+                  <Loader2 size={14} className="shrink-0 animate-spin" />
+                  <span className="min-w-0 flex-1 truncate">
+                    {chat.stopping ? 'Останавливаю…' : chat.state === 'queued' ? (chat.activity ?? 'Сейчас отвечу…') : (chat.activity ?? 'Думаю…')}
+                  </span>
+                  {!chat.stopping && (
+                    <Button size="sm" variant="ghost" onClick={() => run(() => api.stopChat(chat.id))}>
+                      <Square size={12} /> Стоп
+                    </Button>
+                  )}
+                </div>
               )}
-            </div>
+            </>
           )}
         </div>
 
         <div className="space-y-2 border-t border-line px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
           <ErrorNote error={error} />
-          {pendingQuote && (
+          {!listing && pendingQuote && (
             <div className="flex items-start gap-2 rounded-xl bg-surface-2 px-3 py-2 text-xs text-muted">
               <Quote size={12} className="mt-0.5 shrink-0" />
               <span className="line-clamp-2 min-w-0 flex-1">{pendingQuote}</span>
@@ -161,40 +237,47 @@ export function ChatSheet({
               </button>
             </div>
           )}
-          <form
-            className="flex items-end gap-2"
-            onSubmit={(e) => {
-              e.preventDefault()
-              send()
-            }}
-          >
-            <textarea
-              rows={1}
-              value={text}
-              onChange={(e) => {
-                setText(e.target.value)
-                e.target.style.height = 'auto'
-                e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`
+          {listing ? (
+            <Button variant="primary" className="w-full" onClick={() => show({ kind: 'chat', id: null })}>
+              <Plus size={16} /> Новый вопрос
+            </Button>
+          ) : (
+            <form
+              className="flex items-end gap-2"
+              onSubmit={(e) => {
+                e.preventDefault()
+                send()
               }}
-              onKeyDown={(e) => {
-                // Enter sends on a desktop keyboard; on a phone Enter is a new line.
-                if (e.key === 'Enter' && !e.shiftKey && window.matchMedia('(pointer: fine)').matches) {
-                  e.preventDefault()
-                  send()
-                }
-              }}
-              placeholder={busy ? 'Дописать…' : 'Вопрос…'}
-              className="max-h-40 min-h-11 flex-1 resize-none rounded-2xl border border-line bg-bg px-3 py-2.5 text-[15px] outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
-            />
-            <button
-              type="submit"
-              disabled={!chat || !text.trim() || sending}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent text-accent-fg transition active:scale-95 disabled:opacity-40"
-              aria-label="Отправить"
             >
-              {sending ? <Loader2 size={18} className="animate-spin" /> : <ArrowUp size={18} />}
-            </button>
-          </form>
+              <textarea
+                rows={1}
+                value={text}
+                autoFocus={!chatId}
+                onChange={(e) => {
+                  setText(e.target.value)
+                  e.target.style.height = 'auto'
+                  e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`
+                }}
+                onKeyDown={(e) => {
+                  // Enter sends on a desktop keyboard; on a phone Enter is a new line.
+                  if (e.key === 'Enter' && !e.shiftKey && window.matchMedia('(pointer: fine)').matches) {
+                    e.preventDefault()
+                    send()
+                  }
+                }}
+                placeholder={busy ? 'Дописать…' : chatId ? 'Уточнить…' : 'Вопрос…'}
+                className="max-h-40 min-h-11 flex-1 resize-none rounded-2xl border border-line bg-bg px-3 py-2.5 text-[15px] outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
+              />
+              <button
+                type="submit"
+                disabled={(!!chatId && !chat) || !text.trim() || sending}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent text-accent-fg transition active:scale-95 disabled:opacity-40"
+                aria-label="Отправить"
+              >
+                {sending ? <Loader2 size={18} className="animate-spin" /> : <ArrowUp size={18} />}
+              </button>
+            </form>
+          )}
         </div>
       </div>
     </div>,
@@ -202,43 +285,61 @@ export function ChatSheet({
   )
 }
 
-/** The chat about a subject while the sheet is open: fetched every 2 s while the agent works, else every 15 s. */
-function useChat(open: boolean, subject: ChatSubject, subjectId: string) {
-  const [chat, setChatState] = useState<Chat | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const chatRef = useRef<Chat | null>(null)
-  const setChat = useCallback((next: Chat) => {
-    chatRef.current = next
-    setChatState(next)
-  }, [])
-  const working = !!chat && chat.state !== 'idle'
+/** Earlier questions, newest first, each with what it came to. */
+function ChatList({ chats, onOpen, onNew }: { chats: Chat[] | null; onOpen: (id: string) => void; onNew: () => void }) {
+  if (!chats) return <Loader2 className="mx-auto mt-10 animate-spin text-muted" />
+  const asked = chats.filter((c) => c.question)
+  if (asked.length === 0) {
+    return (
+      <button onClick={onNew} className="w-full px-2 py-6 text-center text-sm text-muted">
+        Вопросов пока не было
+      </button>
+    )
+  }
+  return (
+    <ul className="space-y-2">
+      {asked.map((c) => (
+        <li key={c.id}>
+          <button
+            onClick={() => onOpen(c.id)}
+            className="flex w-full items-center gap-2 rounded-2xl border border-line px-3 py-2.5 text-left transition hover:bg-surface-2 active:scale-[0.99]"
+          >
+            <span className="min-w-0 flex-1 space-y-1">
+              <span className="line-clamp-2 block break-words text-[15px] leading-snug">{c.question}</span>
+              <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+                <span>{ago(c.updated_at)}</span>
+                <ChatOutcome chat={c} />
+              </span>
+            </span>
+            <ChevronRight size={16} className="shrink-0 text-muted" />
+          </button>
+        </li>
+      ))}
+    </ul>
+  )
+}
 
-  useEffect(() => {
-    if (!open) return
-    let cancelled = false
-    let timer: ReturnType<typeof setTimeout> | undefined
-    async function tick() {
-      try {
-        const current = chatRef.current
-        const next =
-          current && current.subject_id === subjectId ? await api.chat(current.id) : await api.openChat(subject, subjectId)
-        if (cancelled) return
-        setChat(next)
-        setError(null)
-      } catch (e) {
-        if (!cancelled) setError((e as Error).message)
-      }
-      if (!cancelled) timer = setTimeout(tick, chatRef.current && chatRef.current.state !== 'idle' ? 2000 : 15000)
-    }
-    tick()
-    return () => {
-      cancelled = true
-      clearTimeout(timer)
-    }
-    // `working` restarts the loop, so a message just sent is followed at the fast pace right away.
-  }, [open, subject, subjectId, working, setChat])
-
-  return { chat, setChat, error, setError }
+function ChatOutcome({ chat: c }: { chat: Chat }) {
+  if (c.state !== 'idle') {
+    return (
+      <Badge tone="info">
+        <Loader2 size={11} className="animate-spin" /> отвечает
+      </Badge>
+    )
+  }
+  const applied = c.outcome.filter((o) => o.state === 'applied')
+  return (
+    <>
+      {c.pending > 0 && <Badge tone="warn">ждёт решения</Badge>}
+      {applied.map((o, i) => (
+        <Badge key={i} tone="ok">
+          {o.label.toLowerCase()}
+          {o.ticket_number ? ` → #${o.ticket_number}` : ''}
+        </Badge>
+      ))}
+      {c.pending === 0 && applied.length === 0 && c.outcome.length > 0 && <Badge>отклонено</Badge>}
+    </>
+  )
 }
 
 function Message({

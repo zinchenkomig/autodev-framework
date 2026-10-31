@@ -38,7 +38,8 @@ export default function TaskPage() {
   // The chat about this task; `quote` is the test-plan step a question is about.
   const [ask, setAsk] = useState<{ open: boolean; quote: string | null }>({ open: false, quote: null })
   const chats = usePoll(() => api.chats('task', id), 30000, [id])
-  const asked = chats.data?.[0]?.messages.filter((m) => m.role === 'user').length ?? 0
+  const asked = chats.data?.filter((c) => c.question).length ?? 0
+  const undecided = chats.data?.some((c) => c.pending > 0) ?? false
 
   const t = task.data
   const project = projects.data?.find((p) => p.id === t?.project_id)
@@ -153,6 +154,7 @@ export default function TaskPage() {
         )}
         <Button size="sm" onClick={() => setAsk({ open: true, quote: null })}>
           <MessageCircleQuestion size={15} /> Спросить{asked > 0 && <span className="text-muted">· {asked}</span>}
+          {undecided && <span className="h-2 w-2 rounded-full bg-warn" title="Есть предложение агента, ждёт решения" />}
         </Button>
         {canRetry && (
           <Button size="sm" variant="primary" disabled={busy} onClick={() => act(() => api.retryTask(t.id))}>
@@ -255,10 +257,13 @@ export default function TaskPage() {
         }}
         subject="task"
         subjectId={t.id}
-        title="Вопрос по задаче"
+        title="Вопросы по задаче"
         hint="Спросите про непонятный термин, шаг плана или как это сделано. Агент знает задачу, план проверки и код проекта. Если нужна доработка — предложит, а создаст только после вашего «да»."
         quote={ask.quote}
-        onApplied={() => task.refresh()}
+        onChange={() => {
+          task.refresh()
+          chats.refresh()
+        }}
       />
 
       <FeedbackSheet

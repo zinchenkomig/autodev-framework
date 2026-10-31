@@ -28,7 +28,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from autodev import review
-from autodev.core.models import Chat, Project, Task, TaskStatus
+from autodev.core.models import Chat, ChatMessage, Project, Task, TaskStatus
 
 #: Proposal states. Only "pending" ones can be approved or rejected.
 PENDING, APPLIED, REJECTED = "pending", "applied", "rejected"
@@ -69,7 +69,7 @@ class Action:
 
 class Subject:
     kind: str = ""
-    #: One chat per subject id (a task has one chat), or many (a project's planning chats).
+    #: One chat per subject id, or many: a new chat per question, the older ones kept as history.
     single: bool = True
     actions: dict[str, Action] = {}
 
@@ -190,6 +190,9 @@ class TaskSubject(Subject):
     """A task's chat: the owner asks about it while checking it on stage by its test plan."""
 
     kind = "task"
+    # A chat per question: a finished one (say, it ended in a follow-up) doesn't weigh on the next.
+    # What they decided reaches the next chat through the task's context.
+    single = False
     actions = {
         "follow_up": Action(
             "follow_up",
@@ -220,11 +223,32 @@ class TaskSubject(Subject):
             rows = await session.execute(select(Task).where(Task.parent_id == task.id).order_by(Task.ticket_number))
             children = list(rows.scalars())
         project = await session.get(Project, task.project_id) if task.project_id else None
-        return Topic(
-            title=f"#{task.ticket_number} {task.title}",
-            project=project,
-            context=task_context(task, main, children, project),
-        )
+        context = task_context(task, main, children, project)
+        decided = await decisions(session, self.kind, subject_id)
+        if decided:
+            context += "\n\n" + decided
+        return Topic(title=f"#{task.ticket_number} {task.title}", project=project, context=context)
+
+
+async def decisions(session: AsyncSession, kind: str, subject_id: str | None) -> str:
+    """What the owner decided on proposals in all chats about this subject: the next chat shouldn't repeat them."""
+    rows = await session.execute(
+        select(ChatMessage.proposals)
+        .join(Chat, Chat.id == ChatMessage.chat_id)
+        .where(Chat.subject == kind, Chat.subject_id == subject_id, ChatMessage.role == "assistant")
+        .order_by(ChatMessage.created_at)
+    )
+    lines = []
+    for proposals in rows.scalars():
+        for p in proposals or []:
+            if p.get("state") == APPLIED:
+                ref = (p.get("result") or {}).get("ticket_number")
+                lines.append(f"- approved {p['action']} «{p['title']}»" + (f" → task #{ref}" if ref else ""))
+            elif p.get("state") == REJECTED:
+                lines.append(f"- rejected {p['action']} «{p['title']}»")
+    if not lines:
+        return ""
+    return "\n".join(["### Proposals the owner already decided on (in this and earlier chats)", *lines[-30:]])
 
 
 def task_context(task: Task, main: Task | None, children: list[Task], project: Project | None) -> str:
