@@ -4,6 +4,7 @@ import { Plus, Rocket } from 'lucide-react'
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import { NewTaskSheet } from '@/components/NewTaskSheet'
+import { ProjectChips } from '@/components/ProjectChips'
 import { TaskCard } from '@/components/TaskCard'
 import { Empty, ErrorNote } from '@/components/ui'
 import { api, type Task, type TaskStatus } from '@/lib/api'
@@ -57,20 +58,11 @@ export default function Board() {
   return (
     <div className="space-y-4">
       {projectList.length > 1 && (
-        <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4">
-          {[{ id: ALL, name: 'Все проекты' }, ...projectList].map((p) => (
-            <button
-              key={p.id}
-              onClick={() => setProjectFilter(p.id)}
-              className={cx(
-                'shrink-0 rounded-full border px-3 py-1.5 text-sm',
-                projectFilter === p.id ? 'border-accent bg-accent text-accent-fg' : 'border-line bg-surface text-muted',
-              )}
-            >
-              {p.name}
-            </button>
-          ))}
-        </div>
+        <ProjectChips
+          items={[{ id: ALL, name: 'Все проекты' }, ...projectList]}
+          value={projectFilter}
+          onChange={setProjectFilter}
+        />
       )}
 
       {current && onStage > 0 && (
