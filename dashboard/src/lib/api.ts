@@ -40,6 +40,8 @@ export interface Task {
   attempts: number
   pending_fix: string | null
   qa: { ok: boolean; problems: string[]; skipped: string | null } | null
+  // The task's code with its follow-ups as one GitHub compare; error when a follow-up doesn't replay
+  full_diff: { url?: string; tasks?: number; error?: string } | null
   test_plan: string[]
   plan_checked: number[]
   plan_earlier: number[] // ticked on the previous version; to check again
