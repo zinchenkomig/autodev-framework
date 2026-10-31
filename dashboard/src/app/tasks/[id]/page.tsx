@@ -6,6 +6,7 @@ import {
   CornerDownRight,
   CheckCircle2,
   ChevronDown,
+  FileDiff,
   ExternalLink,
   GitPullRequest,
   Globe,
@@ -40,6 +41,7 @@ export default function TaskPage() {
   // The chat about this task; `quote` is the test-plan step a question is about.
   const [ask, setAsk] = useState<{ open: boolean; quote: string | null }>({ open: false, quote: null })
   const chats = usePoll(() => api.chats('task', id), 30000, [id])
+  const children = usePoll(() => api.children(id), 8000, [id])
   const asked = chats.data?.filter((c) => c.question).length ?? 0
   const undecided = chats.data?.some((c) => c.pending > 0) ?? false
 
@@ -122,13 +124,14 @@ export default function TaskPage() {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {t.pr_url && (
-          <a href={t.pr_url} target="_blank" rel="noreferrer">
-            <Button size="sm">
-              <GitPullRequest size={15} /> PR #{t.pr_number}
+        {t.full_diff?.url && (
+          <a href={t.full_diff.url} target="_blank" rel="noreferrer">
+            <Button size="sm" title={`Код задачи и доработок одним сравнением на GitHub (${t.full_diff.tasks} PR)`}>
+              <FileDiff size={15} /> Весь код
             </Button>
           </a>
         )}
+        <PullRequests task={t} followUps={children.data ?? []} />
         {merged && project?.stage_url && (
           <a href={project.stage_url} target="_blank" rel="noreferrer">
             <Button size="sm" variant={t.status === 'on_stage' ? 'primary' : 'secondary'}>
@@ -246,7 +249,7 @@ export default function TaskPage() {
         </div>
 
         <aside className="min-w-0 space-y-4">
-          {!t.parent && <FollowUps taskId={t.id} />}
+          {!t.parent && <FollowUps items={children.data ?? []} />}
           {t.qa && <QaCard taskId={t.id} qa={t.qa} />}
           <p className="text-center text-xs text-muted lg:text-left">
             создана {dateTime(t.created_at)} · {t.created_by ?? t.source}
@@ -304,6 +307,51 @@ function request(task: Task): string {
   return (task.description ?? '').split('\n\n---\n')[0].trim()
 }
 
+/** The task's PR; with follow-ups, a menu of every PR — the main one first. */
+function PullRequests({ task, followUps }: { task: Task; followUps: Task[] }) {
+  const [open, setOpen] = useState(false)
+  const prs = [task, ...followUps].filter((t) => t.pr_url)
+  if (prs.length === 0) return null
+  if (prs.length === 1)
+    return (
+      <a href={prs[0].pr_url!} target="_blank" rel="noreferrer">
+        <Button size="sm">
+          <GitPullRequest size={15} /> PR #{prs[0].pr_number}
+        </Button>
+      </a>
+    )
+  const failed = task.full_diff?.error
+  return (
+    <div className="relative">
+      <Button size="sm" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <GitPullRequest size={15} /> PR · {prs.length}
+        <ChevronDown size={14} className={cx('text-muted transition', open && 'rotate-180')} />
+      </Button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="fixed inset-x-4 z-20 mt-1 rounded-xl sm:absolute sm:inset-x-auto sm:left-0 sm:top-full sm:w-80 border border-line bg-surface p-1 shadow-xl">
+            {prs.map((t) => (
+              <a
+                key={t.id}
+                href={t.pr_url!}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2"
+              >
+                <span className="shrink-0 font-mono text-xs text-muted">#{t.pr_number}</span>
+                <span className="min-w-0 flex-1 truncate">{t.id === task.id ? 'Основная задача' : request(t) || t.title}</span>
+                <ExternalLink size={12} className="shrink-0 text-muted" />
+              </a>
+            ))}
+            {failed && <p className="border-t border-line px-2.5 py-2 text-xs text-muted">Одним сравнением не собрать: {failed}</p>}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 /** First line of an agent summary, without Markdown marks: the gist for a compact list. */
 function gist(summary: string): string {
   const line = summary.split('\n').find((l) => l.trim() && !/^\s*#/.test(l)) ?? ''
@@ -313,10 +361,9 @@ function gist(summary: string): string {
 const FOLLOW_UPS_SHOWN = 5
 
 /** The main task's history: each follow-up, compact — what was asked and the gist of what was done. */
-function FollowUps({ taskId }: { taskId: string }) {
-  const { data } = usePoll(() => api.children(taskId), 8000, [taskId])
+function FollowUps({ items: data }: { items: Task[] }) {
   const [all, setAll] = useState(false)
-  if (!data?.length) return null
+  if (!data.length) return null
   const shown = all ? data : data.slice(-FOLLOW_UPS_SHOWN)
   return (
     <Card className="p-2">

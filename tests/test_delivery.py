@@ -88,6 +88,7 @@ async def test_green_ci_merges_and_moves_to_deploying(session_factory, project) 
     t = await reload(session_factory, t.id)
     assert gh.merged == [(1, "squash")]
     assert t.status == TaskStatus.DEPLOYING and t.merge_sha == "merge1"
+    assert t.metadata_["full_diff_pending"]  # the task's one-diff view gets rebuilt
 
 
 async def test_pending_ci_waits(session_factory, project) -> None:

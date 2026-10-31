@@ -20,7 +20,7 @@ from autodev.core.models import (
     TaskStatus,
     TaskTransition,
 )
-from autodev.worker import chat, planner
+from autodev.worker import chat, combined, planner
 from autodev.worker.context import WorkerContext
 from autodev.worker.delivery import Delivery
 from autodev.worker.developer import develop
@@ -71,6 +71,7 @@ class Worker:
             *(self.chat_loop() for _ in range(max(1, self.ctx.settings.chat_slots))),
             self.delivery_loop(),
             self.planner_loop(),
+            self.combined_loop(),
         )
         logger.info("worker stopped")
 
@@ -151,6 +152,21 @@ class Worker:
             except Exception:
                 logger.exception("slot %s crashed — continuing", name)
                 await self._sleep(5)
+
+    async def combined_loop(self) -> None:
+        """Rebuild the one-diff view of a task and its follow-ups after their merges."""
+        try:
+            await combined.backfill(self.ctx)
+        except Exception:
+            logger.exception("full diff backfill failed")
+        while not self.stopping.is_set():
+            try:
+                for root_id in await combined.pending(self.ctx):
+                    await combined.rebuild(self.ctx, root_id)
+                await self._sleep(self.ctx.settings.poll_interval)
+            except Exception:
+                logger.exception("full diff rebuild failed — retrying later")
+                await self._sleep(300)
 
     async def planner_loop(self) -> None:
         """Test-plan refreshes the owner asked for, one at a time, beside the developer slots."""

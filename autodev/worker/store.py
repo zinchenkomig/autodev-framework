@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -45,6 +46,17 @@ class Store:
                 setattr(task, key, value)
             await session.commit()
             return task
+
+    async def patch_metadata(self, task_id: uuid.UUID, change: Callable[[dict], None]) -> None:
+        """Change a task's metadata in place under a row lock (other loops write other keys)."""
+        async with self.session_factory() as session:
+            task = await session.get(Task, task_id, with_for_update=True)
+            if task is None:
+                return
+            metadata = dict(task.metadata_ or {})
+            change(metadata)
+            task.metadata_ = metadata
+            await session.commit()
 
     async def transition(
         self,

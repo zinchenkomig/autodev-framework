@@ -89,6 +89,9 @@ class TaskResponse(BaseModel):
     attempts: int
     pending_fix: str | None  # kind of the queued fix round, if any
     qa: dict | None  # {"ok": bool, "problems": [...], "skipped": str | None} after stage QA
+    # The task's code with its follow-ups as one GitHub compare: {"url", "tasks"}, or {"error"}
+    # when a follow-up doesn't replay; None while there's a single PR.
+    full_diff: dict | None
     # The owner checks a main task as a whole: a follow-up/part has no plan of its
     # own and shows its main task's "verified" mark.
     test_plan: list[str]  # manual check steps for the owner, from the developer agent
@@ -158,6 +161,7 @@ def to_response(task: Task, parent: Task | None = None, waiting: list[Task] = ()
         attempts=task.attempts,
         pending_fix=fix.get("kind") if isinstance(fix, dict) else None,
         qa=(task.metadata_ or {}).get("qa"),
+        full_diff=(task.metadata_ or {}).get("full_diff"),
         test_plan=[] if with_main else (task.metadata_ or {}).get("test_plan") or [],
         plan_checked=[] if with_main else review.plan_checked(task),
         plan_earlier=[] if with_main else review.plan_earlier(task),
