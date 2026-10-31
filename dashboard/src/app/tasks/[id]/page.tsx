@@ -5,6 +5,7 @@ import {
   Check,
   CornerDownRight,
   CheckCircle2,
+  ChevronDown,
   ExternalLink,
   GitPullRequest,
   Globe,
@@ -18,8 +19,9 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ChatSheet } from '@/components/Chat'
+import { Inline, Markdown } from '@/components/Markdown'
 import { Badge, Button, Card, ErrorNote, Sheet, inputClass } from '@/components/ui'
 import { api, type LogEntry, type Task } from '@/lib/api'
 import { FIX_KIND, PRIORITY, STATUS, ago, cx, dateTime, time } from '@/lib/format'
@@ -79,7 +81,7 @@ export default function TaskPage() {
   const canFeedback = merged || (['ci', 'failed', 'cancelled'].includes(t.status) && t.pr_number) || (t.status === 'queued' && !t.branch)
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4">
+    <div className="mx-auto max-w-3xl space-y-4 lg:max-w-6xl">
       <BackLink />
 
       <div className="space-y-2">
@@ -179,75 +181,78 @@ export default function TaskPage() {
       </div>
       <ErrorNote error={actionError} />
 
-      {t.status === 'failed' && t.error && (
-        <Card className="border-bad/40 p-4">
-          <div className="mb-1 text-sm font-semibold text-bad">Что пошло не так</div>
-          <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed">{t.error}</pre>
-        </Card>
-      )}
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start xl:grid-cols-[minmax(0,1fr)_24rem]">
+        <div className="min-w-0 space-y-4">
+          {t.status === 'failed' && t.error && (
+            <Card className="border-bad/40 p-4">
+              <div className="mb-1 text-sm font-semibold text-bad">Что пошло не так</div>
+              <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed">{t.error}</pre>
+            </Card>
+          )}
 
-      {t.qa && <QaCard taskId={t.id} qa={t.qa} />}
+          {t.description && (
+            <Card className="p-4">
+              <div className="mb-1.5 text-sm font-semibold text-muted">{t.parent ? 'Что попросили' : 'Задача'}</div>
+              <Collapsible>
+                <Markdown text={t.parent ? request(t) : t.description} className="text-[15px] leading-relaxed" />
+              </Collapsible>
+            </Card>
+          )}
 
-      {t.summary && (
-        <Card className="p-4">
-          <div className="mb-1 text-sm font-semibold">Что сделал агент</div>
-          <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{t.summary}</p>
-        </Card>
-      )}
+          <Work key={t.id} task={t} live={['queued', 'in_progress', 'ci', 'deploying'].includes(t.status) || t.plan_refreshing} />
 
-      {withMain && t.parent && (
-        <Link href={`/tasks/${t.parent.id}`} className="block">
-          <Card className="flex items-center gap-2 p-4 text-sm hover:bg-surface-2">
-            <CheckCircle2 size={15} className={cx('shrink-0', t.verified_at ? 'text-ok' : 'text-muted')} />
-            <span className="min-w-0 flex-1">
-              Проверяется вместе с основной задачей{' '}
-              <span className="font-medium">#{t.parent.ticket_number}</span> — по её общему плану
-            </span>
-          </Card>
-        </Link>
-      )}
+          {withMain && t.parent && (
+            <Link href={`/tasks/${t.parent.id}`} className="block">
+              <Card className="flex items-center gap-2 p-4 text-sm hover:bg-surface-2">
+                <CheckCircle2 size={15} className={cx('shrink-0', t.verified_at ? 'text-ok' : 'text-muted')} />
+                <span className="min-w-0 flex-1">
+                  Проверяется вместе с основной задачей{' '}
+                  <span className="font-medium">#{t.parent.ticket_number}</span> — по её общему плану
+                </span>
+              </Card>
+            </Link>
+          )}
 
-      {!t.parent && waiting && merged && (
-        <Card className="border-warn/40 p-4 text-sm">
-          <div className="mb-1 font-semibold">Ждёт доработок</div>
-          <p className="text-muted">
-            {t.waiting_for.map((w) => `#${w.ticket_number}`).join(', ')} ещё не на stage. Когда они выкатятся, план
-            обновится — проверить всё можно будет одним проходом.
+          {!t.parent && waiting && merged && (
+            <Card className="border-warn/40 p-4 text-sm">
+              <div className="mb-1 font-semibold">Ждёт доработок</div>
+              <p className="text-muted">
+                {t.waiting_for.map((w) => `#${w.ticket_number}`).join(', ')} ещё не на stage. Когда они выкатятся, план
+                обновится — проверить всё можно будет одним проходом.
+              </p>
+            </Card>
+          )}
+
+          {!withMain && (t.test_plan.length > 0 || merged) && (
+            <TestPlan
+              task={t}
+              interactive={merged}
+              onRefresh={
+                merged
+                  ? () =>
+                      confirm('Пересобрать план по задаче, её доработкам и коду на stage? Отметки останутся у шагов, текст которых не изменился, — как «проверено в прошлой версии».') &&
+                      act(() => api.refreshPlan(t.id), (r) => r && task.setData(r))
+                  : undefined
+              }
+              busy={busy}
+              onAsk={(step) => setAsk({ open: true, quote: `Шаг ${step + 1}: ${t.test_plan[step]}` })}
+              onToggle={(step, done) => {
+                const checked = done ? [...t.plan_checked, step] : t.plan_checked.filter((i) => i !== step)
+                task.setData({ ...t, plan_checked: checked, plan_earlier: t.plan_earlier.filter((i) => i !== step) })
+                act(() => api.checkStep(t.id, step, done), (r) => r && task.setData(r))
+              }}
+            />
+          )}
+        </div>
+
+        <aside className="min-w-0 space-y-4">
+          {!t.parent && <FollowUps taskId={t.id} />}
+          {t.qa && <QaCard taskId={t.id} qa={t.qa} />}
+          <p className="text-center text-xs text-muted lg:text-left">
+            создана {dateTime(t.created_at)} · {t.created_by ?? t.source}
           </p>
-        </Card>
-      )}
-
-      {!withMain && (t.test_plan.length > 0 || merged) && (
-        <TestPlan
-          task={t}
-          interactive={merged}
-          onRefresh={
-            merged
-              ? () =>
-                  confirm('Пересобрать план по задаче, её доработкам и коду на stage? Отметки останутся у шагов, текст которых не изменился, — как «проверено в прошлой версии».') &&
-                  act(() => api.refreshPlan(t.id), (r) => r && task.setData(r))
-              : undefined
-          }
-          busy={busy}
-          onAsk={(step) => setAsk({ open: true, quote: `Шаг ${step + 1}: ${t.test_plan[step]}` })}
-          onToggle={(step, done) => {
-            const checked = done ? [...t.plan_checked, step] : t.plan_checked.filter((i) => i !== step)
-            task.setData({ ...t, plan_checked: checked, plan_earlier: t.plan_earlier.filter((i) => i !== step) })
-            act(() => api.checkStep(t.id, step, done), (r) => r && task.setData(r))
-          }}
-        />
-      )}
-
-      {!t.parent && <FollowUps taskId={t.id} />}
-
-      {t.description && (
-        <Card className="p-4">
-          <div className="mb-1 text-sm font-semibold">Задача</div>
-          <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-muted">{t.description}</p>
-        </Card>
-      )}
-
-      <TaskLog key={t.id} taskId={t.id} live={['queued', 'in_progress', 'ci', 'deploying'].includes(t.status) || t.plan_refreshing} />
+        </aside>
+      </div>
 
       <ChatSheet
         open={ask.open}
@@ -281,10 +286,6 @@ export default function TaskPage() {
         }
         busy={busy}
       />
-
-      <p className="pt-2 text-center text-xs text-muted">
-        создана {dateTime(t.created_at)} · {t.created_by ?? t.source}
-      </p>
     </div>
   )
 }
@@ -303,35 +304,47 @@ function request(task: Task): string {
   return (task.description ?? '').split('\n\n---\n')[0].trim()
 }
 
-/** The main task's history: each follow-up with what was asked and what the agent did. */
+/** First line of an agent summary, without Markdown marks: the gist for a compact list. */
+function gist(summary: string): string {
+  const line = summary.split('\n').find((l) => l.trim() && !/^\s*#/.test(l)) ?? ''
+  return line.replace(/\*\*|`/g, '').replace(/^\s*([-*•]|\d+[.)])\s+/, '').trim()
+}
+
+const FOLLOW_UPS_SHOWN = 5
+
+/** The main task's history: each follow-up, compact — what was asked and the gist of what was done. */
 function FollowUps({ taskId }: { taskId: string }) {
   const { data } = usePoll(() => api.children(taskId), 8000, [taskId])
+  const [all, setAll] = useState(false)
   if (!data?.length) return null
+  const shown = all ? data : data.slice(-FOLLOW_UPS_SHOWN)
   return (
     <Card className="p-2">
       <div className="px-2 pb-1 pt-2 text-sm font-semibold">История доработок · {data.length}</div>
+      {shown.length < data.length && (
+        <button onClick={() => setAll(true)} className="px-2 py-1 text-xs text-muted hover:text-fg">
+          Показать ранние · {data.length - shown.length}
+        </button>
+      )}
       <ol>
-        {data.map((c) => {
+        {shown.map((c) => {
           const s = STATUS[c.status]
           const asked = request(c)
           return (
             <li key={c.id} className="border-t border-line first:border-t-0">
-              <Link href={`/tasks/${c.id}`} className="block space-y-1 rounded-xl px-2 py-2.5 hover:bg-surface-2">
+              <Link href={`/tasks/${c.id}`} className="block space-y-0.5 rounded-xl px-2 py-2 hover:bg-surface-2">
                 <div className="flex items-center gap-2 text-xs text-muted">
                   <span className="font-mono">#{c.ticket_number}</span>
-                  <span className="truncate">{CHILD_KIND[c.created_by ?? ''] ?? 'Доработка'}</span>
-                  <span>· {dateTime(c.created_at)}</span>
+                  <span className="truncate">{dateTime(c.created_at)}</span>
                   <Badge tone={s.tone} className="ml-auto shrink-0 whitespace-nowrap">
                     {c.status === 'in_progress' && <Loader2 size={12} className="animate-spin" />}
                     {s.label}
                   </Badge>
                 </div>
-                <p className="line-clamp-4 whitespace-pre-wrap break-words text-[15px] leading-snug">{asked || c.title}</p>
-                {c.summary && (
-                  <p className="line-clamp-3 whitespace-pre-wrap break-words text-xs leading-relaxed text-muted">
-                    {c.summary}
-                  </p>
-                )}
+                <p className="line-clamp-2 break-words text-sm leading-snug" title={CHILD_KIND[c.created_by ?? ''] ?? 'Доработка'}>
+                  {asked || c.title}
+                </p>
+                {c.summary && <p className="line-clamp-1 break-words text-xs text-muted">{gist(c.summary)}</p>}
               </Link>
             </li>
           )
@@ -381,7 +394,7 @@ function TestPlan({
       </div>
       {task.plan_refreshing && (
         <p className="px-2 pb-1 text-xs text-muted">
-          Агент собирает план заново по задаче, её доработкам и коду на stage — ход видно в логе ниже.
+          Агент собирает план заново по задаче, её доработкам и коду на stage — ход видно в «Шагах агента».
         </p>
       )}
       {empty && !task.plan_refreshing && (
@@ -417,8 +430,13 @@ function TestPlan({
                   {done || before ? <Check size={14} strokeWidth={3} /> : i + 1}
                 </span>
                 <span className="min-w-0">
-                  <span className={cx('block whitespace-pre-wrap break-words text-[15px] leading-relaxed', done && 'text-muted line-through')}>
-                    {step}
+                  <span
+                    className={cx(
+                      'break-words',
+                      done ? 'line-clamp-1 text-sm text-muted line-through' : 'block whitespace-pre-wrap text-[15px] leading-relaxed',
+                    )}
+                  >
+                    <Inline text={step} />
                   </span>
                   {before && <span className="mt-0.5 block text-xs text-ok">Проверено в прошлой версии — проверьте снова</span>}
                 </span>
@@ -445,9 +463,9 @@ function QaCard({ taskId, qa }: { taskId: string; qa: NonNullable<Task['qa']> })
   const shots = (artifacts ?? []).filter((a) => a.kind === 'screenshot')
   const tone = qa.skipped ? 'text-muted' : qa.ok ? 'text-ok' : 'text-bad'
   return (
-    <Card className="space-y-3 p-4">
-      <div className={cx('flex items-center gap-2 text-sm font-semibold', tone)}>
-        {qa.skipped ? 'Проверка stage пропущена' : qa.ok ? 'Stage проверен — ошибок нет' : 'На stage есть проблемы'}
+    <Card className="space-y-2 p-3">
+      <div className={cx('text-sm font-semibold', tone)}>
+        {qa.skipped ? 'Автопроверка stage пропущена' : qa.ok ? 'Автопроверка stage: ошибок нет' : 'Автопроверка: на stage проблемы'}
       </div>
       {qa.skipped && <p className="text-xs text-muted">{qa.skipped}</p>}
       {qa.problems.length > 0 && (
@@ -460,17 +478,23 @@ function QaCard({ taskId, qa }: { taskId: string; qa: NonNullable<Task['qa']> })
         </ul>
       )}
       {shots.length > 0 && (
-        <div className="no-scrollbar -mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-1">
+        <div className="no-scrollbar -mx-1 flex snap-x gap-2 overflow-x-auto px-1">
           {shots.map((a) => (
-            <a key={a.id} href={api.artifactUrl(a.url)} target="_blank" rel="noreferrer" className="w-40 shrink-0 snap-start">
+            <a
+              key={a.id}
+              href={api.artifactUrl(a.url)}
+              target="_blank"
+              rel="noreferrer"
+              className="w-16 shrink-0 snap-start"
+              title={a.name.replace(/^https?:\/\/[^/]+/, '') || '/'}
+            >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={api.artifactUrl(a.url)}
                 alt={a.name}
                 loading="lazy"
-                className="aspect-[390/844] w-full rounded-xl border border-line object-cover object-top"
+                className="aspect-[390/844] w-full rounded-lg border border-line object-cover object-top"
               />
-              <div className="mt-1 truncate text-[11px] text-muted">{a.name.replace(/^https?:\/\/[^/]+/, '') || '/'}</div>
             </a>
           ))}
         </div>
@@ -537,10 +561,68 @@ const LEVEL_STYLE: Record<string, string> = {
   transition: 'text-accent font-medium',
 }
 
-function TaskLog({ taskId, live }: { taskId: string; live: boolean }) {
+/** Long text folded to a few lines with «Показать полностью»; short text as is. */
+function Collapsible({ children, height = 'max-h-48' }: { children: React.ReactNode; height?: string }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  const [overflows, setOverflows] = useState(false)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (el && !open) setOverflows(el.scrollHeight > el.clientHeight + 8)
+  }, [children, open])
+  return (
+    <div>
+      <div ref={ref} className={cx('relative', !open && cx(height, 'overflow-hidden'))}>
+        {children}
+        {!open && overflows && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-surface to-transparent" />
+        )}
+      </div>
+      {(overflows || open) && (
+        <button onClick={() => setOpen(!open)} className="mt-1 text-sm font-medium text-accent hover:opacity-80">
+          {open ? 'Свернуть' : 'Показать полностью'}
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** What the agent did — its summary up front, the step-by-step log folded underneath. */
+function Work({ task: t, live }: { task: Task; live: boolean }) {
+  const log = useTaskLog(t.id, live)
+  // Open while the agent works and there's nothing else to read yet.
+  const [open, setOpen] = useState<boolean | null>(null)
+  const showLog = open ?? (live && !t.summary)
+  const last = log.entries[log.entries.length - 1]
+  return (
+    <Card className="overflow-hidden">
+      {t.summary && (
+        <div className="p-4 pb-3">
+          <div className="mb-1.5 text-sm font-semibold text-muted">Что сделано</div>
+          <Collapsible height="max-h-72">
+            <Markdown text={t.summary} className="text-[15px] leading-relaxed" />
+          </Collapsible>
+        </div>
+      )}
+      <button
+        onClick={() => setOpen(!showLog)}
+        className={cx('flex w-full items-center gap-2 px-4 py-2.5 text-left hover:bg-surface-2', t.summary && 'border-t border-line')}
+      >
+        <span className="shrink-0 text-sm font-semibold">{t.summary ? 'Шаги агента' : live ? 'Агент работает' : 'Шаги агента'}</span>
+        {live && <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-ok" />}
+        <span className="min-w-0 flex-1 truncate text-xs text-muted">
+          {!showLog && (live && last ? last.message : log.entries.length > 0 && `${log.entries.length}`)}
+        </span>
+        <ChevronDown size={16} className={cx('shrink-0 text-muted transition', showLog && 'rotate-180')} />
+      </button>
+      {showLog && <LogEntries {...log} />}
+    </Card>
+  )
+}
+
+function useTaskLog(taskId: string, live: boolean) {
   const [entries, setEntries] = useState<LogEntry[]>([])
   const [error, setError] = useState<Error | null>(null)
-  const [open, setOpen] = useState<Record<string, boolean>>({})
   const lastRef = useRef<string | undefined>(undefined)
   const boxRef = useRef<HTMLDivElement>(null)
 
@@ -570,39 +652,39 @@ function TaskLog({ taskId, live }: { taskId: string; live: boolean }) {
     }
   }, [taskId, live])
 
+  return { entries, error, boxRef }
+}
+
+function LogEntries({ entries, error, boxRef }: ReturnType<typeof useTaskLog>) {
+  const [open, setOpen] = useState<Record<string, boolean>>({})
+  // Mounted on open: start at the newest entry.
+  useEffect(() => {
+    const box = boxRef.current
+    if (box) box.scrollTop = box.scrollHeight
+  }, [boxRef])
   return (
-    <Card className="overflow-hidden">
-      <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
-        <span className="text-sm font-semibold">Ход работы</span>
-        {live && (
-          <span className="inline-flex items-center gap-1.5 text-xs text-muted">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ok" /> обновляется
-          </span>
-        )}
-      </div>
-      <div ref={boxRef} className="max-h-[60dvh] overflow-y-auto px-2 py-2">
-        <ErrorNote error={error} />
-        {entries.length === 0 && !error && <p className="px-2 py-4 text-sm text-muted">Пока пусто</p>}
-        {entries.map((e) => (
-          <div key={e.id} className="rounded-lg px-2 py-1 hover:bg-surface-2">
-            <button
-              className="flex w-full items-start gap-2 text-left"
-              onClick={() => e.details && setOpen((o) => ({ ...o, [e.id]: !o[e.id] }))}
-            >
-              <span className="mt-0.5 shrink-0 font-mono text-[11px] text-muted">{time(e.created_at)}</span>
-              <span className={cx('min-w-0 break-words text-[13px] leading-snug', LEVEL_STYLE[e.level])}>
-                {e.message}
-                {e.details && <ExternalLink size={11} className="ml-1 inline text-muted" />}
-              </span>
-            </button>
-            {e.details && open[e.id] && (
-              <pre className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-bg p-2 font-mono text-[11px] leading-relaxed text-muted">
-                {e.details}
-              </pre>
-            )}
-          </div>
-        ))}
-      </div>
-    </Card>
+    <div ref={boxRef} className="max-h-[60dvh] overflow-y-auto border-t border-line px-2 py-2">
+      <ErrorNote error={error} />
+      {entries.length === 0 && !error && <p className="px-2 py-4 text-sm text-muted">Пока пусто</p>}
+      {entries.map((e) => (
+        <div key={e.id} className="rounded-lg px-2 py-1 hover:bg-surface-2">
+          <button
+            className="flex w-full items-start gap-2 text-left"
+            onClick={() => e.details && setOpen((o) => ({ ...o, [e.id]: !o[e.id] }))}
+          >
+            <span className="mt-0.5 shrink-0 font-mono text-[11px] text-muted">{time(e.created_at)}</span>
+            <span className={cx('min-w-0 break-words text-[13px] leading-snug', LEVEL_STYLE[e.level])}>
+              {e.message}
+              {e.details && <ExternalLink size={11} className="ml-1 inline text-muted" />}
+            </span>
+          </button>
+          {e.details && open[e.id] && (
+            <pre className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-bg p-2 font-mono text-[11px] leading-relaxed text-muted">
+              {e.details}
+            </pre>
+          )}
+        </div>
+      ))}
+    </div>
   )
 }

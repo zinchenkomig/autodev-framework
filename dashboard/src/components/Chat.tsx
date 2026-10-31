@@ -2,8 +2,9 @@
 
 import { ArrowLeft, ArrowUp, Check, ChevronRight, Loader2, Plus, Quote, Square, Trash2, X } from 'lucide-react'
 import Link from 'next/link'
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { Markdown } from '@/components/Markdown'
 import { Badge, Button, ErrorNote } from '@/components/ui'
 import { api, type Chat, type ChatMessage, type ChatProposal, type ChatSubject } from '@/lib/api'
 import { ago, cx, time } from '@/lib/format'
@@ -415,55 +416,5 @@ function ProposalCard({ proposal: p, onDecide }: { proposal: ChatProposal; onDec
       )}
       {p.state === 'rejected' && <div className="mt-2 text-xs text-muted">Отклонено</div>}
     </div>
-  )
-}
-
-/** The light Markdown the agent writes: paragraphs, lists, **bold** and `code`. */
-function Markdown({ text }: { text: string }) {
-  const blocks = text.trim().split(/\n{2,}/)
-  return (
-    <div className="space-y-2 break-words">
-      {blocks.map((block, i) => {
-        const lines = block.split('\n')
-        if (lines.every((l) => /^\s*([-*•]|\d+[.)])\s+/.test(l))) {
-          const ordered = /^\s*\d/.test(lines[0])
-          const items = lines.map((l) => l.replace(/^\s*([-*•]|\d+[.)])\s+/, ''))
-          const List = ordered ? 'ol' : 'ul'
-          return (
-            <List key={i} className={cx('space-y-1 pl-5', ordered ? 'list-decimal' : 'list-disc')}>
-              {items.map((item, j) => (
-                <li key={j}>
-                  <Inline text={item} />
-                </li>
-              ))}
-            </List>
-          )
-        }
-        return (
-          <p key={i} className="whitespace-pre-wrap">
-            <Inline text={block} />
-          </p>
-        )
-      })}
-    </div>
-  )
-}
-
-function Inline({ text }: { text: string }) {
-  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g)
-  return (
-    <>
-      {parts.map((part, i) =>
-        part.startsWith('**') && part.endsWith('**') && part.length > 4 ? (
-          <strong key={i}>{part.slice(2, -2)}</strong>
-        ) : part.startsWith('`') && part.endsWith('`') && part.length > 2 ? (
-          <code key={i} className="rounded bg-bg px-1 py-0.5 font-mono text-[13px]">
-            {part.slice(1, -1)}
-          </code>
-        ) : (
-          <Fragment key={i}>{part}</Fragment>
-        ),
-      )}
-    </>
   )
 }

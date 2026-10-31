@@ -52,3 +52,7 @@ async def test_follow_up_on_stage_sends_the_main_task_plan(sent) -> None:
     assert "Как проверить #3" in plan and "2. Фильтр" in plan
     button = sent.await_args_list[1].kwargs["reply_markup"]["inline_keyboard"][0][0]
     assert button["callback_data"] == f"ok:{main.id}"
+
+
+def test_summary_markdown_becomes_telegram_html():
+    assert notify._markdown("**Ключевые решения** <x> `a<b`") == "<b>Ключевые решения</b> &lt;x&gt; <code>a&lt;b</code>"

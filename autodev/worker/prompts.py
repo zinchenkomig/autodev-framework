@@ -48,9 +48,15 @@ Rules:
   return status "blocked" with the reason.
 - The repository holds the whole project: when a change spans several apps in it
   (e.g. a backend field and the UI that uses it), make all of it here, in one change.
-- Your final structured result: status ("done" / "blocked") and a 2-5 sentence
-  summary in Russian of what changed and what a reviewer should look at. It becomes
-  the PR description.
+- Your final structured result: status ("done" / "blocked") and a summary in Russian.
+  The product owner reads it on a phone and asks in chat if they want details, so keep
+  it short, in Markdown:
+  - First line: one plain sentence — the gist of what now works differently.
+  - Then, only if there were any, «**Ключевые решения**» and 1-4 bullets with the
+    important architectural or product decisions and trade-offs you made yourself
+    (what you chose and why). No decisions worth mentioning — no list.
+  - Don't list endpoints, migrations, files, renamed functions or tests you ran.
+  It also becomes the PR description. When blocked, the summary is the reason.
 """
     + TEST_PLAN_RULES
 )

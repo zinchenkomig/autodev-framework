@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import logging
+import re
 
 from autodev.core.config import get_settings
 from autodev.core.models import Project, Release, Task
@@ -26,6 +27,13 @@ async def _send(text: str, photo: bytes | None = None, reply_markup: dict | None
         logger.exception("notification failed")
 
 
+def _markdown(text: str) -> str:
+    """The agent's light Markdown as Telegram HTML: **bold** and `code`, the rest escaped."""
+    text = html.escape(text)
+    text = re.sub(r"\*\*([^*\n]+)\*\*", r"<b>\1</b>", text)
+    return re.sub(r"`([^`\n]+)`", r"<code>\1</code>", text)
+
+
 def test_plan_text(task: Task) -> str:
     plan = (task.metadata_ or {}).get("test_plan") or []
     steps = "\n".join(f"{i}. {html.escape(step[:400])}" for i, step in enumerate(plan, 1))
@@ -46,7 +54,7 @@ async def on_stage(
         problems = "\n".join(f"• {html.escape(p[:200])}" for p in qa.problems[:5])
         text += f"\n\n<b>QA нашёл проблемы</b> — поставил задачу на исправление:\n{problems}"
     elif task.summary:
-        text += f"\n\n{html.escape(task.summary[:600])}"
+        text += f"\n\n{_markdown(task.summary[:600])}"
     if task.pr_url:
         text += f'\n\n<a href="{html.escape(task.pr_url)}">PR</a>'
     await _send(text, photo=screenshot)
