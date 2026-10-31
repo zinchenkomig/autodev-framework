@@ -160,6 +160,16 @@ async def test_create_task_single_project_single_repo(client, project) -> None:
     assert t["ticket_number"] >= 1
 
 
+async def test_renamed_task_keeps_the_owner_title(client, session_factory, project) -> None:
+    t = (await client.post("/api/tasks/", json={"title": "Add search"})).json()
+    await client.patch(f"/api/tasks/{t['id']}", json={"title": "Add search", "priority": "high"})
+    async with session_factory() as s:
+        assert "title_by_owner" not in (await s.get(Task, uuid.UUID(t["id"]))).metadata_
+    await client.patch(f"/api/tasks/{t['id']}", json={"title": "Поиск"})
+    async with session_factory() as s:
+        assert (await s.get(Task, uuid.UUID(t["id"]))).metadata_["title_by_owner"]
+
+
 async def test_create_task_needs_project_when_ambiguous(client, session_factory, project) -> None:
     async with session_factory() as s:
         s.add(make_project("blog"))

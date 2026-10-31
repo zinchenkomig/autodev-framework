@@ -104,6 +104,9 @@ async def develop(ctx: WorkerContext, task_id: uuid.UUID, slot: str) -> None:
             fields: dict = {"session_id": result.session_id or task.session_id}
             if not fix:
                 fields["summary"] = result.summary
+            title = agent_title(result.data.get("title"))
+            if title and not existing and not (task.metadata_ or {}).get(OWNER_TITLE):
+                fields["title"] = title  # before the PR is opened: it takes the title too
             metadata = dict(task.metadata_ or {})
             paths = _strings(result.data.get("check_paths"))
             if paths:
@@ -158,6 +161,18 @@ async def develop(ctx: WorkerContext, task_id: uuid.UUID, slot: str) -> None:
     finally:
         if ws is not None:
             ws.cleanup()
+
+
+#: Task metadata: the owner renamed the task; the agent's title doesn't replace theirs.
+OWNER_TITLE = "title_by_owner"
+
+
+def agent_title(value) -> str | None:
+    """The agent's title for the task, tidied; None if it gave none."""
+    if not isinstance(value, str):
+        return None
+    title = " ".join(value.split()).strip("«»\"' .")
+    return title[:140] or None
 
 
 def _strings(value) -> list[str]:

@@ -57,6 +57,9 @@ Rules:
     (what you chose and why). No decisions worth mentioning — no list.
   - Don't list endpoints, migrations, files, renamed functions or tests you ran.
   It also becomes the PR description. When blocked, the summary is the reason.
+- Also return title: the task's name in Russian, 3-8 words, saying what now works
+  differently (the owner's request is often a raw thought; its first line is only a
+  draft title). It names the task in the dashboard and the PR.
 """
     + TEST_PLAN_RULES
 )

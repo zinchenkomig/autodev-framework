@@ -290,8 +290,9 @@ async def update_task(
     task_id: str, body: TaskUpdate, session: Annotated[AsyncSession, Depends(get_session)]
 ) -> TaskResponse:
     task = await load_task(session, task_id, lock=True)
-    if body.title is not None:
+    if body.title is not None and body.title.strip() != task.title:
         task.title = body.title.strip()
+        task.metadata_ = {**(task.metadata_ or {}), "title_by_owner": True}  # the agent keeps it
     if body.description is not None:
         task.description = body.description
     if body.priority is not None:
