@@ -11,7 +11,7 @@ REPO=zinchenkomig/autodev-framework
 DIR=/opt/autodev
 NS=app-autodev
 DRAIN=${AUTODEV_DRAIN_FILE:-/run/autodev/drain}
-# Wait this long after raising the flag, so a slot that was just claiming a task
+# Wait this long after raising the flag, so a slot that was just claiming a task (or a chat)
 # has registered it before we count running tasks.
 SETTLE=60
 cd "$DIR"
@@ -45,7 +45,7 @@ busy=$(uv run --no-sync python - <<'PY'
 import asyncio
 from sqlalchemy import func, select
 from autodev.api.database import SessionLocal
-from autodev.core.models import Agent, AgentStatus, Task, TaskStatus
+from autodev.core.models import Agent, AgentStatus, Chat, ChatState, Task, TaskStatus
 
 async def main():
     async with SessionLocal() as s:
@@ -54,13 +54,14 @@ async def main():
         planner = await s.scalar(
             select(func.count()).select_from(Agent).where(Agent.id == "planner", Agent.status == AgentStatus.WORKING)
         )
-        print(tasks + planner)
+        chats = await s.scalar(select(func.count()).select_from(Chat).where(Chat.state == ChatState.ANSWERING))
+        print(tasks + planner + chats)
 
 asyncio.run(main())
 PY
 )
 if [ "${busy:-0}" != "0" ]; then
-  echo "update ${target:0:7} waits for $busy running task(s)"
+  echo "update ${target:0:7} waits for $busy running task(s) and chat answer(s)"
   exit 0
 fi
 

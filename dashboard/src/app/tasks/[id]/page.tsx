@@ -8,7 +8,9 @@ import {
   ExternalLink,
   GitPullRequest,
   Globe,
+  CircleHelp,
   Loader2,
+  MessageCircleQuestion,
   MessageSquarePlus,
   RotateCw,
   Square,
@@ -17,6 +19,7 @@ import {
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
+import { ChatSheet } from '@/components/Chat'
 import { Badge, Button, Card, ErrorNote, Sheet, inputClass } from '@/components/ui'
 import { api, type LogEntry, type Task } from '@/lib/api'
 import { FIX_KIND, PRIORITY, STATUS, ago, cx, dateTime, time } from '@/lib/format'
@@ -32,6 +35,10 @@ export default function TaskPage() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
+  // The chat about this task; `quote` is the test-plan step a question is about.
+  const [ask, setAsk] = useState<{ open: boolean; quote: string | null }>({ open: false, quote: null })
+  const chats = usePoll(() => api.chats('task', id), 30000, [id])
+  const asked = chats.data?.[0]?.messages.filter((m) => m.role === 'user').length ?? 0
 
   const t = task.data
   const project = projects.data?.find((p) => p.id === t?.project_id)
@@ -144,6 +151,9 @@ export default function TaskPage() {
             <MessageSquarePlus size={15} /> {merged ? 'Доработать' : 'Правки'}
           </Button>
         )}
+        <Button size="sm" onClick={() => setAsk({ open: true, quote: null })}>
+          <MessageCircleQuestion size={15} /> Спросить{asked > 0 && <span className="text-muted">· {asked}</span>}
+        </Button>
         {canRetry && (
           <Button size="sm" variant="primary" disabled={busy} onClick={() => act(() => api.retryTask(t.id))}>
             <RotateCw size={15} /> Повторить
@@ -217,6 +227,7 @@ export default function TaskPage() {
               : undefined
           }
           busy={busy}
+          onAsk={(step) => setAsk({ open: true, quote: `Шаг ${step + 1}: ${t.test_plan[step]}` })}
           onToggle={(step, done) => {
             const checked = done ? [...t.plan_checked, step] : t.plan_checked.filter((i) => i !== step)
             task.setData({ ...t, plan_checked: checked })
@@ -235,6 +246,20 @@ export default function TaskPage() {
       )}
 
       <TaskLog key={t.id} taskId={t.id} live={['queued', 'in_progress', 'ci', 'deploying'].includes(t.status) || t.plan_refreshing} />
+
+      <ChatSheet
+        open={ask.open}
+        onClose={() => {
+          setAsk({ open: false, quote: null })
+          chats.refresh()
+        }}
+        subject="task"
+        subjectId={t.id}
+        title="Вопрос по задаче"
+        hint="Спросите про непонятный термин, шаг плана или как это сделано. Агент знает задачу, план проверки и код проекта. Если нужна доработка — предложит, а создаст только после вашего «да»."
+        quote={ask.quote}
+        onApplied={() => task.refresh()}
+      />
 
       <FeedbackSheet
         open={feedbackOpen}
@@ -261,6 +286,7 @@ export default function TaskPage() {
 
 const CHILD_KIND: Record<string, string> = {
   feedback: 'Доработка',
+  chat: 'Доработка из чата',
   qa: 'Исправление после QA',
   // from the multi-repo days
   triage: 'Часть задачи',
@@ -316,12 +342,14 @@ function TestPlan({
   busy,
   onToggle,
   onRefresh,
+  onAsk,
 }: {
   task: Task
   interactive: boolean
   busy: boolean
   onToggle: (step: number, done: boolean) => void
   onRefresh?: () => void
+  onAsk: (step: number) => void
 }) {
   const checked = new Set(task.plan_checked)
   const next = interactive ? task.test_plan.findIndex((_, i) => !checked.has(i)) : -1
@@ -332,7 +360,7 @@ function TestPlan({
         <span className="text-sm font-semibold">Как проверить на stage</span>
         <div className="flex items-center gap-2">
           {interactive && !empty && (
-            <span className={cx('text-xs', checked.size === task.test_plan.length ? 'text-ok' : 'text-muted')}>
+            <span className={cx('whitespace-nowrap text-xs', checked.size === task.test_plan.length ? 'text-ok' : 'text-muted')}>
               {checked.size} / {task.test_plan.length}
             </span>
           )}
@@ -356,14 +384,13 @@ function TestPlan({
         {task.test_plan.map((step, i) => {
           const done = checked.has(i)
           return (
-            <li key={i}>
+            <li key={i} className={cx('flex items-start rounded-xl', i === next && 'bg-accent/10')}>
               <button
                 disabled={!interactive}
                 onClick={() => onToggle(i, !done)}
                 className={cx(
-                  'flex w-full items-start gap-3 rounded-xl px-2 py-2.5 text-left transition disabled:cursor-default',
+                  'flex min-w-0 flex-1 items-start gap-3 rounded-xl py-2.5 pl-2 text-left transition disabled:cursor-default',
                   interactive && 'hover:bg-surface-2 active:scale-[0.99]',
-                  i === next && 'bg-accent/10',
                 )}
               >
                 <span
@@ -377,6 +404,14 @@ function TestPlan({
                 <span className={cx('min-w-0 whitespace-pre-wrap break-words text-[15px] leading-relaxed', done && 'text-muted line-through')}>
                   {step}
                 </span>
+              </button>
+              <button
+                onClick={() => onAsk(i)}
+                className="shrink-0 rounded-xl p-2.5 text-muted transition hover:bg-surface-2 hover:text-fg"
+                aria-label={`Спросить про шаг ${i + 1}`}
+                title="Спросить про этот шаг"
+              >
+                <CircleHelp size={16} />
               </button>
             </li>
           )

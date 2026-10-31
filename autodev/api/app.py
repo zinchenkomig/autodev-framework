@@ -1,7 +1,7 @@
 """FastAPI application factory for the AutoDev Framework API.
 
 This module creates and configures the main FastAPI application, including:
-- API routers for status, projects, tasks, agents, releases, settings, webhooks
+- API routers for status, projects, tasks, chats, agents, releases, settings, webhooks
 - Health check endpoint
 """
 
@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from autodev.api.middleware import LOCAL_ORIGIN, ErrorAlertMiddleware, SameOriginMiddleware
-from autodev.api.routes import agents, auth, projects, releases, status, tasks, webhooks
+from autodev.api.routes import agents, auth, chats, projects, releases, status, tasks, webhooks
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,7 @@ def create_app() -> FastAPI:
     app.include_router(status.router, prefix="/api/status", tags=["status"])
     app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
     app.include_router(tasks.router, prefix="/api/tasks", tags=["tasks"])
+    app.include_router(chats.router, prefix="/api/chats", tags=["chats"])
     app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
     app.include_router(releases.router, prefix="/api/releases", tags=["releases"])
     app.include_router(webhooks.router, prefix="/api/webhooks", tags=["webhooks"])

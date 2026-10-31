@@ -467,3 +467,69 @@ class TaskArtifact(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
+
+
+class ChatState(enum.StrEnum):
+    """Whose turn it is in a chat."""
+
+    IDLE = "idle"  # waiting for the owner
+    QUEUED = "queued"  # the owner wrote; waiting for a free chat slot
+    ANSWERING = "answering"  # the agent is on it
+
+
+class Chat(Base):
+    """A conversation with an agent about something: a task now, a project or anything later.
+
+    ``subject``/``subject_id`` name what it is about (see :mod:`autodev.chats`), which decides
+    the agent's context and the actions it may propose.
+    """
+
+    __tablename__ = "chats"
+
+    id: Mapped[uuid.UUID] = mapped_column(_UUID(), primary_key=True, default=uuid.uuid4)
+    subject: Mapped[str] = mapped_column(String(30), nullable=False)  # "task"
+    subject_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    project_id: Mapped[str | None] = mapped_column(
+        String(100), ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    title: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    state: Mapped[str] = mapped_column(String(20), nullable=False, default=ChatState.IDLE)
+    session_id: Mapped[str | None] = mapped_column(String(100), nullable=True)  # Claude Code session
+    activity: Mapped[str | None] = mapped_column(Text, nullable=True)  # what the agent is doing right now
+    # {"seen": iso time of the last message the agent took in, "context_digest": the subject's
+    #  context as the agent last saw it, "stop": the owner pressed stop}
+    metadata_: Mapped[dict | None] = mapped_column("metadata", _JSONEncodedDict(), nullable=True, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    def __repr__(self) -> str:
+        return f"<Chat id={self.id} subject={self.subject}:{self.subject_id} state={self.state}>"
+
+
+class ChatMessage(Base):
+    """One message: the owner's question, the agent's answer, or an event (an approved action)."""
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(_UUID(), primary_key=True, default=uuid.uuid4)
+    chat_id: Mapped[uuid.UUID] = mapped_column(
+        _UUID(), ForeignKey("chats.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    role: Mapped[str] = mapped_column(String(20), nullable=False)  # user | assistant | event | error
+    text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # What the owner points at, e.g. the test-plan step the question is about.
+    quote: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Actions the agent proposes; each waits for the owner's approval:
+    # [{"action": "follow_up", "title": ..., "description": ..., "state": "pending|applied|rejected",
+    #   "result": {...}, "error": ...}]
+    proposals: Mapped[list[dict] | None] = mapped_column(_JSONEncodedDict(), nullable=True, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )

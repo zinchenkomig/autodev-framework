@@ -1,4 +1,4 @@
-"""Prompts for the developer agent and the test-plan writer."""
+"""Prompts for the developer agent, the test-plan writer and the chat agent."""
 
 from __future__ import annotations
 
@@ -196,3 +196,69 @@ def _task_section(heading: str, task: Task) -> str:
     if task.parent_id and plan:
         lines += ["", "The plan its agent wrote then:"] + [f"{i}. {step}" for i, step in enumerate(plan, 1)]
     return "\n".join(lines)
+
+
+CHAT_SYSTEM = """\
+You are AutoDev's assistant in a chat with the product owner. AutoDev is the owner's
+system where agents implement tasks the owner sends from a phone and ship them to
+stage. The owner writes from a phone, often while checking a task on stage by its
+test plan: a term they don't know, a question about how something works or why it
+was done this way.
+
+How to answer:
+- In Russian, short and to the point: a few sentences or a short list, readable on
+  a phone. Light Markdown only (lists, **bold**, `code`), no tables or headings.
+- Explain in the owner's words; when it is about the app, say where it is on screen.
+- Base answers on facts: the context you are given, the code in the current
+  directory (a checkout of the project's stage branch: what is on stage now, or
+  will be once open PRs merge), `git log`, `gh pr view/diff <url>`, and the stage
+  site itself (curl). Look things up rather than guess; say so when you aren't sure.
+- You are read-only. Never edit files, commit, push, open or merge PRs, or change
+  anything on stage, in GitHub or in the cluster.
+
+You can't change anything yourself. When the conversation shows something should
+change (a bug, a missing case, the owner wants it different), propose an action:
+the owner approves or rejects it with a button, and only then it happens.
+- Not every question needs a change: propose only with a real reason, or when the
+  owner asks for one. One proposal per distinct change. Don't repeat proposals the
+  owner already approved or rejected.
+- The proposal's description is the whole brief for a developer agent who won't
+  see this chat: what is wrong now, what should happen instead, how to check it.
+- Say in your reply that you proposed it, in one line.
+
+Every turn ends with the structured result: `reply` (your message) and
+`proposals` (usually empty).
+"""
+
+
+def chat_turn(messages: list, context: str | None, *, fresh: bool = False, history: list = ()) -> str:
+    """One agent turn: the owner's new messages (and events), with the subject's context when it is new.
+
+    *messages* and *history* are ChatMessage rows. *history* is the earlier conversation, for a
+    fresh session that replaces one which can't be resumed.
+    """
+    parts = []
+    if context is not None:
+        heading = "Context" if fresh else "Updated context (it changed since your last answer)"
+        parts += [f"# {heading}", "", context, ""]
+    if history:
+        parts += ["# The conversation so far", ""]
+        parts += [_chat_line(m) for m in history]
+        parts.append("")
+    parts += ["# New in the chat", ""]
+    parts += [_chat_line(m) for m in messages]
+    return "\n".join(parts)
+
+
+def _chat_line(message) -> str:
+    if message.role == "event":
+        return f"(Event: {message.text})"
+    if message.role == "error":
+        return f"(Your previous answer failed: {message.text[:300]})"
+    if message.role == "assistant":
+        proposed = [f"\n  (proposed {p['action']} «{p['title']}»: {p.get('state')})" for p in message.proposals or []]
+        return f"You: {message.text}" + "".join(proposed)
+    text = message.text
+    if message.quote:
+        text = f"[about: «{message.quote}»]\n{text}"
+    return f"Owner: {text}"

@@ -20,7 +20,7 @@ from autodev.core.models import (
     TaskStatus,
     TaskTransition,
 )
-from autodev.worker import planner
+from autodev.worker import chat, planner
 from autodev.worker.context import WorkerContext
 from autodev.worker.delivery import Delivery
 from autodev.worker.developer import develop
@@ -33,6 +33,9 @@ PRIORITY_RANK = case(
     (Task.priority == "normal", 2),
     else_=3,
 )
+
+#: How often an idle chat slot looks for a new message: the owner is waiting.
+CHAT_POLL_SECONDS = 2
 
 #: Agent row whose ``enabled`` flag pauses all developer slots.
 DEVELOPER_SWITCH = "developer"
@@ -63,7 +66,12 @@ class Worker:
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, self.stop)
         logger.info("worker started: %d developer slot(s)", len(slots))
-        await asyncio.gather(*(self.slot_loop(name) for name in slots), self.delivery_loop(), self.planner_loop())
+        await asyncio.gather(
+            *(self.slot_loop(name) for name in slots),
+            *(self.chat_loop() for _ in range(max(1, self.ctx.settings.chat_slots))),
+            self.delivery_loop(),
+            self.planner_loop(),
+        )
         logger.info("worker stopped")
 
     def stop(self) -> None:
@@ -104,7 +112,8 @@ class Worker:
             await session.commit()
 
     async def recover(self) -> None:
-        """Tasks left in_progress by a previous process go back to the queue."""
+        """Tasks (and chats) left in progress by a previous process go back to the queue."""
+        await chat.recover(self.ctx)
         async with self.ctx.session_factory() as session:
             rows = await session.execute(select(Task).where(Task.status == TaskStatus.IN_PROGRESS))
             for task in rows.scalars():
@@ -161,6 +170,20 @@ class Worker:
                 logger.exception("planner crashed — continuing")
                 await self._sleep(5)
 
+    async def chat_loop(self) -> None:
+        """Answer the owner in chats. Not paused with the developers: a question needs no code changes."""
+        while not self.stopping.is_set():
+            try:
+                runnable = not self.ctx.paused() and not self.draining()
+                chat_id = await chat.claim(self.ctx) if runnable else None
+                if chat_id is None:
+                    await self._sleep(CHAT_POLL_SECONDS)
+                    continue
+                await chat.answer(self.ctx, chat_id)
+            except Exception:
+                logger.exception("chat slot crashed — continuing")
+                await self._sleep(5)
+
     async def delivery_loop(self) -> None:
         delivery = Delivery(self.ctx)
         while not self.stopping.is_set():
@@ -168,6 +191,10 @@ class Worker:
                 await delivery.tick()
             except Exception:
                 logger.exception("delivery tick failed")
+            try:
+                chat.sweep(self.ctx.settings.workdir)
+            except Exception:
+                logger.exception("sweeping chat checkouts failed")
             try:
                 await self._heartbeat()
             except Exception:

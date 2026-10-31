@@ -8,7 +8,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from autodev import review
@@ -16,6 +16,7 @@ from autodev.api.database import get_session
 from autodev.core.models import (
     MERGED_STATUSES,
     AgentLog,
+    Chat,
     Priority,
     Project,
     Task,
@@ -303,6 +304,7 @@ async def delete_task(task_id: str, session: Annotated[AsyncSession, Depends(get
     task = await load_task(session, task_id, lock=True)
     if task.status in (TaskStatus.IN_PROGRESS, TaskStatus.CI, TaskStatus.DEPLOYING):
         raise HTTPException(409, "Cancel the task first")
+    await session.execute(delete(Chat).where(Chat.subject == "task", Chat.subject_id == str(task.id)))
     await session.delete(task)
 
 
@@ -334,8 +336,16 @@ async def feedback(
 ) -> TaskResponse:
     """Owner feedback. Before merge: another round on the same PR. After merge: a follow-up task."""
     task = await load_task(session, task_id, lock=True)
-    text = body.text.strip()
+    return await respond_one(session, await request_changes(session, task, body.text))
 
+
+async def request_changes(session: AsyncSession, task: Task, text: str, by: str = "feedback") -> Task:
+    """Ask for changes to *task* (locked). Returns the task that will do them: *task* or a new follow-up.
+
+    *by* is who asked: the follow-up's ``created_by`` ("feedback" from the owner directly,
+    "chat" when the owner approved a chat agent's proposal).
+    """
+    text = text.strip()
     if task.status in MERGED_STATUSES:
         follow_up = Task(
             title=f"{task.title.removesuffix(' — доработка')} — доработка",
@@ -345,7 +355,7 @@ async def feedback(
             priority=task.priority,
             depends_on=[task.id],
             parent_id=task.root_id,
-            created_by="feedback",
+            created_by=by,
             status=TaskStatus.QUEUED,
             metadata_={},
         )
@@ -356,17 +366,17 @@ async def feedback(
             root.metadata_ = review.unverify(root.metadata_ or {})
         await session.flush()
         await session.refresh(follow_up)
-        return await respond_one(session, follow_up)
+        return follow_up
 
     if task.status in (TaskStatus.CI, TaskStatus.FAILED, TaskStatus.CANCELLED) and task.pr_number:
         metadata = dict(task.metadata_ or {})
         metadata["fix"] = {"kind": "feedback", "details": text}
         move(session, task, TaskStatus.QUEUED, "owner feedback", metadata_=metadata, error=None)
-        return await respond_one(session, task)
+        return task
 
     if task.status == TaskStatus.QUEUED and not task.branch:
         task.description = f"{task.description or ''}\n\n{text}".strip()
-        return await respond_one(session, task)
+        return task
 
     raise HTTPException(409, f"Can't take feedback while the task is {task.status}")
 
