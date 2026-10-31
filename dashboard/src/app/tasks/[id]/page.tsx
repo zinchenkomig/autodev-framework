@@ -222,7 +222,7 @@ export default function TaskPage() {
           onRefresh={
             merged
               ? () =>
-                  confirm('Пересобрать план по задаче, её доработкам и коду на stage? Отметки шагов сбросятся.') &&
+                  confirm('Пересобрать план по задаче, её доработкам и коду на stage? Отметки останутся у шагов, текст которых не изменился, — как «проверено в прошлой версии».') &&
                   act(() => api.refreshPlan(t.id), (r) => r && task.setData(r))
               : undefined
           }
@@ -230,7 +230,7 @@ export default function TaskPage() {
           onAsk={(step) => setAsk({ open: true, quote: `Шаг ${step + 1}: ${t.test_plan[step]}` })}
           onToggle={(step, done) => {
             const checked = done ? [...t.plan_checked, step] : t.plan_checked.filter((i) => i !== step)
-            task.setData({ ...t, plan_checked: checked })
+            task.setData({ ...t, plan_checked: checked, plan_earlier: t.plan_earlier.filter((i) => i !== step) })
             act(() => api.checkStep(t.id, step, done), (r) => r && task.setData(r))
           }}
         />
@@ -352,25 +352,27 @@ function TestPlan({
   onAsk: (step: number) => void
 }) {
   const checked = new Set(task.plan_checked)
+  const earlier = new Set(task.plan_earlier)
   const next = interactive ? task.test_plan.findIndex((_, i) => !checked.has(i)) : -1
   const empty = task.test_plan.length === 0
   return (
     <Card className="p-2">
       <div className="flex items-center justify-between gap-2 px-2 pb-1 pt-2">
-        <span className="text-sm font-semibold">Как проверить на stage</span>
-        <div className="flex items-center gap-2">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold">Как проверить на stage</div>
           {interactive && !empty && (
-            <span className={cx('whitespace-nowrap text-xs', checked.size === task.test_plan.length ? 'text-ok' : 'text-muted')}>
-              {checked.size} / {task.test_plan.length}
-            </span>
-          )}
-          {onRefresh && (
-            <Button size="sm" variant="ghost" disabled={busy || task.plan_refreshing} onClick={onRefresh}>
-              {task.plan_refreshing ? <Loader2 size={14} className="animate-spin" /> : <RotateCw size={14} />}
-              {task.plan_refreshing ? 'Пересобираю…' : 'Пересобрать'}
-            </Button>
+            <div className={cx('text-xs', checked.size === task.test_plan.length ? 'text-ok' : 'text-muted')}>
+              проверено {checked.size} из {task.test_plan.length}
+              {earlier.size > 0 && ` · ${earlier.size} в прошлой версии`}
+            </div>
           )}
         </div>
+        {onRefresh && (
+          <Button size="sm" variant="ghost" className="shrink-0" disabled={busy || task.plan_refreshing} onClick={onRefresh}>
+            {task.plan_refreshing ? <Loader2 size={14} className="animate-spin" /> : <RotateCw size={14} />}
+            {task.plan_refreshing ? 'Пересобираю…' : 'Пересобрать'}
+          </Button>
+        )}
       </div>
       {task.plan_refreshing && (
         <p className="px-2 pb-1 text-xs text-muted">
@@ -383,6 +385,8 @@ function TestPlan({
       <ol>
         {task.test_plan.map((step, i) => {
           const done = checked.has(i)
+          // Ticked on the previous version: the new code may have broken it, so it waits for a new tick.
+          const before = !done && earlier.has(i)
           return (
             <li key={i} className={cx('flex items-start rounded-xl', i === next && 'bg-accent/10')}>
               <button
@@ -396,13 +400,22 @@ function TestPlan({
                 <span
                   className={cx(
                     'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border text-[11px] font-semibold',
-                    done ? 'border-ok bg-ok text-white' : i === next ? 'border-accent text-accent' : 'border-line text-muted',
+                    done
+                      ? 'border-ok bg-ok text-white'
+                      : before
+                        ? 'border-dashed border-ok text-ok'
+                        : i === next
+                          ? 'border-accent text-accent'
+                          : 'border-line text-muted',
                   )}
                 >
-                  {done ? <Check size={14} strokeWidth={3} /> : i + 1}
+                  {done || before ? <Check size={14} strokeWidth={3} /> : i + 1}
                 </span>
-                <span className={cx('min-w-0 whitespace-pre-wrap break-words text-[15px] leading-relaxed', done && 'text-muted line-through')}>
-                  {step}
+                <span className="min-w-0">
+                  <span className={cx('block whitespace-pre-wrap break-words text-[15px] leading-relaxed', done && 'text-muted line-through')}>
+                    {step}
+                  </span>
+                  {before && <span className="mt-0.5 block text-xs text-ok">Проверено в прошлой версии — проверьте снова</span>}
                 </span>
               </button>
               <button

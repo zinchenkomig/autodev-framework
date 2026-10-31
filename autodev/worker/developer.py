@@ -112,7 +112,7 @@ async def develop(ctx: WorkerContext, task_id: uuid.UUID, slot: str) -> None:
             if plan and main is not None:
                 metadata["root_plan"] = {"base": main_plan, "plan": plan[: review.MAX_PLAN]}
             elif plan and plan[:15] != metadata.get("test_plan"):
-                metadata = review.reset({**metadata, "test_plan": plan[:15]})
+                metadata = review.new_version(metadata, plan[:15])
             if metadata != (task.metadata_ or {}):
                 fields["metadata_"] = metadata
             task = await store.update(task_id, **fields) or task

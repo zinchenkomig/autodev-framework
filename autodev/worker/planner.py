@@ -161,7 +161,7 @@ async def _save(ctx: WorkerContext, task_id: uuid.UUID, base: list[str], plan: l
         )
         changed = new != current
         if changed:
-            metadata = review.reset({**metadata, "test_plan": new})
+            metadata = review.new_version(metadata, new)
         task.metadata_ = metadata
         await session.commit()
         return changed

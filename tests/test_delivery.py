@@ -341,6 +341,7 @@ async def test_follow_up_on_stage_updates_main_task_plan(session_factory, projec
     main = await reload(session_factory, main.id)
     assert main.metadata_["test_plan"] == ["a", "b"]
     assert "plan_checked" not in main.metadata_ and "verified_at" not in main.metadata_
+    assert main.metadata_["plan_earlier"] == [0]  # "a" was ticked on the previous version
     assert no_notifications.on_stage.await_args.kwargs["main"].id == main.id
 
 

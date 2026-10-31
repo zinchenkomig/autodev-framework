@@ -248,10 +248,17 @@ def task_context(task: Task, main: Task | None, children: list[Task], project: P
     checked_on = main or task
     plan = (checked_on.metadata_ or {}).get("test_plan") or []
     if plan:
-        ticked = set(review.plan_checked(checked_on))
+        ticked, earlier = set(review.plan_checked(checked_on)), set(review.plan_earlier(checked_on))
         owner = f" of main task #{main.ticket_number}" if main else ""
-        parts += ["", f"### Test plan{owner}: the owner's manual check on stage ([x] = ticked)"]
-        parts += [f"{i}. [{'x' if i - 1 in ticked else ' '}] {step}" for i, step in enumerate(plan, 1)]
+        parts += [
+            "",
+            f"### Test plan{owner}: the owner's manual check on stage",
+            "([x] = ticked; [~] = ticked on the previous version, not yet checked again on this one)",
+        ]
+        parts += [
+            f"{i}. [{'x' if i - 1 in ticked else '~' if i - 1 in earlier else ' '}] {step}"
+            for i, step in enumerate(plan, 1)
+        ]
         if review.verified_at(checked_on):
             parts.append("The owner has marked it verified.")
 

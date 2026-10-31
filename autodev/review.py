@@ -1,8 +1,13 @@
 """The owner's manual check of a task on stage: the test-plan checklist and the "verified" mark.
 
 Both live in task metadata: ``plan_checked`` (indices of ticked ``test_plan``
-steps) and ``verified_at`` (ISO time the owner accepted the change). A new
-test plan resets them. ``plan_refresh`` marks a requested rebuild of the plan.
+steps) and ``verified_at`` (ISO time the owner accepted the change).
+``plan_refresh`` marks a requested rebuild of the plan.
+
+A new version — a new plan, or a follow-up's change landing on stage — starts the
+check over, but the owner's ticks aren't lost: a step whose text an earlier version
+had ticked is listed in ``plan_earlier`` ("checked on the previous version"). It
+doesn't count until the owner ticks it again, since the new code may have broken it.
 
 The owner checks a main task as a whole: its follow-ups, parts and fixes have no
 plan of their own. Their agent proposes the main task's updated plan
@@ -14,7 +19,7 @@ children is still on the way to stage.
 from __future__ import annotations
 
 import uuid
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -26,6 +31,8 @@ from autodev.core.models import MERGED_STATUSES, OPEN_STATUSES, Task
 MAX_PLAN = 20
 #: Metadata key of a pending plan rebuild (``autodev.worker.planner``): ``{"requested_at": iso}``.
 REFRESH = "plan_refresh"
+#: Metadata key: indices of steps checked on an earlier version of the change or the plan.
+EARLIER = "plan_earlier"
 
 
 class ReviewError(ValueError):
@@ -38,9 +45,19 @@ def checked_with_main(task: Task) -> bool:
 
 
 def plan_checked(task: Task) -> list[int]:
-    plan = (task.metadata_ or {}).get("test_plan") or []
-    checked = (task.metadata_ or {}).get("plan_checked") or []
-    return sorted(i for i in set(checked) if isinstance(i, int) and 0 <= i < len(plan))
+    return _steps(task.metadata_ or {}, "plan_checked")
+
+
+def plan_earlier(task: Task) -> list[int]:
+    """Steps checked on an earlier version and not ticked again on this one."""
+    checked = set(plan_checked(task))
+    return [i for i in _steps(task.metadata_ or {}, EARLIER) if i not in checked]
+
+
+def _steps(metadata: dict, key: str) -> list[int]:
+    plan = metadata.get("test_plan") or []
+    marked = metadata.get(key) or []
+    return sorted(i for i in set(marked) if isinstance(i, int) and 0 <= i < len(plan))
 
 
 def verified_at(task: Task) -> str | None:
@@ -63,7 +80,11 @@ def check_step(task: Task, step: int, done: bool, waiting: list[Task] = ()) -> N
         checked.add(step)
     else:
         checked.discard(step)
-    metadata = {**(task.metadata_ or {}), "plan_checked": sorted(checked)}
+    # Either way the owner has looked at the step on this version: the earlier tick is settled.
+    earlier = [i for i in plan_earlier(task) if i != step]
+    metadata = {**(task.metadata_ or {}), "plan_checked": sorted(checked), EARLIER: earlier}
+    if not earlier:
+        metadata.pop(EARLIER)
     if done and len(checked) == len(plan) and not waiting:
         metadata.setdefault("verified_at", _now())
     elif not done:
@@ -96,8 +117,34 @@ def request_refresh(task: Task) -> None:
 
 
 def reset(metadata: dict) -> dict:
-    """Metadata without the owner's check — for when the change or its plan is new."""
-    return {k: v for k, v in metadata.items() if k not in ("plan_checked", "verified_at")}
+    """Metadata without the owner's check, earlier ticks included."""
+    return {k: v for k, v in metadata.items() if k not in ("plan_checked", "verified_at", EARLIER)}
+
+
+def new_version(metadata: dict, plan: list[str] | None = None) -> dict:
+    """Metadata for a new version of the change and/or its plan (*plan*; None keeps the current one).
+
+    The check starts over. Steps of the new plan whose text was ticked before (now or on an
+    earlier version) are marked as checked on the previous version; matching is by text, so a
+    step that moved keeps its mark and a reworded one loses it.
+    """
+    old = metadata.get("test_plan") or []
+    plan = old if plan is None else plan
+    ticked = set(_steps(metadata, "plan_checked")) | set(_steps(metadata, EARLIER))
+    pool = Counter(_norm(old[i]) for i in ticked)
+    earlier = []
+    for i, step in enumerate(plan):
+        if pool[_norm(step)] > 0:
+            pool[_norm(step)] -= 1
+            earlier.append(i)
+    metadata = reset({**metadata, "test_plan": plan})
+    if earlier:
+        metadata[EARLIER] = earlier
+    return metadata
+
+
+def _norm(step: str) -> str:
+    return " ".join(step.split())
 
 
 def unverify(metadata: dict) -> dict:
@@ -119,15 +166,16 @@ def merge_plan(current: list[str], base: list[str], proposed: list[str]) -> list
 
 
 def adopt_child_plan(root: Task, child: Task) -> None:
-    """*child* reached stage: its change is part of what the owner checks on *root*, so the check starts over."""
+    """*child* reached stage: its change is part of what the owner checks on *root*, so the check starts over.
+
+    The code on stage is new even when the plan stays, so every tick becomes an earlier one.
+    """
     metadata = dict(root.metadata_ or {})
+    plan = None
     proposal = (child.metadata_ or {}).get("root_plan")
     if isinstance(proposal, dict):
-        current = metadata.get("test_plan") or []
-        plan = merge_plan(current, proposal.get("base") or [], proposal.get("plan") or [])
-        if plan != current:
-            metadata = reset({**metadata, "test_plan": plan})
-    root.metadata_ = unverify(metadata)
+        plan = merge_plan(metadata.get("test_plan") or [], proposal.get("base") or [], proposal.get("plan") or [])
+    root.metadata_ = new_version(metadata, plan)
 
 
 async def waiting_children(session: AsyncSession, root_ids: set[uuid.UUID]) -> dict[uuid.UUID, list[Task]]:
