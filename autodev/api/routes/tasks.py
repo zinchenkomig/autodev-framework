@@ -93,6 +93,7 @@ class TaskResponse(BaseModel):
     # own and shows its main task's "verified" mark.
     test_plan: list[str]  # manual check steps for the owner, from the developer agent
     plan_checked: list[int]  # indices of the test_plan steps the owner has ticked
+    plan_earlier: list[int]  # steps ticked on an earlier version, to check again on this one
     verified_at: datetime | None  # when the owner accepted the change on stage
     plan_refreshing: bool  # the owner asked to rebuild the plan; the planner agent hasn't finished yet
     waiting_for: list[TaskRef]  # follow-ups/parts not on stage yet; the check waits for them
@@ -159,6 +160,7 @@ def to_response(task: Task, parent: Task | None = None, waiting: list[Task] = ()
         qa=(task.metadata_ or {}).get("qa"),
         test_plan=[] if with_main else (task.metadata_ or {}).get("test_plan") or [],
         plan_checked=[] if with_main else review.plan_checked(task),
+        plan_earlier=[] if with_main else review.plan_earlier(task),
         verified_at=review.verified_at(checked_on),
         plan_refreshing=review.REFRESH in (task.metadata_ or {}),
         waiting_for=[_ref(t) for t in waiting],

@@ -411,6 +411,7 @@ async def test_follow_up_is_checked_with_its_main_task(client, project, session_
     got = (await client.get(f"/api/tasks/{main['id']}")).json()
     assert got["test_plan"] == ["Открой stage", "Нажми «Экран»", "Фильтр"]
     assert got["plan_checked"] == [] and got["waiting_for"] == []  # one check of everything, from the start
+    assert got["plan_earlier"] == [0, 1]  # the unchanged steps were ticked on the previous version
     assert (await client.post(f"/api/tasks/{main['id']}/verify", json={"verified": True})).json()["verified_at"]
     assert (await client.get(f"/api/tasks/{child['id']}")).json()["verified_at"]  # shows the main task's mark
 

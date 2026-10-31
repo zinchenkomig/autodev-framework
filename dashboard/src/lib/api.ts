@@ -42,6 +42,7 @@ export interface Task {
   qa: { ok: boolean; problems: string[]; skipped: string | null } | null
   test_plan: string[]
   plan_checked: number[]
+  plan_earlier: number[] // ticked on the previous version; to check again
   verified_at: string | null
   plan_refreshing: boolean
   waiting_for: TaskRef[]

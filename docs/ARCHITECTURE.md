@@ -81,12 +81,16 @@
 - **Feedback**:
   - before merge — another round on the same PR
   - after merge — a follow-up task that depends on the original
+- **Ticks across versions**: a new plan (developer, rebuild) or a follow-up landing on stage starts the
+  check over, but a step whose text was ticked before is shown as «Проверено в прошлой версии»
+  (`plan_earlier`): visible, but it doesn't count toward «проверено» until ticked again, since the
+  new code may have broken it.
 - **Rebuild the test plan** («Пересобрать» on the plan, `POST /api/tasks/{id}/plan/refresh`,
   `autodev task refresh-plan <n>…`): main tasks on stage or released. The plan normally grows as
   follow-ups land; a rebuild is for when it didn't (tasks from before one-plan-per-task, bugs or
   changes in that mechanism). The `planner` loop clones the stage branch of every repo the task and
   its landed follow-ups changed, and a read-only Claude session writes the whole plan again. The new
-  plan resets the ticked steps; on failure the old plan stays. A follow-up landing meanwhile keeps
+  plan starts the check over; on failure the old plan stays. A follow-up landing meanwhile keeps
   its new steps.
 - **Pause everything**: toggle the `developer` agent off in the dashboard (pauses the planner too).
 
