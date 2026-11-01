@@ -20,7 +20,7 @@ from autodev.core.models import (
     TaskStatus,
     TaskTransition,
 )
-from autodev.worker import chat, combined, planner
+from autodev.worker import acceptor, chat, combined, planner
 from autodev.worker.context import WorkerContext
 from autodev.worker.delivery import Delivery
 from autodev.worker.developer import develop
@@ -71,6 +71,7 @@ class Worker:
             *(self.chat_loop() for _ in range(max(1, self.ctx.settings.chat_slots))),
             self.delivery_loop(),
             self.planner_loop(),
+            self.acceptance_loop(),
             self.combined_loop(),
         )
         logger.info("worker stopped")
@@ -103,6 +104,7 @@ class Worker:
                 *((s, "developer") for s in slots),
                 ("delivery", "delivery"),
                 (planner.AGENT, "planner"),
+                (acceptor.AGENT, "pm"),
             ]:
                 agent = await session.get(Agent, agent_id)
                 if agent is None:
@@ -184,6 +186,24 @@ class Worker:
                     await self._agent_status(planner.AGENT, AgentStatus.IDLE, None)
             except Exception:
                 logger.exception("planner crashed — continuing")
+                await self._sleep(5)
+
+    async def acceptance_loop(self) -> None:
+        """The PM accepts main tasks on stage before the owner is called, one at a time."""
+        while not self.stopping.is_set():
+            try:
+                runnable = not self.ctx.paused() and not self.draining() and await self.developers_enabled()
+                task_id = await acceptor.next_request(self.ctx) if runnable else None
+                if task_id is None:
+                    await self._sleep(self.ctx.settings.poll_interval)
+                    continue
+                await self._agent_status(acceptor.AGENT, AgentStatus.WORKING, task_id)
+                try:
+                    await acceptor.accept(self.ctx, task_id)
+                finally:
+                    await self._agent_status(acceptor.AGENT, AgentStatus.IDLE, None)
+            except Exception:
+                logger.exception("acceptance crashed — continuing")
                 await self._sleep(5)
 
     async def chat_loop(self) -> None:

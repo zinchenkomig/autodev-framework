@@ -14,10 +14,10 @@ from datetime import UTC, datetime
 import httpx
 from sqlalchemy import select
 
-from autodev import notify, scaffold
+from autodev import notify, pm, review, scaffold
 from autodev.core.models import OPEN_STATUSES, Project, Release, ReleaseStatus, Task, TaskArtifact, TaskStatus
 from autodev.integrations.github import GitHubClient
-from autodev.worker import cluster, combined, qa
+from autodev.worker import acceptor, cluster, combined, qa
 from autodev.worker.context import WorkerContext
 
 logger = logging.getLogger(__name__)
@@ -354,7 +354,30 @@ class Delivery:
         main = await self.store.adopt_child_plan(moved)
         if main is not None:
             await self.store.log(main.id, f"🧪 #{moved.ticket_number} на stage — план проверки обновлён", agent="qa")
+        if await self.hand_to_pm(moved, main or moved, broken=result is not None and not result.ok):
+            return
         await notify.on_stage(moved, project, qa=result, screenshot=screenshot, main=main)
+
+    async def hand_to_pm(self, landed: Task, root: Task, *, broken: bool) -> bool:
+        """With the PM on, it accepts the main task first; the owner is called when it's done.
+
+        True when the owner's notification is held back: the PM will check (or waits for the
+        main task's other open follow-ups; the last one to land starts the check).
+        """
+        if broken or not pm.enabled(root) or not (root.project and root.project.stage_url):
+            return False
+        async with self.ctx.session_factory() as session:
+            waiting = (await review.waiting_children(session, {root.id})).get(root.id, [])
+        if waiting:
+            await self.store.log(
+                root.id,
+                f"🕵️ #{landed.ticket_number} на stage; PM проверит, когда выкатятся "
+                + ", ".join(f"#{t.ticket_number}" for t in waiting),
+                agent=acceptor.AGENT,
+            )
+            return True
+        await self.store.patch_metadata(root.id, lambda m: pm.start_acceptance(m, landed))
+        return True
 
     async def run_qa(self, task: Task, project) -> qa.QAResult | None:
         if project is None or not project.stage_url:

@@ -49,6 +49,7 @@ async def make_task(session_factory, **kw) -> Task:
         status_changed_at=datetime.now(UTC) - timedelta(minutes=10),
     )
     defaults.update(kw)
+    defaults["metadata_"] = {"pm": False, **defaults["metadata_"]}  # PM acceptance: see its own tests
     t = Task(**defaults)
     async with session_factory() as s:
         s.add(t)
@@ -472,3 +473,48 @@ async def test_failed_image_build_becomes_a_fix_task(session_factory, project, m
 
         fix = (await s.execute(select(Task).where(Task.created_by == "deploy"))).scalar_one()
     assert "actions/runs/9" in fix.description and "gh run view 9 --log-failed" in fix.description
+
+
+async def test_with_the_pm_on_it_accepts_before_the_owner_is_called(session_factory, project, no_notifications):
+    t = await make_task(session_factory, status=TaskStatus.DEPLOYING, merge_sha="m1", metadata_={"pm": True})
+    await Delivery(ctx(session_factory)).on_stage(t, "test")
+    t = await reload(session_factory, t.id)
+    assert t.status == TaskStatus.ON_STAGE and t.metadata_["acceptance"]["state"] == "checking"
+    assert t.metadata_["acceptance"]["fixes"] == 0
+    no_notifications.on_stage.assert_not_awaited()
+
+
+async def test_pm_waits_for_open_follow_ups_and_counts_its_own(session_factory, project, no_notifications):
+    main = await make_task(
+        session_factory,
+        status=TaskStatus.ON_STAGE,
+        metadata_={"pm": True, "acceptance": {"state": "fixing", "fixes": 1}},
+    )
+    own = await make_task(
+        session_factory, status=TaskStatus.DEPLOYING, merge_sha="m2", parent_id=main.id, created_by="pm"
+    )
+    other = await make_task(session_factory, status=TaskStatus.CI, parent_id=main.id, created_by="feedback")
+    await Delivery(ctx(session_factory)).on_stage(own, "test")
+    assert (await reload(session_factory, main.id)).metadata_["acceptance"]["state"] == "fixing"  # waits for #other
+    no_notifications.on_stage.assert_not_awaited()
+
+    async with session_factory() as s:
+        (await s.get(Task, other.id)).status = TaskStatus.DEPLOYING
+        await s.commit()
+    await Delivery(ctx(session_factory)).on_stage(await reload(session_factory, other.id), "test")
+    # The owner's follow-up starts a new cycle: the PM's fix count starts over.
+    assert (await reload(session_factory, main.id)).metadata_["acceptance"] == {
+        "state": "checking",
+        "fixes": 0,
+        "at": (await reload(session_factory, main.id)).metadata_["acceptance"]["at"],
+    }
+
+
+async def test_pm_on_but_broken_stage_or_no_stage_calls_the_owner(session_factory, project, stub_qa, no_notifications):
+    stub_qa.return_value = qa.QAResult(
+        pages=[qa.PageResult(url="https://stage.shop.test/", status=500, problems=["HTTP 500"])]
+    )
+    t = await make_task(session_factory, status=TaskStatus.DEPLOYING, merge_sha="m1", metadata_={"pm": True})
+    await Delivery(ctx(session_factory)).on_stage(t, "test")
+    assert "acceptance" not in (await reload(session_factory, t.id)).metadata_
+    no_notifications.on_stage.assert_awaited()

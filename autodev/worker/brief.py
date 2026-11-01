@@ -24,8 +24,9 @@ SCHEMA: dict[str, Any] = {
     "required": ["status", "brief"],
 }
 
-#: Tasks the PM doesn't think through: QA's fixes are about errors, not product questions.
-SKIP_CREATED_BY = frozenset({"qa"})
+#: Tasks the PM doesn't think through: QA's fixes are about errors, not product questions,
+#: and the PM's own follow-ups from acceptance are a brief already.
+SKIP_CREATED_BY = frozenset({"qa", pm.PM_AUTHOR})
 
 
 def needed(task: Task, fix: dict | None, existing: bool) -> bool:

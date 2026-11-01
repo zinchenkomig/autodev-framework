@@ -41,6 +41,7 @@ export interface Task {
   pending_fix: string | null
   pm: boolean // the PM thinks the task through before the developer starts
   brief: string | null // the PM's brief the developer followed
+  acceptance: Acceptance | null // the PM's check on stage before the owner's
   qa: { ok: boolean; problems: string[]; skipped: string | null } | null
   // The task's code with its follow-ups as one GitHub compare; error when a follow-up doesn't replay
   full_diff: { url?: string; tasks?: number; error?: string } | null
@@ -56,6 +57,15 @@ export interface Task {
   created_at: string
   status_changed_at: string
   updated_at: string
+}
+
+export interface Acceptance {
+  state: 'checking' | 'fixing' | 'accepted' | 'concerns' | 'failed'
+  summary?: string
+  issues?: string[]
+  fixes?: number
+  fix_task?: { id: string; ticket_number: number }
+  at?: string
 }
 
 export interface LogEntry {

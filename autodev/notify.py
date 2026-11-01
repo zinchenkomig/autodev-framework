@@ -64,6 +64,30 @@ async def on_stage(
         await _send(test_plan_text(checked), reply_markup={"inline_keyboard": [[button]]})
 
 
+async def accepted(main: Task, project: Project | None, screenshot: bytes | None = None) -> None:
+    """The PM finished with *main* on stage: the owner's turn, with what the PM found."""
+    from autodev import pm
+
+    result = pm.acceptance(main) or {}
+    state = result.get("state")
+    head = {pm.ACCEPTED: "✅", pm.CONCERNS: "⚠️"}.get(state, "✅")
+    text = f"{head} {_task_link(main)} на stage"
+    if project and project.stage_url:
+        text += f'\n🌐 <a href="{html.escape(project.stage_url)}">{html.escape(project.stage_url)}</a>'
+    if state == pm.ACCEPTED:
+        text += "\n\n🕵️ <b>PM проверил и принял</b>"
+    elif state == pm.CONCERNS:
+        text += f"\n\n🕵️ <b>PM: замечания остались после {result.get('fixes', 0)} доработок</b>"
+    if result.get("summary"):
+        text += f"\n{html.escape(result['summary'][:700])}"
+    if state == pm.CONCERNS and result.get("issues"):
+        text += "\n" + "\n".join(f"• {html.escape(i[:200])}" for i in result["issues"][:6])
+    await _send(text, photo=screenshot)
+    if (main.metadata_ or {}).get("test_plan"):
+        button = {"text": "✅ Проверено", "callback_data": f"ok:{main.id}"}
+        await _send(test_plan_text(main), reply_markup={"inline_keyboard": [[button]]})
+
+
 async def failed(task: Task, reason: str) -> None:
     text = f"❌ {_task_link(task)}\n\n<pre>{html.escape(reason[:800])}</pre>"
     if task.pr_url:

@@ -6,7 +6,12 @@ where it lives in the UI, does the label match the behaviour) reach the owner on
 on stage. The PM answers them first and writes a brief the developer follows
 (``metadata["brief"]``), shown on the task page.
 
-It costs a Claude session and some minutes, so it can be switched off: per project
+When the main task (with all its follow-ups) lands on stage, the PM also accepts
+it before the owner is called (``metadata["acceptance"]``, :mod:`autodev.worker.acceptor`):
+it walks the test plan in a phone-sized browser and sends back a follow-up with what
+it found, at most ``MAX_FIXES`` times; then the owner gets the task with its verdict.
+
+Each costs a Claude session and some minutes, so the PM can be switched off: per project
 (``Project.pm``, the default for new tasks) and per task (``metadata["pm"]``) —
 for obvious tasks, or when the owner wants to decide everything themselves.
 Follow-ups inherit their main task's choice.
@@ -14,7 +19,7 @@ Follow-ups inherit their main task's choice.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -70,3 +75,46 @@ async def history(session: AsyncSession, project_id: str, limit: int = 25) -> li
 def _flat(text: str, limit: int = 500) -> str:
     text = " ".join(text.split())
     return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+# ---------------------------------------------------------------------------
+# Acceptance: the PM checks the main task on stage before the owner is called
+# ---------------------------------------------------------------------------
+
+#: Main task metadata: {"state", "fixes", "summary", "issues", "fix_task", "at"}.
+ACCEPTANCE = "acceptance"
+#: The PM is checking stage now / waits for its own follow-up to land.
+CHECKING, FIXING = "checking", "fixing"
+#: Done: the PM accepted it / issues remain after its fix rounds / it couldn't check.
+ACCEPTED, CONCERNS, FAILED = "accepted", "concerns", "failed"
+#: The owner isn't called while the PM still works on it.
+IN_PROGRESS = frozenset({CHECKING, FIXING})
+#: Follow-ups the PM may send before it hands the task to the owner as it is.
+MAX_FIXES = 2
+#: ``created_by`` of the PM's follow-ups.
+PM_AUTHOR = "pm"
+
+
+def acceptance(task: Task) -> dict | None:
+    value = (task.metadata_ or {}).get(ACCEPTANCE)
+    return value if isinstance(value, dict) else None
+
+
+def start_acceptance(metadata: dict, landed: Task) -> None:
+    """*landed* (the main task or one of its follow-ups) reached stage: the PM checks the whole again.
+
+    Its own follow-ups count toward MAX_FIXES; anything else (the owner's follow-up, a QA fix after
+    the owner's change…) starts the count over.
+    """
+    previous = metadata.get(ACCEPTANCE) if isinstance(metadata.get(ACCEPTANCE), dict) else {}
+    own = landed.created_by == PM_AUTHOR and previous.get("state") == FIXING
+    metadata[ACCEPTANCE] = {"state": CHECKING, "fixes": previous.get("fixes", 0) if own else 0, "at": _now()}
+
+
+def finish_acceptance(metadata: dict, state: str, **fields) -> None:
+    current = metadata.get(ACCEPTANCE) if isinstance(metadata.get(ACCEPTANCE), dict) else {}
+    metadata[ACCEPTANCE] = {**current, **fields, "state": state, "at": _now()}
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat()
