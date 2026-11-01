@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from autodev import scaffold
+from autodev.core.config import get_settings
 from autodev.core.models import Project, Task
 
 TEST_PLAN_RULES = """\
@@ -77,6 +79,8 @@ def initial(task: Task, project: Project, repo: dict, deps: list[Task], main: Ta
     ]
     if project.stage_url:
         parts.append(f"- After merge the change is deployed to {project.stage_url}.")
+    if scaffold.deployed(repo["name"], get_settings()):
+        parts += ["", scaffold.PLATFORM_NOTES.rstrip()]
     if deps:
         parts += ["", "## Related tasks (already merged into the base branch)"]
         for dep in deps:
