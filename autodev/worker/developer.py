@@ -8,10 +8,10 @@ import uuid
 import httpx
 from sqlalchemy import select
 
-from autodev import notify, review
+from autodev import notify, pm, review
 from autodev.core.claude import ClaudeResult, ClaudeRunner
 from autodev.core.models import Task, TaskStatus
-from autodev.worker import prompts
+from autodev.worker import brief, prompts
 from autodev.worker.context import WorkerContext
 from autodev.worker.workspace import Workspace, branch_name
 
@@ -74,6 +74,25 @@ async def develop(ctx: WorkerContext, task_id: uuid.UUID, slot: str) -> None:
             # A follow-up/part is checked as part of its main task: the agent updates the main task's plan.
             main = await store.get(task.parent_id) if task.parent_id else None
             main_plan = list((main.metadata_ or {}).get("test_plan") or []) if main else []
+            if brief.needed(task, fix, existing):
+                written = await brief.write(ctx, task, project, main, ws.path, log, cancelled)
+                if written.cancelled:
+                    await log("warning", "⏹ Cancelled")
+                    return
+                if written.rate_limited:
+                    await _requeue_rate_limited(ctx, task, written.rate_limited_until, slot)
+                    return
+                text = str(written.data.get("brief") or "").strip()
+                if written.ok and text:
+                    await log("info", f"📝 ТЗ готово, ${written.cost_usd:.2f}", details=text)
+                    metadata = {**(task.metadata_ or {}), pm.BRIEF: text}
+                    task = await store.update(task_id, metadata_=metadata) or task
+                else:  # the brief helps the developer but is not required
+                    await log(
+                        "warning",
+                        "📝 PM не написал ТЗ — разработчик работает по задаче как есть",
+                        details=written.summary or None,
+                    )
             result = await _run_agent(ctx, task, project, repo, deps, fix, existing, ws.path, log, cancelled, main)
             if result.cancelled:
                 await log("warning", "⏹ Cancelled")

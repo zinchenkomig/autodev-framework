@@ -87,11 +87,19 @@ def task_add(
     project: str | None = typer.Option(None, "--project", "-p"),
     repo: str | None = typer.Option(None, "--repo", "-r", help="repo name or role"),
     priority: str = typer.Option("normal", "--priority"),
+    pm: bool | None = typer.Option(None, "--pm/--no-pm", help="PM thinks it through first (default: the project's)"),
 ) -> None:
     """Queue a task."""
     task = api_post(
         "/api/tasks/",
-        {"title": title, "description": description, "project_id": project, "repo": repo, "priority": priority},
+        {
+            "title": title,
+            "description": description,
+            "project_id": project,
+            "repo": repo,
+            "priority": priority,
+            "pm": pm,
+        },
     )
     console.print(f"[green]✓[/green] #{task['ticket_number']} {task['title']} ({task['project_id']})")
 

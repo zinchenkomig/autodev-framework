@@ -10,7 +10,7 @@ import pytest
 
 from autodev.core.claude import ClaudeResult
 from autodev.core.config import Settings
-from autodev.core.models import Task, TaskStatus
+from autodev.core.models import Project, Task, TaskStatus
 from autodev.worker import developer as dev_mod
 from autodev.worker.context import WorkerContext
 from autodev.worker.developer import develop
@@ -55,6 +55,20 @@ class FakeRunner:
         return FakeRunner.result
 
 
+class FakePM:
+    """Stands in for the PM's ClaudeRunner (autodev.worker.brief)."""
+
+    calls: list[dict] = []
+    result = ClaudeResult(ok=True, summary="", data={"status": "done", "brief": "**Что и зачем** — поиск"})
+
+    def __init__(self, cwd, **kw) -> None:
+        FakePM.calls.append({"cwd": cwd, **kw})
+
+    async def run(self, prompt, *, resume=None, on_log=None, should_cancel=None):
+        FakePM.calls[-1]["prompt"] = prompt
+        return FakePM.result
+
+
 def write_and_commit(cwd: Path) -> None:
     (cwd / "feature.txt").write_text("new feature\n")
     git("add", "-A", cwd=cwd)
@@ -67,6 +81,9 @@ def wired(monkeypatch, remote, tmp_path, session_factory, project):
     FakeRunner.behaviour = write_and_commit
     FakeRunner.result = ClaudeResult(ok=True, summary="Добавил файл", session_id="sess-1", num_turns=2)
     monkeypatch.setattr(dev_mod, "ClaudeRunner", FakeRunner)
+    FakePM.calls = []
+    FakePM.result = ClaudeResult(ok=True, summary="", data={"status": "done", "brief": "**Что и зачем** — поиск"})
+    monkeypatch.setattr(dev_mod.brief, "ClaudeRunner", FakePM)
 
     class LocalWorkspace(Workspace):
         def __init__(self, root, task_id, repo, env):
@@ -89,8 +106,8 @@ async def new_task(session_factory, **kw) -> Task:
             "project_id": "shop",
             "repo": "acme/shop",
             "status": TaskStatus.IN_PROGRESS,
-            "metadata_": {},
             **kw,
+            "metadata_": {"pm": False, **kw.get("metadata_", {})},
         }
     )
     async with session_factory() as s:
@@ -331,3 +348,74 @@ async def set_in_progress(session_factory, task_id) -> None:
         task = await s.get(Task, task_id)
         task.status = TaskStatus.IN_PROGRESS
         await s.commit()
+
+
+async def test_pm_writes_a_brief_the_developer_follows(wired, session_factory) -> None:
+    ctx, _, _ = wired
+    async with session_factory() as s:
+        project = await s.get(Project, "shop")
+        project.principles = "- Меньше тапов"
+        await s.commit()
+    t = await new_task(session_factory, description="хочу поиск", metadata_={"pm": True})
+    await develop(ctx, t.id, "developer-1")
+
+    t = await reload(session_factory, t.id)
+    assert t.status == TaskStatus.CI, t.error
+    assert t.metadata_["brief"] == "**Что и зачем** — поиск"
+    assert len(FakePM.calls) == 1
+    assert "хочу поиск" in FakePM.calls[0]["prompt"] and "Меньше тапов" in FakePM.calls[0]["prompt"]
+    assert "Edit" in FakePM.calls[0]["disallowed_tools"]
+    prompt = FakeRunner.calls[0]["prompt"]
+    assert "## Product brief from the PM" in prompt and "**Что и зачем** — поиск" in prompt
+    assert "Меньше тапов" in prompt
+
+
+async def test_pm_off_fixes_and_qa_skip_the_brief(wired, session_factory) -> None:
+    ctx, _, _ = wired
+    off = await new_task(session_factory)  # metadata pm: False
+    await develop(ctx, off.id, "developer-1")
+    qa_fix = await new_task(session_factory, created_by="qa", metadata_={"pm": True})
+    await develop(ctx, qa_fix.id, "developer-1")
+    assert FakePM.calls == []
+    assert "Product brief" not in FakeRunner.calls[0]["prompt"]
+
+    # A retry keeps the brief it already has.
+    again = await new_task(
+        session_factory, metadata_={"pm": True, "brief": "старое ТЗ", "fix": {"kind": "retry", "details": "x"}}
+    )
+    await develop(ctx, again.id, "developer-1")
+    assert FakePM.calls == [] and "старое ТЗ" in FakeRunner.calls[-1]["prompt"]
+
+
+async def test_project_default_decides_when_the_task_does_not(wired, session_factory) -> None:
+    ctx, _, _ = wired
+    t = await new_task(session_factory)
+    async with session_factory() as s:
+        task = await s.get(Task, t.id)
+        task.metadata_ = {}
+        await s.commit()
+    await develop(ctx, t.id, "developer-1")
+    assert len(FakePM.calls) == 1  # the project's pm is on by default
+
+
+async def test_failed_brief_does_not_stop_the_developer(wired, session_factory) -> None:
+    ctx, _, _ = wired
+    FakePM.result = ClaudeResult(ok=False, summary="boom")
+    t = await new_task(session_factory, metadata_={"pm": True})
+    await develop(ctx, t.id, "developer-1")
+    t = await reload(session_factory, t.id)
+    assert t.status == TaskStatus.CI and "brief" not in t.metadata_
+
+
+async def test_pm_reads_the_owner_recent_corrections(wired, session_factory) -> None:
+    ctx, _, _ = wired
+    await new_task(
+        session_factory,
+        title="Пороги — доработка",
+        description="иконка показывает ±, а проверка только вверх\n\n---\nFollow-up to #3 (x).",
+        created_by="feedback",
+        status=TaskStatus.ON_STAGE,
+    )
+    t = await new_task(session_factory, metadata_={"pm": True})
+    await develop(ctx, t.id, "developer-1")
+    assert "Asked for a change to «Пороги»: иконка показывает ±, а проверка только вверх" in FakePM.calls[0]["prompt"]
