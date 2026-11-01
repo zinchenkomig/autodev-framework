@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { ProjectForm } from '@/components/ProjectForm'
+import { SecretsCard } from '@/components/SecretsCard'
 import { TaskCard } from '@/components/TaskCard'
 import { Badge, Button, Card, Empty, ErrorNote } from '@/components/ui'
 import { api, type Release } from '@/lib/api'
@@ -99,6 +100,8 @@ export default function ProjectPage() {
           ))}
         </section>
       )}
+
+      <SecretsCard projectId={p.id} />
 
       <section className="space-y-2">
         <h2 className="text-sm font-semibold text-muted">История релизов</h2>

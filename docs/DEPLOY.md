@@ -55,6 +55,14 @@ dashboard, or `UPDATE agents SET enabled=false WHERE id='developer'`.
 2. Press "Set webhook". It registers `https://autodev.zinchenkomig.com/api/webhooks/telegram`
    with a secret token. That path is exempt from the login (as is `/api/auth/*`, the login itself).
 
+## Project secrets
+
+Projects in `AUTODEV_PROJECTS_ORG` get secrets from the dashboard (project → «Секреты»): the API
+seals each value with the cluster's sealed-secrets certificate
+(`AUTODEV_SEALED_SECRETS_CERT_URL`, default the controller's `/v1/cert.pem` in `kube-system`) and
+commits `deploy/secrets.yaml` to the stage and prod branches; hetzner-gitops `charts/project`
+turns it into the Secret `app-secrets`, given to the app as env. Plaintext is never stored.
+
 ## Login
 
 Traefik's `forward-auth` middleware asks `/api/auth/check` about every request. It lets

@@ -99,6 +99,24 @@ def stage_url(repo: str, settings: Settings) -> str:
     return f"https://{repo.split('/', 1)[1].lower()}.stage.{settings.apps_domain}"
 
 
+# What every task in a deployed repo should know beyond its CLAUDE.md (repos scaffolded
+# before secrets and extraManifests existed don't describe them).
+PLATFORM_NOTES = """\
+Секреты и доп. сервисы (платформа, hetzner-gitops charts/project):
+- Секреты приходят в env. Ключи от владельца (API-ключи и т.п.) он вводит в дашборде AutoDev; их имена —
+  в `deploy/secrets.yaml` (значения зашифрованы, файл не редактируй). Нужен ключ, которого там нет, — читай
+  его из env, без него приложение не должно падать, и напиши в итоге, какой секрет владельцу добавить.
+- Секрет, который можно сгенерировать (ключ подписи сессий и т.п.), добавь сам в `deploy/values-stage.yaml`
+  и `deploy/values-prod.yaml`, свой для каждого окружения: `secretEnv: {<env>: {NAME: <шифртекст>}}`,
+  шифртекст — `openssl rand -hex 32 | tr -d '\\n' | kubeseal --raw --scope strict --namespace p-<repo>-<env>
+  --name app-secrets`. Открытым текстом секреты в репозиторий не клади.
+- Нужен ещё сервис (ClickHouse, Redis, фоновый воркер, CronJob) — опиши его манифестами в `extraManifests`
+  в `deploy/values.yaml`: StatefulSet/Deployment, Service (ClusterIP), ConfigMap, PVC, CronJob. Ingress
+  нельзя: наружу отвечает только приложение. Задавай `resources`; квота namespace маленькая (2 CPU, 2Gi
+  на всё) — если не влезает, напиши в итоге, что владельцу нужно поднять квоту.
+"""
+
+
 def task_description(brief: str, with_deploy: bool) -> str:
     lines = [
         brief.strip(),
@@ -136,6 +154,9 @@ def task_description(brief: str, with_deploy: bool) -> str:
             "которую читает текущий код, — сначала добавь новое и перейди на него, удаляй старое следующим "
             "изменением. Запиши это правило в CLAUDE.md.",
             "Секреты в репозиторий не клади.",
+            "",
+            PLATFORM_NOTES.rstrip(),
+            "Опиши это в CLAUDE.md тоже.",
         ]
     else:
         lines.append("Деплой на stage не настраивай, если об этом не сказано выше.")

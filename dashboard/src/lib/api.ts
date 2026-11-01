@@ -179,6 +179,15 @@ export interface Chat {
   updated_at: string
 }
 
+export type SecretEnv = 'stage' | 'prod'
+
+// Names only: values are sealed in the repo and never come back.
+export interface ProjectSecrets {
+  deployed: boolean
+  stage: string[]
+  prod: string[]
+}
+
 export interface TelegramSettings {
   bot_token: string
   owner_chat_id: string
@@ -234,6 +243,14 @@ export const api = {
     request<Project>(`/api/projects/${id}`, { method: 'PUT', body: JSON.stringify(p) }),
   deleteProject: (id: string) => request<void>(`/api/projects/${id}`, { method: 'DELETE' }),
   release: (id: string) => post<Release>(`/api/projects/${id}/release`),
+  secrets: (id: string) => request<ProjectSecrets>(`/api/projects/${id}/secrets`),
+  setSecret: (id: string, env: SecretEnv, name: string, value: string) =>
+    request<ProjectSecrets>(`/api/projects/${id}/secrets/${env}/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ value }),
+    }),
+  deleteSecret: (id: string, env: SecretEnv, name: string) =>
+    request<ProjectSecrets>(`/api/projects/${id}/secrets/${env}/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   releases: (projectId?: string) =>
     request<Release[]>(`/api/releases/${projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''}`),
 

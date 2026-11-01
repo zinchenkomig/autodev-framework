@@ -329,10 +329,27 @@ class GitHubClient:
         response.raise_for_status()
         return response.json()
 
-    async def put_file(self, path: str, content: str, message: str, branch: str, repo: str | None = None) -> str:
-        """Create *path* on *branch* in one commit. Returns the commit SHA."""
+    async def get_file(self, path: str, ref: str, repo: str | None = None) -> tuple[str, str] | None:
+        """``(content, blob sha)`` of *path* at *ref*, or None if there is no such file."""
+        resolved = self._resolve_repo(repo)
+        response = await self._client.get(f"/repos/{resolved}/contents/{path}", params={"ref": ref})
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        data = response.json()
+        return base64.b64decode(data["content"]).decode(), data["sha"]
+
+    async def put_file(
+        self, path: str, content: str, message: str, branch: str, repo: str | None = None, sha: str | None = None
+    ) -> str:
+        """Create *path* on *branch* (or update it: *sha* of the blob it replaces) in one commit.
+
+        Returns the commit SHA.
+        """
         resolved = self._resolve_repo(repo)
         payload = {"message": message, "content": base64.b64encode(content.encode()).decode(), "branch": branch}
+        if sha:
+            payload["sha"] = sha
         response = await self._client.put(f"/repos/{resolved}/contents/{path}", json=payload)
         response.raise_for_status()
         return response.json()["commit"]["sha"]

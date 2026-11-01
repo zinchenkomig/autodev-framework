@@ -68,6 +68,12 @@ class Settings(BaseSettings):
     # branch stage -> https://<repo>.stage.<apps_domain>, main -> https://<repo>.prod.<apps_domain>.
     projects_org: str = Field(default="", validation_alias="AUTODEV_PROJECTS_ORG")
     apps_domain: str = Field(default="", validation_alias="AUTODEV_APPS_DOMAIN")
+    # Public certificate of the cluster's sealed-secrets controller: the dashboard seals the
+    # owner's secrets for those repos with it (autodev/secrets.py).
+    sealed_secrets_cert_url: str = Field(
+        default="http://sealed-secrets-controller.kube-system:8080/v1/cert.pem",
+        validation_alias="AUTODEV_SEALED_SECRETS_CERT_URL",
+    )
 
     # Public URL of the dashboard, used for links in notifications.
     public_url: str = Field(default="", validation_alias="AUTODEV_PUBLIC_URL")

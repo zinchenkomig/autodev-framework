@@ -89,6 +89,7 @@ async def test_create_project_in_deployed_org(client, monkeypatch) -> None:
     assert gh.refs == [("Apps-Org/notes", "refs/heads/stage", "wf1")]
     (task,) = (await client.get("/api/tasks/", params={"project_id": "notes"})).json()
     assert "deploy/values.yaml" in task["description"] and "/version" in task["description"]
+    assert "extraManifests" in task["description"] and "kubeseal" in task["description"]
 
     # An explicit owner/repo outside the org is created as is, without deploy wiring.
     other = {**body, "id": "blog", "repos": [{"name": "someone/blog"}]}

@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from autodev import scaffold
+from autodev import scaffold, secrets
 from autodev.api.database import get_session
 from autodev.api.routes.releases import ReleaseResponse, release_to_response
 from autodev.core.config import RepoSpec, get_settings
@@ -243,3 +243,64 @@ async def release_project(project_id: str, session: Annotated[AsyncSession, Depe
         except httpx.HTTPStatusError as exc:
             raise HTTPException(502, f"GitHub: {exc.response.status_code} {exc.response.text[:300]}") from exc
     return release_to_response(release)
+
+
+class SecretsResponse(BaseModel):
+    # False: the cluster doesn't deploy this repo, there is nowhere to put secrets.
+    deployed: bool
+    stage: list[str] = Field(default_factory=list)
+    prod: list[str] = Field(default_factory=list)
+
+
+class SecretValue(BaseModel):
+    value: str = Field(min_length=1, max_length=64 * 1024)
+
+
+async def _deployed(session: AsyncSession, project_id: str) -> Project:
+    project = await _load(session, project_id)
+    if not scaffold.deployed(project.repo()["name"], get_settings()):
+        raise HTTPException(409, "The cluster doesn't deploy this project's repo")
+    return project
+
+
+@router.get("/{project_id}/secrets", summary="Names of the project's secrets (values are sealed)")
+async def list_secrets(project_id: str, session: Annotated[AsyncSession, Depends(get_session)]) -> SecretsResponse:
+    project = await _load(session, project_id)
+    if not scaffold.deployed(project.repo()["name"], get_settings()):
+        return SecretsResponse(deployed=False)
+    async with GitHubClient(token=get_settings().github_token) as gh:
+        try:
+            return SecretsResponse(deployed=True, **await secrets.names(gh, project))
+        except httpx.HTTPStatusError as exc:
+            raise HTTPException(502, f"GitHub: {exc.response.status_code} {exc.response.text[:300]}") from exc
+
+
+async def _update_secret(project: Project, env: str, name: str, value: str | None) -> SecretsResponse:
+    settings = get_settings()
+    async with GitHubClient(token=settings.github_token) as gh:
+        try:
+            names = await secrets.update(gh, project, env, name, value, settings)
+        except secrets.SecretError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except LookupError as exc:
+            raise HTTPException(404, f"No secret {name} in {env}") from exc
+        except httpx.HTTPStatusError as exc:
+            where = "GitHub" if "github.com" in str(exc.request.url) else "sealed-secrets"
+            raise HTTPException(502, f"{where}: {exc.response.status_code} {exc.response.text[:300]}") from exc
+        except httpx.HTTPError as exc:
+            raise HTTPException(502, f"sealed-secrets certificate: {exc}") from exc
+    return SecretsResponse(deployed=True, **names)
+
+
+@router.put("/{project_id}/secrets/{env}/{name}", summary="Set a secret (sealed, committed to stage and prod)")
+async def set_secret(
+    project_id: str, env: str, name: str, body: SecretValue, session: Annotated[AsyncSession, Depends(get_session)]
+) -> SecretsResponse:
+    return await _update_secret(await _deployed(session, project_id), env, name, body.value)
+
+
+@router.delete("/{project_id}/secrets/{env}/{name}", summary="Remove a secret")
+async def delete_secret(
+    project_id: str, env: str, name: str, session: Annotated[AsyncSession, Depends(get_session)]
+) -> SecretsResponse:
+    return await _update_secret(await _deployed(session, project_id), env, name, None)
