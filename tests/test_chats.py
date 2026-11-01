@@ -12,7 +12,7 @@ from sqlalchemy import select
 
 from autodev.core.claude import ClaudeResult
 from autodev.core.config import Settings
-from autodev.core.models import Chat, ChatMessage, ChatState, Task, TaskStatus
+from autodev.core.models import Chat, ChatMessage, ChatState, Project, Task, TaskStatus
 from autodev.worker import chat as chat_mod
 from autodev.worker.context import WorkerContext
 
@@ -172,6 +172,19 @@ async def test_approve_new_task(client, project, session_factory) -> None:
     assert new.status == TaskStatus.QUEUED and new.created_by == "chat"
 
 
+async def test_approve_principle_appends_it_to_the_project(client, project, session_factory) -> None:
+    task = await add_task(session_factory)
+    chat = await open_chat(client, task)
+    for text in ("Подпись совпадает\nс поведением", "Меньше тапов"):
+        mid = await add_proposal(
+            session_factory, chat["id"], {"action": "principle", "title": "Принцип", "description": text}
+        )
+        r = await client.post(f"/api/chats/{chat['id']}/messages/{mid}/proposals/0", json={"approve": True})
+        assert r.status_code == 200, r.text
+    async with session_factory() as session:
+        assert (await session.get(Project, "shop")).principles == "- Подпись совпадает с поведением\n- Меньше тапов"
+
+
 async def test_follow_up_that_cant_be_taken_stays_pending(client, project, session_factory) -> None:
     task = await add_task(session_factory, status=TaskStatus.IN_PROGRESS)
     chat = await open_chat(client, task)
@@ -262,6 +275,7 @@ async def test_turns_resume_one_session(client, project, session_factory, ctx) -
     assert FakeRunner.options["schema"]["properties"]["proposals"]["items"]["properties"]["action"]["enum"] == [
         "follow_up",
         "new_task",
+        "principle",
     ]
 
     body = (await client.get(f"/api/chats/{chat['id']}")).json()

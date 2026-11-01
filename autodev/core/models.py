@@ -210,6 +210,10 @@ class Project(Base):
     instructions: Mapped[str | None] = mapped_column(Text, nullable=True)  # extra prompt text
     model: Mapped[str | None] = mapped_column(String(100), nullable=True)  # overrides AUTODEV_MODEL
     max_parallel: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # The PM thinks a new task through before the developer starts (a task can opt out).
+    pm: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    # The owner's product taste for the PM: what they expect without saying it every time.
+    principles: Mapped[str | None] = mapped_column(Text, nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False

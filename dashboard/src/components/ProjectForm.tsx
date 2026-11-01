@@ -14,6 +14,8 @@ export const EMPTY_PROJECT: ProjectInput = {
   stage_url: null,
   smoke_paths: [],
   instructions: null,
+  pm: true,
+  principles: null,
   model: null,
   max_parallel: 1,
   enabled: true,
@@ -198,6 +200,27 @@ export function ProjectForm({
           <span className="text-sm">Агенты работают над проектом</span>
         </label>
       </div>
+
+      <label className="flex items-start gap-3">
+        <input type="checkbox" checked={p.pm} onChange={(e) => set('pm', e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--accent)]" />
+        <span className="text-sm">
+          PM продумывает задачи перед разработкой
+          <span className="block text-muted">Значение по умолчанию для новых задач; у задачи можно выключить.</span>
+        </span>
+      </label>
+
+      <Field
+        label="Принципы продукта"
+        hint="Чего вы ждёте без напоминаний: PM и разработчик учитывают это в каждой задаче. Из чата по задаче принцип добавляется кнопкой «Запомнить»."
+      >
+        <textarea
+          rows={4}
+          value={p.principles ?? ''}
+          onChange={(e) => set('principles', orNull(e.target.value))}
+          placeholder={'- Подписи и иконки совпадают с тем, что реально происходит\n- Меньше настроек и переходов, очевидное поведение по умолчанию'}
+          className={inputClass}
+        />
+      </Field>
 
       <Field label="Инструкции для агента" hint="Дополнение к CLAUDE.md репозитория.">
         <textarea

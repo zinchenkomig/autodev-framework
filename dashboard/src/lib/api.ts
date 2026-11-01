@@ -39,6 +39,8 @@ export interface Task {
   error: string | null
   attempts: number
   pending_fix: string | null
+  pm: boolean // the PM thinks the task through before the developer starts
+  brief: string | null // the PM's brief the developer followed
   qa: { ok: boolean; problems: string[]; skipped: string | null } | null
   // The task's code with its follow-ups as one GitHub compare; error when a follow-up doesn't replay
   full_diff: { url?: string; tasks?: number; error?: string } | null
@@ -97,6 +99,8 @@ export interface Project {
   stage_url: string | null
   smoke_paths: string[]
   instructions: string | null
+  pm: boolean // new tasks get the PM by default
+  principles: string | null // the owner's product principles for the PM and the developer
   model: string | null
   max_parallel: number
   enabled: boolean
@@ -260,9 +264,9 @@ export const api = {
     request<Task[]>(`/api/tasks/?limit=500${statuses.map((s) => `&status=${s}`).join('')}`),
   task: (id: string) => request<Task>(`/api/tasks/${id}`),
   children: (id: string) => request<Task[]>(`/api/tasks/?parent_id=${encodeURIComponent(id)}`),
-  createTask: (t: { title: string; description: string; project_id: string; repo?: string | null; priority: Priority }) =>
+  createTask: (t: { title: string; description: string; project_id: string; repo?: string | null; priority: Priority; pm?: boolean }) =>
     post<Task>('/api/tasks/', t),
-  updateTask: (id: string, t: Partial<Pick<Task, 'title' | 'description' | 'priority'>>) =>
+  updateTask: (id: string, t: Partial<Pick<Task, 'title' | 'description' | 'priority' | 'pm'>>) =>
     request<Task>(`/api/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(t) }),
   deleteTask: (id: string) => request<void>(`/api/tasks/${id}`, { method: 'DELETE' }),
   cancelTask: (id: string) => post<Task>(`/api/tasks/${id}/cancel`),

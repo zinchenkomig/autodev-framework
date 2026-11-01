@@ -35,6 +35,9 @@ class ProjectBody(BaseModel):
     stage_url: str | None = None
     smoke_paths: list[str] = Field(default_factory=list)
     instructions: str | None = None
+    # The PM thinks new tasks through before the developer starts; the default for new tasks.
+    pm: bool = True
+    principles: str | None = None  # the owner's product principles, for the PM and the developer
     model: str | None = None
     max_parallel: int = Field(default=1, ge=1, le=10)
     enabled: bool = True
@@ -109,6 +112,8 @@ def to_response(project: Project, counts: dict[str, int] | None = None) -> Proje
         stage_url=project.stage_url,
         smoke_paths=project.smoke_paths or [],
         instructions=project.instructions,
+        pm=project.pm,
+        principles=project.principles,
         model=project.model,
         max_parallel=project.max_parallel,
         enabled=project.enabled,

@@ -11,6 +11,7 @@ import {
   GitPullRequest,
   Globe,
   CircleHelp,
+  ClipboardList,
   Loader2,
   MessageCircleQuestion,
   MessageSquarePlus,
@@ -161,6 +162,16 @@ export default function TaskPage() {
           <MessageCircleQuestion size={15} /> Спросить{asked > 0 && <span className="text-muted">· {asked}</span>}
           {undecided && <span className="h-2 w-2 rounded-full bg-warn" title="Есть предложение агента, ждёт решения" />}
         </Button>
+        {t.status === 'queued' && !t.branch && !t.brief && (
+          <Button
+            size="sm"
+            disabled={busy}
+            title="PM продумывает задачу до кода. Выключите для очевидной задачи или если хотите решить всё сами."
+            onClick={() => act(() => api.updateTask(t.id, { pm: !t.pm }), (r) => r && task.setData(r))}
+          >
+            <ClipboardList size={15} /> {t.pm ? 'PM: вкл' : 'PM: выкл'}
+          </Button>
+        )}
         {canRetry && (
           <Button size="sm" variant="primary" disabled={busy} onClick={() => act(() => api.retryTask(t.id))}>
             <RotateCw size={15} /> Повторить
@@ -198,6 +209,15 @@ export default function TaskPage() {
               <div className="mb-1.5 text-sm font-semibold text-muted">{t.parent ? 'Что попросили' : 'Задача'}</div>
               <Collapsible>
                 <Markdown text={t.parent ? request(t) : t.description} className="text-[15px] leading-relaxed" />
+              </Collapsible>
+            </Card>
+          )}
+
+          {t.brief && (
+            <Card className="p-4">
+              <div className="mb-1.5 text-sm font-semibold text-muted">ТЗ от PM</div>
+              <Collapsible>
+                <Markdown text={t.brief} className="text-[15px] leading-relaxed" />
               </Collapsible>
             </Card>
           )}

@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from autodev import review
+from autodev import pm, review
 from autodev.api.database import get_session
 from autodev.core.models import (
     MERGED_STATUSES,
@@ -41,6 +41,7 @@ class TaskCreate(BaseModel):
     priority: Priority = Priority.NORMAL
     depends_on: list[uuid.UUID] = Field(default_factory=list)
     created_by: str | None = None
+    pm: bool | None = None  # the PM thinks the task through first; None: the project's default
 
 
 class TaskUpdate(BaseModel):
@@ -49,6 +50,7 @@ class TaskUpdate(BaseModel):
     priority: Priority | None = None
     repo: str | None = None
     project_id: str | None = None
+    pm: bool | None = None
 
 
 class FeedbackRequest(BaseModel):
@@ -88,6 +90,8 @@ class TaskResponse(BaseModel):
     error: str | None
     attempts: int
     pending_fix: str | None  # kind of the queued fix round, if any
+    pm: bool  # the PM thinks the task through before the developer starts
+    brief: str | None  # the PM's brief the developer followed
     qa: dict | None  # {"ok": bool, "problems": [...], "skipped": str | None} after stage QA
     # The task's code with its follow-ups as one GitHub compare: {"url", "tasks"}, or {"error"}
     # when a follow-up doesn't replay; None while there's a single PR.
@@ -160,6 +164,8 @@ def to_response(task: Task, parent: Task | None = None, waiting: list[Task] = ()
         error=task.error,
         attempts=task.attempts,
         pending_fix=fix.get("kind") if isinstance(fix, dict) else None,
+        pm=pm.enabled(task),
+        brief=pm.brief(task),
         qa=(task.metadata_ or {}).get("qa"),
         full_diff=(task.metadata_ or {}).get("full_diff"),
         test_plan=[] if with_main else (task.metadata_ or {}).get("test_plan") or [],
@@ -272,7 +278,7 @@ async def create_task(body: TaskCreate, session: Annotated[AsyncSession, Depends
         depends_on=body.depends_on,
         created_by=body.created_by or "dashboard",
         status=TaskStatus.QUEUED,
-        metadata_={},
+        metadata_={pm.KEY: project.pm if body.pm is None else body.pm},
     )
     session.add(task)
     await session.flush()
@@ -297,6 +303,8 @@ async def update_task(
         task.description = body.description
     if body.priority is not None:
         task.priority = body.priority
+    if body.pm is not None:
+        task.metadata_ = {**(task.metadata_ or {}), pm.KEY: body.pm}
     if body.project_id is not None or body.repo is not None:
         if task.status != TaskStatus.QUEUED or task.branch:
             raise HTTPException(409, "Project/repo can only change before work starts")
@@ -364,7 +372,7 @@ async def request_changes(session: AsyncSession, task: Task, text: str, by: str 
             parent_id=task.root_id,
             created_by=by,
             status=TaskStatus.QUEUED,
-            metadata_={},
+            metadata_={pm.KEY: pm.enabled(task)},  # the owner's choice for the main task holds
         )
         session.add(follow_up)
         # The main task now includes unfinished work: the owner will check it again.

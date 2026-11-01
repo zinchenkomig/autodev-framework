@@ -22,6 +22,7 @@ export function NewTaskSheet({
   const [projectId, setProjectId] = useState('')
   const [text, setText] = useState('')
   const [priority, setPriority] = useState<Priority>('normal')
+  const [pm, setPm] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -37,6 +38,10 @@ export function NewTaskSheet({
   }, [open])
 
   const project = ordered.find((p) => p.id === projectId)
+  // Each project has its own default; switching the project brings it back.
+  useEffect(() => {
+    if (project) setPm(project.pm)
+  }, [project?.id, project?.pm]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -49,7 +54,7 @@ export function NewTaskSheet({
     setBusy(true)
     setError(null)
     try {
-      const task = await api.createTask({ title, description, project_id: project.id, priority })
+      const task = await api.createTask({ title, description, project_id: project.id, priority, pm })
       setText('')
       setPriority('normal')
       onCreated(task)
@@ -102,6 +107,15 @@ export function NewTaskSheet({
               </select>
             </Field>
           </div>
+          <label className="flex items-start gap-3">
+            <input type="checkbox" checked={pm} onChange={(e) => setPm(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--accent)]" />
+            <span className="text-sm">
+              PM продумает задачу
+              <span className="block text-muted">
+                Ответит на продуктовые вопросы до кода. Выключите для очевидной задачи или если хотите решить всё сами.
+              </span>
+            </span>
+          </label>
           {project && !project.enabled && (
             <p className="text-sm text-warn">Проект на паузе — задача подождёт, пока его не включат.</p>
           )}

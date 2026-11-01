@@ -7,7 +7,7 @@ import uuid
 import httpx
 import pytest
 
-from autodev.core.models import AgentLog, Task, TaskStatus
+from autodev.core.models import AgentLog, Project, Task, TaskStatus
 from tests.conftest import make_project
 from tests.fakes import FakeGitHub
 
@@ -169,6 +169,31 @@ async def test_renamed_task_keeps_the_owner_title(client, session_factory, proje
     await client.patch(f"/api/tasks/{t['id']}", json={"title": "Поиск"})
     async with session_factory() as s:
         assert (await s.get(Task, uuid.UUID(t["id"]))).metadata_["title_by_owner"]
+
+
+async def test_pm_switch_per_task_and_project(client, session_factory, project) -> None:
+    on = (await client.post("/api/tasks/", json={"title": "Поиск"})).json()
+    off = (await client.post("/api/tasks/", json={"title": "Опечатка", "pm": False})).json()
+    assert on["pm"] is True and on["brief"] is None and off["pm"] is False
+    assert (await client.patch(f"/api/tasks/{on['id']}", json={"pm": False})).json()["pm"] is False
+
+    async with session_factory() as s:
+        (await s.get(Project, "shop")).pm = False
+        await s.commit()
+    assert (await client.post("/api/tasks/", json={"title": "x"})).json()["pm"] is False
+    assert (await client.post("/api/tasks/", json={"title": "x", "pm": True})).json()["pm"] is True
+    projects = (await client.get("/api/projects/")).json()
+    assert projects[0]["pm"] is False and projects[0]["principles"] is None
+
+
+async def test_follow_up_keeps_the_main_task_pm_choice(client, session_factory, project) -> None:
+    t = (await client.post("/api/tasks/", json={"title": "Опечатка", "pm": False})).json()
+    async with session_factory() as s:
+        task = await s.get(Task, uuid.UUID(t["id"]))
+        task.status = TaskStatus.ON_STAGE
+        await s.commit()
+    follow_up = (await client.post(f"/api/tasks/{t['id']}/feedback", json={"text": "ещё"})).json()
+    assert follow_up["id"] != t["id"] and follow_up["pm"] is False
 
 
 async def test_create_task_needs_project_when_ambiguous(client, session_factory, project) -> None:

@@ -33,7 +33,8 @@
 | `autodev/core/models.py` | `Project`, `Task` (statuses), `Release`, logs, transitions |
 | `autodev/core/config.py` | env `Settings`, `autodev.yaml` schema |
 | `autodev/worker/loop.py` | slots, claiming, recovery after restart |
-| `autodev/worker/developer.py` | one development round: checkout → agent → commit → push → PR |
+| `autodev/worker/developer.py` | one development round: checkout → (PM brief) → agent → commit → push → PR |
+| `autodev/pm.py`, `autodev/worker/brief.py` | the PM: per-task switch, the owner's history, the brief session |
 | `autodev/worker/workspace.py` | per-task clone at `$AUTODEV_WORKDIR/tasks/<task id>` |
 | `autodev/chats.py` | chat subjects: the agent's context and the actions it may propose |
 | `autodev/worker/chat.py` | chat slots: one read-only Claude turn per owner message |
@@ -53,6 +54,13 @@
    - fresh partial clone; new branch `autodev/<n>-<slug>` from the base branch
      (or the existing branch for fix rounds)
    - repo `setup` script, e.g. OpenAPI client generation
+   - first round of a task with the PM on (`autodev/pm.py`, `worker/brief.py`): a read-only PM session
+     thinks the owner's request through — meaning, edge cases, where it lives in the UI, labels that
+     match behaviour — and writes a brief (`metadata.brief`) from the code, the project's
+     `principles` and the owner's recent follow-ups and chat questions. A failed brief doesn't stop
+     the round. The PM is on by default (`Project.pm`); a task opts out with `metadata.pm = false`
+     (obvious tasks, or the owner wants to decide themselves); follow-ups inherit the main task's
+     choice; QA fixes skip it
    - one Claude session with the system rules from `worker/prompts.py`
    - the session ends with `{status: done|blocked, summary}`
    - leftovers are committed; then push and open a PR to the base branch. The summary becomes the PR body.

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from autodev import scaffold
+from autodev import pm, scaffold
 from autodev.core.config import get_settings
 from autodev.core.models import Project, Task
 
@@ -90,6 +90,18 @@ def initial(task: Task, project: Project, repo: dict, deps: list[Task], main: Ta
             parts.append(line)
     if main is not None:
         parts += ["", _main_task(main)]
+    brief = pm.brief(task)
+    if brief:
+        parts += [
+            "",
+            "## Product brief from the PM",
+            "The PM thought the owner's request through before you. Build what it describes; if the code",
+            "shows a decision in it can't work, make the closest sensible one and say so in your summary.",
+            "",
+            brief.strip(),
+        ]
+    if project.principles:
+        parts += ["", "## The owner's product principles", project.principles.strip()]
     if project.instructions:
         parts += ["", "## Project instructions", project.instructions.strip()]
     return "\n".join(parts)
@@ -209,6 +221,77 @@ def _task_section(heading: str, task: Task) -> str:
     if task.parent_id and plan:
         lines += ["", "The plan its agent wrote then:"] + [f"{i}. {step}" for i, step in enumerate(plan, 1)]
     return "\n".join(lines)
+
+
+PM_SYSTEM = """\
+You are AutoDev's product manager. The product owner sends tasks from a phone,
+often as a raw thought. A developer agent will implement this one right after
+you, and the owner sees the result only on stage. Today the owner then finds the
+product questions nobody asked: what exactly a feature means, what happens with
+little or no data, where it lives in the UI and how many taps it takes, whether
+a label or an icon matches what really happens. Your job is to ask those
+questions now, as the owner would, and answer them — nobody will answer you.
+
+How to work:
+- The current directory is a read-only checkout of the project's code as it is
+  on stage. Read it (and the stage site with curl) to see what exists: the data
+  model, the screens, the navigation, the words the UI already uses. Never edit
+  files, commit, push or change anything.
+- Read the owner's recent corrections and questions below: they show what this
+  owner cares about. Apply that taste to this task before they have to say it.
+- Decide, don't ask. Where the request is ambiguous, pick what is simplest and
+  most obvious for the user, consistent with the rest of the app, and say why in
+  a few words. Prefer fewer concepts, fewer settings and fewer taps.
+- Stay within the owner's intent: don't invent features they didn't ask for,
+  but do cover what the request obviously needs to be usable.
+- Size the brief to the task: a tiny, clear change gets two or three lines;
+  a new feature gets a full brief.
+
+The brief, in Russian Markdown, for the developer (the owner reads it too):
+- **Что и зачем** — the user's problem and the outcome, 1-3 sentences.
+- **Сценарии** — how the user gets there and what they do, step by step through
+  the real UI (existing menus, pages, buttons).
+- **Решения** — each product question you settled, with the reason: meaning and
+  rules, defaults, what happens with no / little / bad data, how the UI names
+  and shows things so that labels, icons and behaviour agree.
+- **Не делаем** — what is out of scope, if anything tempting is.
+- **Готово, когда** — 3-7 checkable acceptance criteria.
+No file lists, no code, no endpoints: what to build, not how to code it.
+"""
+
+
+def pm_brief(task: Task, project: Project, main: Task | None, history: list[str]) -> str:
+    """Prompt for the PM's brief on a new task (or a follow-up of *main*)."""
+    parts = [
+        f"# Task #{task.ticket_number}: {task.title}",
+        "",
+        "What the owner wrote:",
+        (task.description or "").split("\n\n---\n")[0].strip() or "(only the title)",
+        "",
+        f"Project: {project.name}" + (f"; stage: {project.stage_url}" if project.stage_url else ""),
+    ]
+    if main is not None:
+        parts += [
+            "",
+            f"## This is a follow-up to main task #{main.ticket_number}: {main.title}",
+            "The owner checked the main task on stage and asks for the change above.",
+            "",
+            "The main task:",
+            (main.description or "").strip()[:3000] or "(only the title)",
+        ]
+        if pm.brief(main):
+            parts += ["", "Its brief:", pm.brief(main).strip()[:4000]]
+        if main.summary:
+            parts += ["", "What was built:", main.summary.strip()[:2000]]
+    if project.principles:
+        parts += ["", "## The owner's product principles", project.principles.strip()]
+    if history:
+        parts += ["", "## The owner's recent corrections and questions in this project (oldest first)"]
+        parts += [f"- {line}" for line in history]
+    if project.instructions:
+        parts += ["", "## Project instructions", project.instructions.strip()]
+    parts += ["", 'Return status "done" and the brief.']
+    return "\n".join(parts)
 
 
 CHAT_SYSTEM = """\

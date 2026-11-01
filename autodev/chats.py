@@ -27,7 +27,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from autodev import review
+from autodev import pm, review
 from autodev.core.models import Chat, ChatMessage, Project, Task, TaskStatus
 
 #: Proposal states. Only "pending" ones can be approved or rejected.
@@ -174,6 +174,18 @@ async def _new_task(session: AsyncSession, chat: Chat, proposal: dict) -> Applie
     return Applied(f"Создана задача #{new.ticket_number}", {"task_id": str(new.id), "ticket_number": new.ticket_number})
 
 
+async def _principle(session: AsyncSession, chat: Chat, proposal: dict) -> Applied:
+    task = await _task(session, chat)
+    project = await session.get(Project, task.project_id, with_for_update=True) if task.project_id else None
+    if project is None:
+        from fastapi import HTTPException
+
+        raise HTTPException(409, "У задачи нет проекта")
+    line = f"- {' '.join(proposal['description'].split())}"
+    project.principles = f"{(project.principles or '').rstrip()}\n{line}".strip()
+    return Applied(f"Принцип добавлен в проект {project.name}: PM учтёт его в следующих задачах")
+
+
 STATUS_TEXT = {
     "queued": "в очереди",
     "in_progress": "агент работает",
@@ -207,6 +219,16 @@ class TaskSubject(Subject):
             "Создать задачу",
             "a separate new task in the same project, for something unrelated to this task's change.",
             _new_task,
+        ),
+        "principle": Action(
+            "principle",
+            "Запомнить",
+            "remember a product principle of the owner for the whole project, when the owner's correction "
+            "shows a general preference the PM should apply to future tasks without being told (e.g. «a "
+            "label or icon must match the real behaviour», «fewer taps over more settings»). Usually next "
+            "to a follow_up. The description is the principle itself: one general sentence, not about this "
+            "task.",
+            _principle,
         ),
     }
 
@@ -264,6 +286,8 @@ def task_context(task: Task, main: Task | None, children: list[Task], project: P
             "the owner checks the main task as a whole, by its one test plan."
         )
     parts += ["", "### What the owner asked", (task.description or "").strip()[:6000] or "(only the title)"]
+    if pm.brief(task):
+        parts += ["", "### The PM's brief the developer followed", pm.brief(task).strip()[:4000]]
     if task.summary:
         parts += ["", "### What the developer agent did", task.summary.strip()[:4000]]
     if task.error and task.status == TaskStatus.FAILED:
@@ -309,6 +333,8 @@ def task_context(task: Task, main: Task | None, children: list[Task], project: P
             parts.append(f"Repository: {repo['name']}; the current directory is its `{project.base_branch}` branch.")
         if project.stage_url:
             parts.append(f"Stage: {project.stage_url}")
+        if project.principles:
+            parts += ["", "The owner's product principles (already remembered):", project.principles.strip()[:3000]]
         if project.instructions:
             parts += ["", "Project instructions:", project.instructions.strip()[:3000]]
     return "\n".join(parts)
