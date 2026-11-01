@@ -19,6 +19,7 @@
 │  delivery        ── every 2×poll: CI → merge → stage → ✅  │
 │                     + pending releases (stage→main merge)  │
 │  planner         ── requested test-plan rebuilds           │
+│  pm              ── accept on stage before the owner       │
 │  chat-1..N       ── answer the owner in chats (read-only)  │
 └────────────────────────────────────────────────────────────┘
              │ GitHub REST (polling)       │ Claude Agent SDK
@@ -35,6 +36,7 @@
 | `autodev/worker/loop.py` | slots, claiming, recovery after restart |
 | `autodev/worker/developer.py` | one development round: checkout → (PM brief) → agent → commit → push → PR |
 | `autodev/pm.py`, `autodev/worker/brief.py` | the PM: per-task switch, the owner's history, the brief session |
+| `autodev/worker/acceptor.py` | the PM accepts a main task on stage before the owner is notified |
 | `autodev/worker/workspace.py` | per-task clone at `$AUTODEV_WORKDIR/tasks/<task id>` |
 | `autodev/chats.py` | chat subjects: the agent's context and the actions it may propose |
 | `autodev/worker/chat.py` | chat slots: one read-only Claude turn per owner message |
@@ -76,6 +78,17 @@
    - (without `version_url`) every push workflow for that commit, or a newer commit containing it,
      succeeded on the base branch.
 6. **On stage**: Telegram notification with the stage link and the summary.
+   With the PM on for the main task (`autodev/pm.py`, `worker/acceptor.py`), the notification waits:
+   once the main task and all its open follow-ups are on stage (and stage QA passed), delivery sets
+   `acceptance.state = checking` on the main task. The `pm` loop clones the stage branch and runs one
+   Claude session that walks the test plan in headless Chromium at phone size, checks it against the
+   request, the brief and the project's principles, and saves screenshots (task artifacts `PM: …`).
+   - accepted → the owner is notified («PM проверил и принял»)
+   - issues → one follow-up `created_by=pm` with all of them (`fixing`); its landing starts the check
+     again. After `pm.MAX_FIXES` (2) such rounds the owner is notified with what is left (`concerns`).
+     Any other follow-up landing starts the count over.
+   - the session fails → `failed`, the owner is notified as usual
+   While `checking`, the main task isn't in «Ждут меня».
 7. **Release**: `POST /api/projects/{id}/release`.
    - opens the stage→prod PR
    - the delivery loop merges it with a merge commit once its checks pass. A squash here would

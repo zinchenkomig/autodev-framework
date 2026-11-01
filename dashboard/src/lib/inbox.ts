@@ -20,7 +20,8 @@ export async function fetchInbox(): Promise<Inbox> {
     api.releases(),
   ])
   const onStage = tasks.filter((t) => t.status === 'on_stage' && !t.parent)
-  const check = onStage.filter((t) => !t.verified_at && t.waiting_for.length === 0)
+  // While the PM checks it on stage, it isn't the owner's turn yet.
+  const check = onStage.filter((t) => !t.verified_at && t.waiting_for.length === 0 && t.acceptance?.state !== 'checking')
   const failed = tasks.filter((t) => t.status === 'failed')
   const releasing = new Set(releases.filter((r) => r.status === 'pending').map((r) => r.project_id))
   const release = projects

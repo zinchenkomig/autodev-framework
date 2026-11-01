@@ -25,7 +25,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ChatSheet } from '@/components/Chat'
 import { Inline, Markdown } from '@/components/Markdown'
 import { Badge, Button, Card, ErrorNote, Sheet, inputClass } from '@/components/ui'
-import { api, type LogEntry, type Task } from '@/lib/api'
+import { api, type Acceptance, type LogEntry, type Task } from '@/lib/api'
 import { FIX_KIND, PRIORITY, STATUS, ago, cx, dateTime, time } from '@/lib/format'
 import { usePoll } from '@/lib/hooks'
 
@@ -245,6 +245,8 @@ export default function TaskPage() {
               </p>
             </Card>
           )}
+
+          {!t.parent && t.acceptance && <AcceptanceCard task={t} />}
 
           {!withMain && (t.test_plan.length > 0 || merged) && (
             <TestPlan
@@ -526,8 +528,6 @@ function TestPlan({
 }
 
 function QaCard({ taskId, qa }: { taskId: string; qa: NonNullable<Task['qa']> }) {
-  const { data: artifacts } = usePoll(() => api.artifacts(taskId), 60000, [taskId])
-  const shots = (artifacts ?? []).filter((a) => a.kind === 'screenshot')
   const tone = qa.skipped ? 'text-muted' : qa.ok ? 'text-ok' : 'text-bad'
   return (
     <Card className="space-y-2 p-3">
@@ -544,29 +544,79 @@ function QaCard({ taskId, qa }: { taskId: string; qa: NonNullable<Task['qa']> })
           ))}
         </ul>
       )}
-      {shots.length > 0 && (
-        <div className="no-scrollbar -mx-1 flex snap-x gap-2 overflow-x-auto px-1">
-          {shots.map((a) => (
-            <a
-              key={a.id}
-              href={api.artifactUrl(a.url)}
-              target="_blank"
-              rel="noreferrer"
-              className="w-16 shrink-0 snap-start"
-              title={a.name.replace(/^https?:\/\/[^/]+/, '') || '/'}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={api.artifactUrl(a.url)}
-                alt={a.name}
-                loading="lazy"
-                className="aspect-[390/844] w-full rounded-lg border border-line object-cover object-top"
-              />
-            </a>
-          ))}
-        </div>
-      )}
+      <Shots taskId={taskId} pm={false} />
     </Card>
+  )
+}
+
+const ACCEPTANCE: Record<Acceptance['state'], { title: string; tone: string }> = {
+  checking: { title: 'PM проверяет на stage', tone: 'text-accent' },
+  fixing: { title: 'PM нашёл замечания и отправил доработку', tone: 'text-warn' },
+  accepted: { title: 'PM проверил и принял', tone: 'text-ok' },
+  concerns: { title: 'PM: замечания остались', tone: 'text-warn' },
+  failed: { title: 'PM не смог проверить', tone: 'text-muted' },
+}
+
+/** The PM's check on stage before the owner's: what it found, its screenshots. */
+function AcceptanceCard({ task: t }: { task: Task }) {
+  const a = t.acceptance!
+  const { title, tone } = ACCEPTANCE[a.state] ?? ACCEPTANCE.failed
+  return (
+    <Card className="space-y-2 p-4">
+      <div className={cx('text-sm font-semibold', tone)}>
+        {a.state === 'checking' && <Loader2 size={14} className="mr-1.5 inline animate-spin align-[-2px]" />}
+        {title}
+        {a.state === 'fixing' && a.fix_task && (
+          <>
+            {' '}
+            <Link href={`/tasks/${a.fix_task.id}`} className="text-accent hover:opacity-80">
+              #{a.fix_task.ticket_number}
+            </Link>
+          </>
+        )}
+      </div>
+      {a.state === 'checking' && (
+        <p className="text-sm text-muted">Проходит план проверки как вы, с телефона. Позовёт вас, когда примет.</p>
+      )}
+      {a.state !== 'checking' && a.summary && <p className="text-[15px] leading-relaxed">{a.summary}</p>}
+      {a.state !== 'checking' && a.state !== 'accepted' && (a.issues?.length ?? 0) > 0 && (
+        <ul className="list-disc space-y-1 pl-5 text-sm">
+          {a.issues!.map((i) => (
+            <li key={i}>{i}</li>
+          ))}
+        </ul>
+      )}
+      <Shots taskId={t.id} pm />
+    </Card>
+  )
+}
+
+/** Screenshots of the task: the stage QA's, or the PM's ("PM: …"). */
+function Shots({ taskId, pm }: { taskId: string; pm: boolean }) {
+  const { data: artifacts } = usePoll(() => api.artifacts(taskId), 60000, [taskId])
+  const shots = (artifacts ?? []).filter((a) => a.kind === 'screenshot' && a.name.startsWith('PM: ') === pm)
+  if (shots.length === 0) return null
+  return (
+    <div className="no-scrollbar -mx-1 flex snap-x gap-2 overflow-x-auto px-1">
+      {shots.map((a) => (
+        <a
+          key={a.id}
+          href={api.artifactUrl(a.url)}
+          target="_blank"
+          rel="noreferrer"
+          className="w-16 shrink-0 snap-start"
+          title={a.name.replace(/^PM: /, '').replace(/^https?:\/\/[^/]+/, '') || '/'}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={api.artifactUrl(a.url)}
+            alt={a.name}
+            loading="lazy"
+            className="aspect-[390/844] w-full rounded-lg border border-line object-cover object-top"
+          />
+        </a>
+      ))}
+    </div>
   )
 }
 

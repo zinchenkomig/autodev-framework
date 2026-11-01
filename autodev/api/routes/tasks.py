@@ -92,6 +92,9 @@ class TaskResponse(BaseModel):
     pending_fix: str | None  # kind of the queued fix round, if any
     pm: bool  # the PM thinks the task through before the developer starts
     brief: str | None  # the PM's brief the developer followed
+    # The PM's check on stage before the owner's: {"state": checking|fixing|accepted|concerns|failed,
+    # "summary", "issues": [titles], "fixes", "fix_task": {"id", "ticket_number"}}
+    acceptance: dict | None
     qa: dict | None  # {"ok": bool, "problems": [...], "skipped": str | None} after stage QA
     # The task's code with its follow-ups as one GitHub compare: {"url", "tasks"}, or {"error"}
     # when a follow-up doesn't replay; None while there's a single PR.
@@ -166,6 +169,7 @@ def to_response(task: Task, parent: Task | None = None, waiting: list[Task] = ()
         pending_fix=fix.get("kind") if isinstance(fix, dict) else None,
         pm=pm.enabled(task),
         brief=pm.brief(task),
+        acceptance=pm.acceptance(task),
         qa=(task.metadata_ or {}).get("qa"),
         full_diff=(task.metadata_ or {}).get("full_diff"),
         test_plan=[] if with_main else (task.metadata_ or {}).get("test_plan") or [],

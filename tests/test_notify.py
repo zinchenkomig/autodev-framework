@@ -56,3 +56,17 @@ async def test_follow_up_on_stage_sends_the_main_task_plan(sent) -> None:
 
 def test_summary_markdown_becomes_telegram_html():
     assert notify._markdown("**Ключевые решения** <x> `a<b`") == "<b>Ключевые решения</b> &lt;x&gt; <code>a&lt;b</code>"
+
+
+async def test_accepted_says_what_the_pm_found(sent) -> None:
+    ok = task(test_plan=["Открой stage"], acceptance={"state": "accepted", "summary": "Прошёл план <без> ошибок"})
+    await notify.accepted(ok, None, screenshot=b"png")
+    text = sent.await_args_list[0].args[0]
+    assert text.startswith("✅") and "PM проверил и принял" in text and "&lt;без&gt;" in text
+    assert sent.await_args_list[0].kwargs["photo"] == b"png" and sent.await_count == 2  # and the plan
+
+    sent.reset_mock()
+    left = {"state": "concerns", "fixes": 2, "summary": "Почти", "issues": ["Иконка ±"]}
+    await notify.accepted(task(acceptance=left), None)
+    text = sent.await_args.args[0]
+    assert text.startswith("⚠️") and "после 2 доработок" in text and "• Иконка ±" in text

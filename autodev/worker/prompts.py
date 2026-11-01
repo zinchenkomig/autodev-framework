@@ -294,6 +294,82 @@ def pm_brief(task: Task, project: Project, main: Task | None, history: list[str]
     return "\n".join(parts)
 
 
+ACCEPT_SYSTEM = """\
+You are AutoDev's product manager, accepting a change on stage before the
+product owner sees it. The owner will check it by its test plan, often from a
+phone. Your job: check it first, as they would, and send back what they would
+send back — so they only get work that is done.
+
+How to work:
+- Open the stage site in a real headless browser with a phone-sized viewport
+  (390×844, touch) and walk the test plan step by step, through the UI, the way
+  the owner would. Use Python Playwright with the interpreter given below; write
+  small scripts and run them. Save a screenshot of every important screen as
+  PNG into the screenshots directory given below (01-….png, 02-….png, at most 8).
+  Look at the screenshots yourself (Read the PNG) — judge what is on screen,
+  not only the DOM.
+- The current directory holds a read-only checkout of the stage branch: read the
+  code to find labels and routes when the UI is unclear. Never edit files,
+  commit, push, or change anything on stage beyond the test data a normal user
+  would create while following the plan.
+- Check against what was asked and the brief: does the main scenario work end to
+  end, do the acceptance criteria hold, do labels and icons match what happens,
+  is it obvious where to go and what a control does, does it fit a phone screen,
+  do the owner's product principles hold.
+- Ask for changes only for what the owner would really send back: something
+  broken, missing from the request or the brief, wrong, or confusing. Small
+  polish you would not bother the owner with is fine — mention it in the
+  summary and accept.
+- If stage can't be reached or the plan can't be followed (needs a login you
+  don't have, data you can't create), say so in the summary and accept: the
+  owner will check it.
+
+Return:
+- verdict: "accepted" or "changes";
+- summary: in Russian, 1-3 sentences for the owner: what you checked and how it went;
+- issues (for "changes"): one item per problem, in Russian: title, and a
+  description that is the whole brief for a developer who won't see this
+  session — what is wrong now (where on screen), what it should be instead,
+  how to check.
+"""
+
+
+def acceptance(main: Task, children: list[Task], project: Project, python: str, shots: str) -> str:
+    """Prompt for the PM's acceptance of a main task (with its landed follow-ups) on stage."""
+    parts = [
+        f"# Accept main task #{main.ticket_number} on stage: {main.title}",
+        "",
+        f"Stage: {project.stage_url}",
+        f"Python with Playwright and Chromium: `{python}`",
+        f"Screenshots directory: `{shots}`",
+        "",
+        "## What the owner asked",
+        (main.description or "").strip()[:4000] or "(only the title)",
+    ]
+    if pm.brief(main):
+        parts += ["", "## The PM's brief", pm.brief(main).strip()[:6000]]
+    if main.summary:
+        parts += ["", "## What the developer did", main.summary.strip()[:3000]]
+    for child in children:
+        asked = (child.description or "").split("\n\n---\n")[0].strip()
+        parts += ["", f"## Follow-up #{child.ticket_number} ({child.created_by}): {child.title}", asked[:2000]]
+        if child.summary:
+            parts += ["", "Done: " + child.summary.strip()[:1500]]
+    plan = (main.metadata_ or {}).get("test_plan") or []
+    if plan:
+        parts += ["", "## The test plan the owner will follow"]
+        parts += [f"{i}. {step}" for i, step in enumerate(plan, 1)]
+    previous = pm.acceptance(main) or {}
+    if previous.get("issues"):
+        parts += ["", "## What you sent back last time (check it is fixed now)"]
+        parts += [f"- {issue}" for issue in previous["issues"]]
+    if project.principles:
+        parts += ["", "## The owner's product principles", project.principles.strip()]
+    if project.instructions:
+        parts += ["", "## Project instructions", project.instructions.strip()]
+    return "\n".join(parts)
+
+
 CHAT_SYSTEM = """\
 You are AutoDev's assistant in a chat with the product owner. AutoDev is the owner's
 system where agents implement tasks the owner sends from a phone and ship them to
