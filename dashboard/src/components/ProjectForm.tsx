@@ -50,6 +50,10 @@ export function ProjectForm({
       await onSubmit(
         {
           ...p,
+          stage_url: orNull(p.stage_url ?? ''),
+          model: orNull(p.model ?? ''),
+          principles: orNull(p.principles ?? ''),
+          instructions: orNull(p.instructions ?? ''),
           repos: [{ name: r.name.trim(), version_url: orNull(r.version_url ?? ''), setup: orNull(r.setup ?? '') }],
         },
         newRepo ?? undefined,
@@ -167,7 +171,7 @@ export function ProjectForm({
             type="url"
             placeholder="https://stage.example.com"
             value={p.stage_url ?? ''}
-            onChange={(e) => set('stage_url', orNull(e.target.value))}
+            onChange={(e) => set('stage_url', e.target.value || null)}
             className={inputClass}
           />
         </Field>
@@ -175,7 +179,7 @@ export function ProjectForm({
           <input
             placeholder="opus / sonnet"
             value={p.model ?? ''}
-            onChange={(e) => set('model', orNull(e.target.value))}
+            onChange={(e) => set('model', e.target.value || null)}
             className={inputClass}
           />
         </Field>
@@ -216,7 +220,7 @@ export function ProjectForm({
         <textarea
           rows={4}
           value={p.principles ?? ''}
-          onChange={(e) => set('principles', orNull(e.target.value))}
+          onChange={(e) => set('principles', e.target.value || null)}
           placeholder={'- Подписи и иконки совпадают с тем, что реально происходит\n- Меньше настроек и переходов, очевидное поведение по умолчанию'}
           className={inputClass}
         />
@@ -226,7 +230,7 @@ export function ProjectForm({
         <textarea
           rows={4}
           value={p.instructions ?? ''}
-          onChange={(e) => set('instructions', orNull(e.target.value))}
+          onChange={(e) => set('instructions', e.target.value || null)}
           className={inputClass}
         />
       </Field>
