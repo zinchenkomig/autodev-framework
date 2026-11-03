@@ -1,7 +1,7 @@
 'use client'
 
-import { X } from 'lucide-react'
-import { useEffect } from 'react'
+import { ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { useEffect, useRef } from 'react'
 import { cx } from '@/lib/format'
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -83,6 +83,98 @@ export function Sheet({
           </button>
         </div>
         {children}
+      </div>
+    </div>
+  )
+}
+
+/** Full-screen image viewer over the page: arrows / swipe to flip, Escape or a tap on the backdrop to close. */
+export function Lightbox({
+  images,
+  index,
+  onIndex,
+  onClose,
+}: {
+  images: { src: string; caption?: string }[]
+  index: number | null
+  onIndex: (i: number) => void
+  onClose: () => void
+}) {
+  const open = index !== null
+  const touchX = useRef<number | null>(null)
+  const go = (d: number) => index !== null && images.length > 1 && onIndex((index + d + images.length) % images.length)
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+      else if (e.key === 'ArrowLeft') go(-1)
+      else if (e.key === 'ArrowRight') go(1)
+    }
+    document.addEventListener('keydown', onKey)
+    const overflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = overflow
+    }
+  })
+
+  if (index === null || !images[index]) return null
+  const img = images[index]
+  const many = images.length > 1
+  return (
+    <div
+      className="fixed inset-0 z-50 flex flex-col bg-black/90 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
+      role="dialog"
+      aria-modal="true"
+      aria-label={img.caption || 'Изображение'}
+      onClick={onClose}
+      onTouchStart={(e) => (touchX.current = e.touches[0].clientX)}
+      onTouchEnd={(e) => {
+        if (touchX.current === null) return
+        const dx = e.changedTouches[0].clientX - touchX.current
+        touchX.current = null
+        if (Math.abs(dx) > 50) go(dx < 0 ? 1 : -1)
+      }}
+    >
+      <div className="flex items-center gap-2 p-2 text-sm text-white/80">
+        <span className="min-w-0 flex-1 truncate px-2">{img.caption}</span>
+        {many && (
+          <span className="shrink-0 tabular-nums">
+            {index + 1} / {images.length}
+          </span>
+        )}
+        <button onClick={onClose} className="shrink-0 rounded-full p-2 hover:bg-white/10" aria-label="Закрыть">
+          <X size={20} />
+        </button>
+      </div>
+      <div className="relative flex min-h-0 flex-1 items-center justify-center px-2 pb-2">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={img.src}
+          alt={img.caption ?? ''}
+          className="max-h-full max-w-full rounded-lg object-contain"
+          onClick={(e) => e.stopPropagation()}
+        />
+        {many && (
+          <>
+            <button
+              onClick={(e) => (e.stopPropagation(), go(-1))}
+              className="absolute left-2 hidden rounded-full bg-black/50 p-2 text-white hover:bg-black/70 sm:block"
+              aria-label="Предыдущее"
+            >
+              <ChevronLeft size={24} />
+            </button>
+            <button
+              onClick={(e) => (e.stopPropagation(), go(1))}
+              className="absolute right-2 hidden rounded-full bg-black/50 p-2 text-white hover:bg-black/70 sm:block"
+              aria-label="Следующее"
+            >
+              <ChevronRight size={24} />
+            </button>
+          </>
+        )}
       </div>
     </div>
   )
