@@ -24,7 +24,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ChatSheet } from '@/components/Chat'
 import { Inline, Markdown } from '@/components/Markdown'
-import { Badge, Button, Card, ErrorNote, Sheet, inputClass } from '@/components/ui'
+import { Badge, Button, Card, ErrorNote, Lightbox, Sheet, inputClass } from '@/components/ui'
 import { api, type Acceptance, type LogEntry, type Task } from '@/lib/api'
 import { FIX_KIND, PRIORITY, STATUS, ago, cx, dateTime, time } from '@/lib/format'
 import { usePoll } from '@/lib/hooks'
@@ -594,18 +594,23 @@ function AcceptanceCard({ task: t }: { task: Task }) {
 /** Screenshots of the task: the stage QA's, or the PM's ("PM: …"). */
 function Shots({ taskId, pm }: { taskId: string; pm: boolean }) {
   const { data: artifacts } = usePoll(() => api.artifacts(taskId), 60000, [taskId])
+  const [open, setOpen] = useState<number | null>(null)
   const shots = (artifacts ?? []).filter((a) => a.kind === 'screenshot' && a.name.startsWith('PM: ') === pm)
   if (shots.length === 0) return null
+  const caption = (name: string) => name.replace(/^PM: /, '').replace(/^https?:\/\/[^/]+/, '') || '/'
   return (
     <div className="no-scrollbar -mx-1 flex snap-x gap-2 overflow-x-auto px-1">
-      {shots.map((a) => (
+      {shots.map((a, i) => (
         <a
           key={a.id}
           href={api.artifactUrl(a.url)}
-          target="_blank"
-          rel="noreferrer"
+          onClick={(e) => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
+            e.preventDefault()
+            setOpen(i)
+          }}
           className="w-16 shrink-0 snap-start"
-          title={a.name.replace(/^PM: /, '').replace(/^https?:\/\/[^/]+/, '') || '/'}
+          title={caption(a.name)}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -616,6 +621,12 @@ function Shots({ taskId, pm }: { taskId: string; pm: boolean }) {
           />
         </a>
       ))}
+      <Lightbox
+        images={shots.map((a) => ({ src: api.artifactUrl(a.url), caption: caption(a.name) }))}
+        index={open}
+        onIndex={setOpen}
+        onClose={() => setOpen(null)}
+      />
     </div>
   )
 }
