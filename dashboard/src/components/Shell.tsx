@@ -1,6 +1,6 @@
 'use client'
 
-import { FolderGit2, Inbox, LayoutGrid, Settings } from 'lucide-react'
+import { FolderGit2, Inbox, LayoutGrid, MessagesSquare, Settings } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { api } from '@/lib/api'
@@ -10,6 +10,7 @@ import { fetchInbox } from '@/lib/inbox'
 
 const NAV = [
   { href: '/', label: 'Задачи', icon: LayoutGrid },
+  { href: '/chats', label: 'Чаты', icon: MessagesSquare },
   { href: '/inbox', label: 'Ждут меня', icon: Inbox },
   { href: '/projects', label: 'Проекты', icon: FolderGit2 },
   { href: '/settings', label: 'Настройки', icon: Settings },
@@ -91,7 +92,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <main className="mx-auto max-w-7xl px-4 pb-28 pt-4 sm:pb-10">{children}</main>
 
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden">
-        <div className="grid grid-cols-4">
+        <div className="grid grid-cols-5">
           {NAV.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}

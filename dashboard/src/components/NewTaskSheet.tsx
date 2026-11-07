@@ -1,5 +1,6 @@
 'use client'
 
+import { MessageCircleQuestion } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { api, type Priority, type Project, type Task } from '@/lib/api'
 import { PRIORITY } from '@/lib/format'
@@ -12,12 +13,15 @@ export function NewTaskSheet({
   projects,
   defaultProject,
   onCreated,
+  onDiscuss,
 }: {
   open: boolean
   onClose: () => void
   projects: Project[]
   defaultProject: string | null
   onCreated: (task: Task) => void
+  /** Talk it over before creating a task; `chatId` is the chat started with the typed text. */
+  onDiscuss: (projectId: string, chatId: string | null) => void
 }) {
   const [projectId, setProjectId] = useState('')
   const [text, setText] = useState('')
@@ -58,6 +62,23 @@ export function NewTaskSheet({
       setText('')
       setPriority('normal')
       onCreated(task)
+      onClose()
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function discuss() {
+    if (!project) return
+    const trimmed = text.trim()
+    setBusy(true)
+    setError(null)
+    try {
+      const chat = trimmed ? await api.createChat('project', project.id, trimmed) : null
+      setText('')
+      onDiscuss(project.id, chat?.id ?? null)
       onClose()
     } catch (err) {
       setError((err as Error).message)
@@ -120,9 +141,17 @@ export function NewTaskSheet({
             <p className="text-sm text-warn">Проект на паузе — задача подождёт, пока его не включат.</p>
           )}
           <ErrorNote error={error} />
-          <Button type="submit" variant="primary" disabled={busy || !text.trim()} className="w-full">
-            {busy ? 'Создаю…' : 'В работу'}
-          </Button>
+          <div className="flex gap-2">
+            <Button type="button" disabled={busy} onClick={discuss} className="flex-1">
+              <MessageCircleQuestion size={16} /> Обсудить
+            </Button>
+            <Button type="submit" variant="primary" disabled={busy || !text.trim()} className="flex-1">
+              {busy ? 'Создаю…' : 'В работу'}
+            </Button>
+          </div>
+          <p className="text-center text-xs text-muted">
+            «Обсудить» — сначала посоветоваться с агентом: задача появится, только когда вы её подтвердите.
+          </p>
         </form>
       )}
     </Sheet>

@@ -482,7 +482,7 @@ class ChatState(enum.StrEnum):
 
 
 class Chat(Base):
-    """A conversation with an agent about something: a task now, a project or anything later.
+    """A conversation with an agent about something: a task, a project, anything later.
 
     ``subject``/``subject_id`` name what it is about (see :mod:`autodev.chats`), which decides
     the agent's context and the actions it may propose.
@@ -491,7 +491,7 @@ class Chat(Base):
     __tablename__ = "chats"
 
     id: Mapped[uuid.UUID] = mapped_column(_UUID(), primary_key=True, default=uuid.uuid4)
-    subject: Mapped[str] = mapped_column(String(30), nullable=False)  # "task"
+    subject: Mapped[str] = mapped_column(String(30), nullable=False)  # "task", "project"
     subject_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     project_id: Mapped[str | None] = mapped_column(
         String(100), ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True

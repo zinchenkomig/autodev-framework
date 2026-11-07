@@ -1,9 +1,10 @@
 'use client'
 
-import { ArrowLeft, CheckCircle2, Clock, ExternalLink, Globe, Loader2, Rocket, XCircle } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Clock, ExternalLink, Globe, Loader2, MessageCircleQuestion, Rocket, XCircle } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { useState } from 'react'
+import { ProjectChatSheet } from '@/components/Chat'
 import { ProjectForm } from '@/components/ProjectForm'
 import { SecretsCard } from '@/components/SecretsCard'
 import { TaskCard } from '@/components/TaskCard'
@@ -20,6 +21,7 @@ export default function ProjectPage() {
   const releases = usePoll(() => api.releases(id), 8000, [id])
   const tasks = usePoll(() => api.tasks(id), 10000, [id])
   const [editing, setEditing] = useState(false)
+  const [discussing, setDiscussing] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -58,6 +60,9 @@ export default function ProjectPage() {
           <h1 className="text-xl font-semibold">{p.name}</h1>
           <div className="text-sm text-muted">{p.repos.map((r) => r.name).join(', ')}</div>
         </div>
+        <Button size="sm" onClick={() => setDiscussing(true)}>
+          <MessageCircleQuestion size={15} /> Обсудить
+        </Button>
         {p.stage_url && (
           <a href={p.stage_url} target="_blank" rel="noreferrer">
             <Button size="sm">
@@ -152,6 +157,8 @@ export default function ProjectPage() {
           </Card>
         )}
       </section>
+
+      <ProjectChatSheet open={discussing} onClose={() => setDiscussing(false)} projectId={p.id} onChange={tasks.refresh} />
     </div>
   )
 }

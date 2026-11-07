@@ -117,11 +117,21 @@
 
 ## Chats
 
-A chat is a conversation with an agent about a *subject* (`autodev/chats.py`). Today the subject is a
-task: «Спросить» on the task page lists its chats, a chat per question («Новый вопрос»; ❔ next to a
-test-plan step starts one quoting the step). A finished chat stays in the list with what it came to
-(«доработать → #N»), and a new one starts without its conversation: what earlier chats decided
-reaches it through the task's context (its follow-ups, and every approved or rejected proposal).
+A chat is a conversation with an agent about a *subject* (`autodev/chats.py`).
+
+- **A task**: «Спросить» on the task page lists its chats, a chat per question («Новый вопрос»; ❔ next
+  to a test-plan step starts one quoting the step).
+- **A project**: for thinking something through before there is a task. «Обсудить» in the new-task
+  sheet starts a chat with what the owner typed there (empty: the list of earlier ones), «Обсудить» on
+  the project page lists them. The agent explains how things work now and recommends an approach;
+  when the owner settles on one it proposes `new_task`, whose description carries what was decided.
+
+The «Чаты» page (`/chats`) is the single way in: all chats of all projects, task ones included, newest
+first with a project filter, and a box that starts a new one about the chosen project.
+
+A finished chat stays in the list with what it came to («доработать → #N»), and a new one starts
+without its conversation: what earlier chats decided reaches it through the subject's context (a
+task's follow-ups, the project's tasks, and every approved or rejected proposal).
 
 - The API stores the owner's message and marks the chat `queued`. A chat slot in the worker
   (`AUTODEV_CHAT_SLOTS`, default 2; not paused with the developers) claims it and runs one Claude turn.
@@ -135,7 +145,7 @@ reaches it through the task's context (its follow-ups, and every approved or rej
 - The agent never changes anything itself: it returns `{reply, proposals}`. A proposal (a follow-up to
   the task, a new task) waits in its message until the owner taps approve; then the API applies it
   and adds an event message the agent sees next turn.
-- To chat about something else (a project's planning chat…), add a `Subject` with its `topic()` and
+- To chat about something else, add a `Subject` with its `topic()` and
   actions to `SUBJECTS`; the API, the chat slots and the dashboard's `<ChatSheet>` work as they are.
 
 ## Subscription limits
