@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import type { NewRepo, ProjectInput, Repo } from '@/lib/api'
+import type { NewRepo, ProjectInput, Repo, ScoutMode } from '@/lib/api'
 import { cx } from '@/lib/format'
 import { Button, ErrorNote, Field, inputClass } from './ui'
 
@@ -16,10 +16,18 @@ export const EMPTY_PROJECT: ProjectInput = {
   instructions: null,
   pm: true,
   principles: null,
+  scout: 'off',
+  stage_limit: 10,
   model: null,
   max_parallel: 1,
   enabled: true,
 }
+
+const SCOUT_MODES: { value: ScoutMode; label: string; hint: string }[] = [
+  { value: 'off', label: 'Выключен', hint: 'Сам не ходит. Можно запустить кнопкой на странице проекта: находки станут предложениями.' },
+  { value: 'propose', label: 'Предлагает', hint: 'Когда проект простаивает, ищет, что поправить. В работу идёт только то, что вы примете.' },
+  { value: 'auto', label: 'Сам в работу', hint: 'Всё, что нашёл, сразу идёт в разработку и на stage, без вашего решения. Релиз в прод остаётся за вами.' },
+]
 
 const orNull = (v: string) => (v.trim() ? v.trim() : null)
 
@@ -212,6 +220,37 @@ export function ProjectForm({
           <span className="block text-muted">Значение по умолчанию для новых задач; у задачи можно выключить.</span>
         </span>
       </label>
+
+      <div className="space-y-3 rounded-2xl border border-line p-3">
+        <Field label="Скаут" hint={SCOUT_MODES.find((m) => m.value === p.scout)?.hint}>
+          <div className="flex flex-wrap gap-2">
+            {SCOUT_MODES.map((mode) => (
+              <button
+                key={mode.value}
+                type="button"
+                onClick={() => set('scout', mode.value)}
+                className={cx(
+                  'rounded-full border px-3 py-1.5 text-sm',
+                  p.scout === mode.value ? 'border-accent bg-accent text-accent-fg' : 'border-line bg-surface text-muted',
+                )}
+              >
+                {mode.label}
+              </button>
+            ))}
+          </div>
+        </Field>
+        <Field label="Лимит задач на stage" hint="Вместе с доработками, задачами в работе и предложениями. Дальше скаут ждёт релиза; ваши задачи лимит не держит.">
+          <input
+            type="number"
+            required
+            min={1}
+            max={100}
+            value={p.stage_limit || ''}
+            onChange={(e) => set('stage_limit', Number(e.target.value))}
+            className={inputClass}
+          />
+        </Field>
+      </div>
 
       <Field
         label="Принципы продукта"

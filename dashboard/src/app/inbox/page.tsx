@@ -1,6 +1,6 @@
 'use client'
 
-import { AlertTriangle, Eye, Globe, Rocket } from 'lucide-react'
+import { AlertTriangle, Eye, Globe, Rocket, Telescope } from 'lucide-react'
 import Link from 'next/link'
 import { useMemo } from 'react'
 import { ProjectChips } from '@/components/ProjectChips'
@@ -22,6 +22,7 @@ export default function InboxPage() {
     const counts = new Map<string, number>()
     const bump = (id: string | null) => id && counts.set(id, (counts.get(id) ?? 0) + 1)
     inbox.check.forEach((t) => bump(t.project_id))
+    inbox.proposed.forEach((t) => bump(t.project_id))
     inbox.failed.forEach((t) => bump(t.project_id))
     inbox.release.forEach((r) => bump(r.project.id))
     return inbox.projects.filter((p) => counts.has(p.id)).map((p) => ({ id: p.id, name: p.name, count: counts.get(p.id)! }))
@@ -32,9 +33,10 @@ export default function InboxPage() {
   const data = useMemo(() => {
     if (!inbox || project === ALL) return inbox
     const check = inbox.check.filter((t) => t.project_id === project)
+    const proposed = inbox.proposed.filter((t) => t.project_id === project)
     const failed = inbox.failed.filter((t) => t.project_id === project)
     const release = inbox.release.filter((r) => r.project.id === project)
-    return { ...inbox, check, failed, release, total: check.length + failed.length + release.length }
+    return { ...inbox, check, proposed, failed, release, total: check.length + proposed.length + failed.length + release.length }
   }, [inbox, project])
   const multiProject = project === ALL && chips.length > 1
 
@@ -54,6 +56,14 @@ export default function InboxPage() {
       {data && data.check.length > 0 && (
         <Section icon={<Eye size={16} className="text-ok" />} title="Проверить на stage" count={data.check.length}>
           {data.check.map((t) => (
+            <TaskCard key={t.id} task={t} showProject={multiProject} />
+          ))}
+        </Section>
+      )}
+
+      {data && data.proposed.length > 0 && (
+        <Section icon={<Telescope size={16} className="text-accent" />} title="Решить, что брать в работу" count={data.proposed.length}>
+          {data.proposed.map((t) => (
             <TaskCard key={t.id} task={t} showProject={multiProject} />
           ))}
         </Section>

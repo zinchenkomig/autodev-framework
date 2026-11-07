@@ -1,7 +1,7 @@
 import { AlertTriangle, CheckCircle2, CornerDownRight, GitPullRequest, ListChecks, Loader2, RotateCw, Wrench } from 'lucide-react'
 import Link from 'next/link'
 import type { Task } from '@/lib/api'
-import { FIX_KIND, PRIORITY, STATUS, ago, cx } from '@/lib/format'
+import { FIX_KIND, PRIORITY, SCOUT_KIND, STATUS, ago, cx } from '@/lib/format'
 import { Badge } from './ui'
 
 /** followUps, active: the main task's follow-ups stacked into its card (see lib/stack). */
@@ -58,6 +58,7 @@ export function TaskCard({
           {working && <Loader2 size={12} className="animate-spin" />}
           {s.label}
         </Badge>
+        {task.scout?.kind && <Badge tone="neutral">{SCOUT_KIND[task.scout.kind]}</Badge>}
         {shown.pending_fix && shown.status === 'queued' && (
           <Badge tone="warn">
             <RotateCw size={12} />

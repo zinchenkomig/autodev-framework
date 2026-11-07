@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     chat_slots: int = Field(default=2, validation_alias="AUTODEV_CHAT_SLOTS")
     chat_timeout: int = Field(default=10 * 60, validation_alias="AUTODEV_CHAT_TIMEOUT")
     max_fix_attempts: int = Field(default=3, validation_alias="AUTODEV_MAX_FIX_ATTEMPTS")
+    # Scout: seconds between runs on an idle project, and after a run that found nothing.
+    scout_interval: int = Field(default=60 * 60, validation_alias="AUTODEV_SCOUT_INTERVAL")
+    scout_idle_interval: int = Field(default=24 * 60 * 60, validation_alias="AUTODEV_SCOUT_IDLE_INTERVAL")
     # How long a PR may sit without any check run before it is merged anyway.
     checks_grace_seconds: int = Field(default=120, validation_alias="AUTODEV_CHECKS_GRACE")
     ci_timeout: int = Field(default=60 * 60, validation_alias="AUTODEV_CI_TIMEOUT")

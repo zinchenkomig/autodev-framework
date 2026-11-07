@@ -4,6 +4,8 @@ import { api, type Project, type Task } from './api'
 export interface Inbox {
   /** On stage, ready for the owner's check (follow-ups are checked with their main task). */
   check: Task[]
+  /** What the scout found: take it into work or reject it. */
+  proposed: Task[]
   /** Failed: retry, send a fix or cancel. */
   failed: Task[]
   /** Projects whose every change on stage is checked and no release is open yet. */
@@ -15,7 +17,7 @@ export interface Inbox {
 
 export async function fetchInbox(): Promise<Inbox> {
   const [tasks, projects, releases] = await Promise.all([
-    api.tasksIn(['on_stage', 'failed']),
+    api.tasksIn(['on_stage', 'failed', 'proposed']),
     api.projects(),
     api.releases(),
   ])
@@ -23,6 +25,7 @@ export async function fetchInbox(): Promise<Inbox> {
   // While the PM checks it on stage, it isn't the owner's turn yet.
   const check = onStage.filter((t) => !t.verified_at && t.waiting_for.length === 0 && t.acceptance?.state !== 'checking')
   const failed = tasks.filter((t) => t.status === 'failed')
+  const proposed = tasks.filter((t) => t.status === 'proposed')
   const releasing = new Set(releases.filter((r) => r.status === 'pending').map((r) => r.project_id))
   const release = projects
     .filter((p) => !releasing.has(p.id))
@@ -32,5 +35,5 @@ export async function fetchInbox(): Promise<Inbox> {
     })
     .filter((r) => r.ready)
     .map(({ project, tasks }) => ({ project, tasks }))
-  return { check, failed, release, projects, total: check.length + failed.length + release.length }
+  return { check, proposed, failed, release, projects, total: check.length + proposed.length + failed.length + release.length }
 }

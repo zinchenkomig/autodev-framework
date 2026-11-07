@@ -14,6 +14,7 @@ import { usePoll, useStoredState } from '@/lib/hooks'
 import { stack, stackStatus } from '@/lib/stack'
 
 const COLUMNS: { key: string; title: string; statuses: TaskStatus[]; limit?: number }[] = [
+  { key: 'proposed', title: 'Предложения', statuses: ['proposed'] },
   { key: 'queue', title: 'Очередь', statuses: ['queued'] },
   { key: 'work', title: 'В работе', statuses: ['in_progress'] },
   { key: 'checks', title: 'CI и деплой', statuses: ['ci', 'deploying'] },
@@ -42,7 +43,7 @@ export default function Board() {
       // On stage: what still needs a look first, already checked ones below.
       if (c.key === 'stage') items.sort((a, b) => Number(!!a.task.verified_at) - Number(!!b.task.verified_at))
       return { ...c, items: c.limit ? items.slice(0, c.limit) : items, total: items.length }
-    })
+    }).filter((c) => c.key !== 'proposed' || c.total > 0) // only when the scout has something
   }, [tasks.data])
 
   const projectList = projects.data ?? []
@@ -51,6 +52,8 @@ export default function Board() {
   const onStage = stage?.total ?? 0
   const verified = stage?.items.filter((s) => s.task.verified_at).length ?? 0
   const loading = tasks.data === null && !tasks.error
+  // The tab of a column that went away.
+  const openTab = columns.some((c) => c.key === tab) ? tab : 'work'
 
   function added(task: Task) {
     tasks.setData([task, ...(tasks.data ?? [])])
@@ -92,7 +95,7 @@ export default function Board() {
               onClick={() => setTab(c.key)}
               className={cx(
                 'flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-sm',
-                tab === c.key ? 'bg-surface font-semibold shadow-sm ring-1 ring-line' : 'text-muted',
+                openTab === c.key ? 'bg-surface font-semibold shadow-sm ring-1 ring-line' : 'text-muted',
               )}
             >
               {c.title}
@@ -110,7 +113,7 @@ export default function Board() {
           ))}
         </div>
         {columns
-          .filter((c) => c.key === tab)
+          .filter((c) => c.key === openTab)
           .map((c) => (
             <div key={c.key} className="space-y-2">
               {c.items.map((s) => (
@@ -122,7 +125,7 @@ export default function Board() {
       </div>
 
       {/* Desktop: the whole board. */}
-      <div className="hidden gap-3 lg:grid lg:grid-cols-6">
+      <div className={cx('hidden gap-3 lg:grid', columns.length > 6 ? 'lg:grid-cols-7' : 'lg:grid-cols-6')}>
         {columns.map((c) => (
           <section key={c.key} className="min-w-0 space-y-2">
             <h2 className="flex items-center gap-2 px-1 text-sm font-semibold text-muted">

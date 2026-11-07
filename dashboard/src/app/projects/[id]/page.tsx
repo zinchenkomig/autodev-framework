@@ -1,6 +1,6 @@
 'use client'
 
-import { ArrowLeft, CheckCircle2, Clock, ExternalLink, Globe, Loader2, MessageCircleQuestion, Rocket, XCircle } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Clock, ExternalLink, Globe, Loader2, MessageCircleQuestion, Rocket, Telescope, XCircle } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { useState } from 'react'
@@ -9,8 +9,8 @@ import { ProjectForm } from '@/components/ProjectForm'
 import { SecretsCard } from '@/components/SecretsCard'
 import { TaskCard } from '@/components/TaskCard'
 import { Badge, Button, Card, Empty, ErrorNote } from '@/components/ui'
-import { api, type Release } from '@/lib/api'
-import { dateTime, plural } from '@/lib/format'
+import { api, type Project, type Release } from '@/lib/api'
+import { ago, dateTime, plural } from '@/lib/format'
 import { usePoll } from '@/lib/hooks'
 import { stack } from '@/lib/stack'
 
@@ -106,6 +106,8 @@ export default function ProjectPage() {
         </section>
       )}
 
+      <ScoutCard project={p} onChange={project.refresh} />
+
       <SecretsCard projectId={p.id} />
 
       <section className="space-y-2">
@@ -160,6 +162,56 @@ export default function ProjectPage() {
 
       <ProjectChatSheet open={discussing} onClose={() => setDiscussing(false)} projectId={p.id} onChange={tasks.refresh} />
     </div>
+  )
+}
+
+const SCOUT_MODE = { off: 'выключен', propose: 'предлагает задачи', auto: 'сразу отправляет в работу' }
+
+function ScoutCard({ project, onChange }: { project: Project; onChange: () => Promise<unknown> }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const run = project.scout_run
+  const working = run?.state === 'requested' || run?.state === 'running'
+  const full = (project.stage_load ?? 0) >= project.stage_limit
+
+  async function start() {
+    setBusy(true)
+    setError(null)
+    try {
+      await api.runScout(project.id)
+      await onChange()
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card className="space-y-3 p-4">
+      <div className="flex items-center gap-2">
+        <Telescope size={18} className="text-accent" />
+        <span className="font-semibold">Скаут</span>
+        <span className="min-w-0 truncate text-sm text-muted">{SCOUT_MODE[project.scout]}</span>
+      </div>
+      <p className="text-sm text-muted">
+        Занято {project.stage_load ?? 0} из {project.stage_limit}
+        {full && ': скаут ждёт релиза'}
+      </p>
+      {run && !working && (
+        <p className="text-sm">
+          <span className={run.state === 'failed' ? 'text-bad' : 'text-muted'}>
+            {run.state === 'failed' ? 'Не получилось' : `Нашёл ${run.found ?? 0}`} · {ago(run.at)}
+          </span>
+          {run.summary && <span className="block">{run.summary}</span>}
+        </p>
+      )}
+      <Button onClick={start} disabled={busy || working || full}>
+        {working ? <Loader2 size={16} className="animate-spin" /> : <Telescope size={16} />}
+        {working ? (run?.state === 'running' ? 'Ищет…' : 'Скоро начнёт…') : 'Найти, что улучшить'}
+      </Button>
+      <ErrorNote error={error} />
+    </Card>
   )
 }
 

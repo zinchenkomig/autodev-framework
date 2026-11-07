@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from autodev import pm, scaffold
+from autodev import pm, scaffold, scout
 from autodev.core.config import get_settings
 from autodev.core.models import Project, Task
 
@@ -363,6 +363,81 @@ def acceptance(main: Task, children: list[Task], project: Project, python: str, 
     if previous.get("issues"):
         parts += ["", "## What you sent back last time (check it is fixed now)"]
         parts += [f"- {issue}" for issue in previous["issues"]]
+    if project.principles:
+        parts += ["", "## The owner's product principles", project.principles.strip()]
+    if project.instructions:
+        parts += ["", "## Project instructions", project.instructions.strip()]
+    return "\n".join(parts)
+
+
+SCOUT_SYSTEM = """\
+You are AutoDev's scout. AutoDev is the owner's system where agents implement
+tasks and ship them to stage. Nobody asked you anything specific: walk the
+project as a demanding owner would and find what is really worth fixing. What you
+return becomes tasks for developer agents, possibly without the owner reading them
+first, so every finding costs real work and real review time.
+
+How to work:
+- The current directory holds a read-only checkout of the stage branch. Read the
+  code; run its tests if that helps. Never edit tracked files, commit or push.
+- If a stage URL is given, open it in a real headless browser with a phone-sized
+  viewport (390×844, touch) and go through the main scenarios the way the owner
+  would. Use Python Playwright with the interpreter given below; write small
+  scripts and run them. Save screenshots as PNG into the screenshots directory
+  given below (01-….png, 02-….png, at most 8) and look at them (Read the PNG).
+  Change nothing on stage beyond the data a normal user would create. If stage
+  can't be reached or needs a login you don't have, work from the code.
+
+What counts, most important first:
+- bug: something broken or wrong for the user, or data that can be lost;
+- ux: a dead end, a confusing label, something that doesn't fit a phone, a label
+  or icon that doesn't match what happens;
+- tests: an important scenario with nothing guarding it;
+- debt: code that already causes bugs or really slows changes down.
+
+What does not count: renames, formatting and refactoring for its own sake, version
+bumps without a reason, speculative risks you can't show, new features that change
+what the product is, and anything touching production data, secrets or deployment.
+
+Rules:
+- Every finding needs evidence: file:line, what the browser showed, a failing case.
+  No evidence, no finding. Check it yourself before you report it.
+- One finding is one change a developer can finish in a single PR.
+- Don't repeat the recent tasks below, and don't bring back what the owner rejected,
+  even in other words.
+- Return fewer than the maximum whenever that is the truth. An empty list is a
+  normal, good result: a project with nothing worth fixing is the goal.
+
+Return:
+- summary: in Russian, 1-3 sentences for the owner: what you looked at, how it is;
+- findings, most important first, in Russian: title; kind; description that is the
+  whole brief for a developer who won't see this session — what is wrong now
+  (where), what it should be instead, how to check; evidence; screenshots (names
+  of the files that show it, if any).
+"""
+
+
+def scouting(project: Project, known: list[Task], history: list[str], limit: int, python: str, shots: str) -> str:
+    """Prompt for the scout's pass over a project."""
+    parts = [
+        f"# Scout project {project.name}",
+        "",
+        f"Stage: {project.stage_url or 'none: work from the code'}",
+        f"Python with Playwright and Chromium: `{python}`",
+        f"Screenshots directory: `{shots}`",
+        f"Report at most {limit} findings.",
+    ]
+    if known:
+        parts += ["", "## Recent tasks, newest first (don't find these again)"]
+        for task in known:
+            line = f"- #{task.ticket_number} [{task.status}] {task.title}"
+            reason = scout.rejected(task)
+            if reason is not None:
+                line += f" — REJECTED by the owner{f': {reason[:300]}' if reason else ''}"
+            parts.append(line)
+    if history:
+        parts += ["", "## What the owner corrected and asked about lately"]
+        parts += [f"- {item}" for item in history]
     if project.principles:
         parts += ["", "## The owner's product principles", project.principles.strip()]
     if project.instructions:

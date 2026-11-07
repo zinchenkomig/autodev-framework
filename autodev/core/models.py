@@ -140,8 +140,10 @@ class TaskStatus(enum.StrEnum):
     queued → in_progress → ci → deploying → on_stage → released
     A fix round (red CI, merge conflict, owner feedback) sends the task back
     to ``queued`` with a pending fix in ``metadata["fix"]``.
+    A scout's finding starts in ``proposed`` and is taken into the queue or rejected.
     """
 
+    PROPOSED = "proposed"  # the scout found it, waits for the owner's decision
     QUEUED = "queued"
     IN_PROGRESS = "in_progress"  # Claude Code is working on it
     CI = "ci"  # PR open, waiting for checks, then auto-merge into stage
@@ -214,6 +216,11 @@ class Project(Base):
     pm: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     # The owner's product taste for the PM: what they expect without saying it every time.
     principles: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The scout finds tasks on its own: off | propose | auto (see autodev/scout.py).
+    scout: Mapped[str] = mapped_column(String(10), nullable=False, default="off", server_default="off")
+    # The scout stops at this many tasks on stage or on their way there, follow-ups included.
+    stage_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=10, server_default="10")
+    scout_run: Mapped[dict | None] = mapped_column(_JSONEncodedDict(), nullable=True)  # the last run
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
