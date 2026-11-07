@@ -181,7 +181,14 @@ async def run(ctx: WorkerContext, project_id: str) -> None:
             disallowed_tools=["Edit", "NotebookEdit"],  # Write stays: its browser scripts
         )
         prompt = prompts.scouting(project, known, history, limit, sys.executable, str(shots))
-        result = await runner.run(prompt)
+
+        async def log(level: str, message: str, details: str | None = None) -> None:
+            logger.info("scout %s: %s", project_id, message)
+
+        result = await runner.run(prompt, on_log=log)
+        # What the owner sees matters most, and an agent happy with the code doesn't look.
+        if result.ok and project.stage_url and not any(shots.glob("*.png")):
+            result = await runner.run(prompts.scout_walk(str(shots)), resume=result.session_id, on_log=log)
         if result.rate_limited:
             ctx.paused_until = result.rate_limited_until
             logger.warning("scout %s: Claude limit until %s", project_id, result.rate_limited_until)

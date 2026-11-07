@@ -36,16 +36,18 @@ def finding(title="Кнопка не работает", **kw) -> dict:
 class FakeRunner:
     calls: list[dict] = []
     result = ClaudeResult(ok=True, summary="", data={"summary": "Всё прошёл", "findings": []})
+    shots_on_call = 1  # from which session on the agent has taken screenshots
 
     def __init__(self, cwd, **kw) -> None:
         self.cwd = Path(cwd)
         self.kw = kw
 
     async def run(self, prompt, *, resume=None, on_log=None, should_cancel=None):
-        FakeRunner.calls.append({"prompt": prompt, "cwd": self.cwd, **self.kw})
-        shots = Path(prompt.split("Screenshots directory: `")[1].split("`")[0])
-        (shots / "01-cart.png").write_bytes(b"\x89PNGcart")
-        (shots / "notes.png").write_text("not a png")
+        FakeRunner.calls.append({"prompt": prompt, "cwd": self.cwd, "resume": resume, **self.kw})
+        if len(FakeRunner.calls) >= FakeRunner.shots_on_call:
+            shots = Path(prompt.split("Screenshots directory: `")[1].split("`")[0])
+            (shots / "01-cart.png").write_bytes(b"\x89PNGcart")
+            (shots / "notes.png").write_text("not a png")
         return FakeRunner.result
 
 
@@ -72,7 +74,7 @@ def ctx(monkeypatch, tmp_path, session_factory):
     monkeypatch.setattr(worker_scout.shell, "run", local_clone)
     monkeypatch.setattr(worker_scout, "ClaudeRunner", FakeRunner)
     monkeypatch.setattr(worker_scout.notify, "scouted", AsyncMock())
-    FakeRunner.calls = []
+    FakeRunner.calls, FakeRunner.shots_on_call = [], 1
     found()
     return WorkerContext(settings=Settings(AUTODEV_WORKDIR=str(tmp_path / "work")), session_factory=session_factory)
 
@@ -303,6 +305,36 @@ async def test_read_only_session_on_the_stage_branch(ctx, project, session_facto
     assert "Edit" in call["disallowed_tools"]
     assert call["schema"] is worker_scout.SCHEMA
     assert not (Path(ctx.settings.workdir) / "scout" / "shop").exists()
+
+
+async def test_no_look_at_stage_sends_it_back_to_look(ctx, project, session_factory):
+    FakeRunner.shots_on_call = 2
+    FakeRunner.result = ClaudeResult(
+        ok=True, summary="", session_id="s1", data={"summary": "Смотрел код", "findings": [finding()]}
+    )
+    await worker_scout.run(ctx, "shop")
+    assert [c["resume"] for c in FakeRunner.calls] == [None, "s1"]
+    assert "without a single screenshot" in FakeRunner.calls[1]["prompt"]
+    assert len(await tasks(session_factory)) == 1
+
+
+async def test_it_asks_to_look_only_once(ctx, project, session_factory):
+    FakeRunner.shots_on_call = 99
+    await worker_scout.run(ctx, "shop")
+    assert len(FakeRunner.calls) == 2
+    assert (await run_state(session_factory))["state"] == scout.DONE
+
+
+async def test_screenshots_mean_it_looked(ctx, project, session_factory):
+    await worker_scout.run(ctx, "shop")
+    assert len(FakeRunner.calls) == 1
+
+
+async def test_no_stage_nothing_to_look_at(ctx, project, session_factory):
+    await configure(session_factory, stage_url=None)
+    FakeRunner.shots_on_call = 99
+    await worker_scout.run(ctx, "shop")
+    assert len(FakeRunner.calls) == 1
 
 
 async def test_prompt_knows_tasks_rejections_and_principles(ctx, project, session_factory):

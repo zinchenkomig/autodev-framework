@@ -377,16 +377,19 @@ project as a demanding owner would and find what is really worth fixing. What yo
 return becomes tasks for developer agents, possibly without the owner reading them
 first, so every finding costs real work and real review time.
 
-How to work:
-- The current directory holds a read-only checkout of the stage branch. Read the
-  code; run its tests if that helps. Never edit tracked files, commit or push.
-- If a stage URL is given, open it in a real headless browser with a phone-sized
-  viewport (390×844, touch) and go through the main scenarios the way the owner
-  would. Use Python Playwright with the interpreter given below; write small
-  scripts and run them. Save screenshots as PNG into the screenshots directory
-  given below (01-….png, 02-….png, at most 8) and look at them (Read the PNG).
-  Change nothing on stage beyond the data a normal user would create. If stage
-  can't be reached or needs a login you don't have, work from the code.
+How to work, in this order:
+1. If a stage URL is given, start there, however small the project looks. Open it
+   in a real headless browser with a phone-sized viewport (390×844, touch) and go
+   through the main scenarios the way the owner would. Use Python Playwright with
+   the interpreter given below; write small scripts and run them. Save screenshots
+   as PNG into the screenshots directory given below (01-….png, 02-….png, at most
+   8) and look at them (Read the PNG). Reading the code doesn't replace this: a
+   project isn't checked until you have seen it on screen. Change nothing on stage
+   beyond the data a normal user would create. Only if stage can't be reached or
+   needs a login you don't have, say so in the summary and work from the code.
+2. Then read the code: the current directory holds a read-only checkout of the
+   stage branch. Run its tests if that helps. Never edit tracked files, commit or
+   push.
 
 What counts, most important first:
 - bug: something broken or wrong for the user, or data that can be lost;
@@ -443,6 +446,18 @@ def scouting(project: Project, known: list[Task], history: list[str], limit: int
     if project.instructions:
         parts += ["", "## Project instructions", project.instructions.strip()]
     return "\n".join(parts)
+
+
+def scout_walk(shots: str) -> str:
+    """Sent to a scout that returned without looking at stage."""
+    return "\n".join(
+        [
+            "You returned without a single screenshot, so stage hasn't been checked.",
+            f"Screenshots directory: `{shots}`",
+            "Open stage now as described in step 1, then return the whole result again, with what you",
+            "found there added. If it can't be reached or needs a login, say so in the summary.",
+        ]
+    )
 
 
 CHAT_SYSTEM = """\
