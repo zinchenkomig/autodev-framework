@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import re
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from autodev import scaffold, secrets
+from autodev import scaffold, scout, secrets
 from autodev.api.database import get_session
 from autodev.api.routes.releases import ReleaseResponse, release_to_response
 from autodev.core.config import RepoSpec, get_settings
@@ -38,6 +38,10 @@ class ProjectBody(BaseModel):
     # The PM thinks new tasks through before the developer starts; the default for new tasks.
     pm: bool = True
     principles: str | None = None  # the owner's product principles, for the PM and the developer
+    # The scout finds tasks on its own: proposes them, or sends them straight to development.
+    scout: Literal["off", "propose", "auto"] = "off"
+    # It stops at this many tasks on stage or on their way there, follow-ups included.
+    stage_limit: int = Field(default=10, ge=1, le=100)
     model: str | None = None
     max_parallel: int = Field(default=1, ge=1, le=10)
     enabled: bool = True
@@ -88,6 +92,8 @@ class ProjectCreate(ProjectBody):
 class ProjectResponse(ProjectBody):
     id: str
     task_counts: dict[str, int]
+    scout_run: dict | None = None  # the last run: {state, at, found, summary, ...}
+    stage_load: int | None = None  # what counts against stage_limit (a single project's response)
     created_at: datetime
     updated_at: datetime
 
@@ -102,7 +108,7 @@ async def _counts(session: AsyncSession) -> dict[str, dict[str, int]]:
     return counts
 
 
-def to_response(project: Project, counts: dict[str, int] | None = None) -> ProjectResponse:
+def to_response(project: Project, counts: dict[str, int] | None = None, load: int | None = None) -> ProjectResponse:
     return ProjectResponse(
         id=project.id,
         name=project.name,
@@ -114,6 +120,10 @@ def to_response(project: Project, counts: dict[str, int] | None = None) -> Proje
         instructions=project.instructions,
         pm=project.pm,
         principles=project.principles,
+        scout=project.scout,
+        stage_limit=project.stage_limit,
+        scout_run=project.scout_run,
+        stage_load=load,
         model=project.model,
         max_parallel=project.max_parallel,
         enabled=project.enabled,
@@ -215,7 +225,7 @@ async def _branch_sha(gh: GitHubClient, repo: str, branch: str) -> str:
 @router.get("/{project_id}", summary="Get a project")
 async def get_project(project_id: str, session: Annotated[AsyncSession, Depends(get_session)]) -> ProjectResponse:
     project = await _load(session, project_id)
-    return to_response(project, (await _counts(session)).get(project.id))
+    return to_response(project, (await _counts(session)).get(project.id), await scout.stage_load(session, project.id))
 
 
 @router.put("/{project_id}", summary="Update a project")
@@ -236,6 +246,20 @@ async def delete_project(project_id: str, session: Annotated[AsyncSession, Depen
         raise HTTPException(409, "Project has tasks — disable it instead")
     await session.execute(delete(Chat).where(Chat.subject == "project", Chat.subject_id == project_id))
     await session.delete(project)
+
+
+@router.post("/{project_id}/scout", summary="Run the scout now", status_code=202)
+async def run_scout(project_id: str, session: Annotated[AsyncSession, Depends(get_session)]) -> ProjectResponse:
+    """Doesn't wait for the project to go idle; the stage limit still holds."""
+    project = await _load(session, project_id)
+    if not project.enabled:
+        raise HTTPException(409, "Агенты выключены для этого проекта")
+    if not scout.active(project):
+        if await scout.room(session, project) == 0:
+            raise HTTPException(409, f"Лимит заполнен: {project.stage_limit} задач на stage и в работе")
+        scout.request(project)
+        await session.flush()
+    return to_response(project, (await _counts(session)).get(project.id), await scout.stage_load(session, project.id))
 
 
 @router.post("/{project_id}/release", summary="Ship stage to production", status_code=201)

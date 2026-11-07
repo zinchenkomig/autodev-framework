@@ -34,6 +34,7 @@
 | `autodev/core/models.py` | `Project`, `Task` (statuses), `Release`, logs, transitions |
 | `autodev/core/config.py` | env `Settings`, `autodev.yaml` schema |
 | `autodev/worker/loop.py` | slots, claiming, recovery after restart |
+| `autodev/worker/scout.py` | the scout's pass over a project |
 | `autodev/worker/developer.py` | one development round: checkout → (PM brief) → agent → commit → push → PR |
 | `autodev/pm.py`, `autodev/worker/brief.py` | the PM: per-task switch, the owner's history, the brief session |
 | `autodev/worker/acceptor.py` | the PM accepts a main task on stage before the owner is notified |
@@ -114,6 +115,28 @@
   plan starts the check over; on failure the old plan stays. A follow-up landing meanwhile keeps
   its new steps.
 - **Pause everything**: toggle the `developer` agent off in the dashboard (pauses the planner too).
+
+## Scout
+
+The scout writes tasks instead of following them (`autodev/scout.py`, `autodev/worker/scout.py`).
+The `scout` loop runs one read-only session at a time: a clone of the stage branch, a phone-sized browser
+on stage, and structured findings, each with evidence. A finding without evidence, or titled like a task
+the project already has, is dropped; a run files at most `MAX_FINDINGS`.
+
+- **Mode** (`Project.scout`): `propose` files findings as `proposed`, which `claim()` never picks up, until
+  the owner approves (`queued`) or rejects them (`cancelled`, the reason in `metadata["scout"]["rejected"]`).
+  `auto` files them straight as `queued`. `off` runs only from the dashboard's button, and proposes.
+- **When**: a project is due when nothing is open or `proposed`, the PM isn't checking anything, there is
+  room under the limit and `AUTODEV_SCOUT_INTERVAL` has passed (`AUTODEV_SCOUT_IDLE_INTERVAL` after a run
+  that found nothing). The button skips all of that except the limit. Pausing the developers pauses the scout.
+- **The brake** (`Project.stage_limit`, default 10): tasks `on_stage`, open or `proposed`, follow-ups included,
+  plus the scout's own `failed` ones. The scout never files past it; it doesn't hold back the owner's tasks.
+  Releases stay with the owner, so an unattended project fills up to the limit and stops.
+- **Memory**: the prompt lists the project's recent tasks and rejections. Rejections also go to
+  `pm.history`, so the PM learns from them too.
+- Scout tasks are `low` priority and go through the usual pipeline (the PM's brief and acceptance included).
+- The last run is in `Project.scout_run` (`requested`, `running`, `done`, `failed`). A rate limit or a
+  restart leaves it `requested`, so it runs again.
 
 ## Chats
 

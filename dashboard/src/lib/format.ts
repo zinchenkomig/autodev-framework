@@ -1,6 +1,7 @@
 import type { Priority, TaskStatus } from './api'
 
 export const STATUS: Record<TaskStatus, { label: string; tone: string }> = {
+  proposed: { label: 'Предложение', tone: 'info' },
   queued: { label: 'В очереди', tone: 'neutral' },
   in_progress: { label: 'В работе', tone: 'info' },
   ci: { label: 'Проверка CI', tone: 'warn' },
@@ -16,6 +17,13 @@ export const PRIORITY: Record<Priority, string> = {
   high: 'Высокий',
   normal: 'Обычный',
   low: 'Низкий',
+}
+
+export const SCOUT_KIND: Record<string, string> = {
+  bug: 'Баг',
+  ux: 'Удобство',
+  tests: 'Тесты',
+  debt: 'Техдолг',
 }
 
 export const FIX_KIND: Record<string, string> = {

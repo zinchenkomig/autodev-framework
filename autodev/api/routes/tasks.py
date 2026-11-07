@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from autodev import pm, review
+from autodev import pm, review, scout
 from autodev.api.database import get_session
 from autodev.core.models import (
     MERGED_STATUSES,
@@ -51,6 +51,10 @@ class TaskUpdate(BaseModel):
     repo: str | None = None
     project_id: str | None = None
     pm: bool | None = None
+
+
+class RejectRequest(BaseModel):
+    reason: str = ""  # taught to the scout and the PM: why this isn't wanted
 
 
 class FeedbackRequest(BaseModel):
@@ -95,6 +99,7 @@ class TaskResponse(BaseModel):
     # The PM's check on stage before the owner's: {"state": checking|fixing|accepted|concerns|failed,
     # "summary", "issues": [titles], "fixes", "fix_task": {"id", "ticket_number"}}
     acceptance: dict | None
+    scout: dict | None  # the scout's finding: {kind, evidence, rejected: the owner's reason}
     qa: dict | None  # {"ok": bool, "problems": [...], "skipped": str | None} after stage QA
     # The task's code with its follow-ups as one GitHub compare: {"url", "tasks"}, or {"error"}
     # when a follow-up doesn't replay; None while there's a single PR.
@@ -170,6 +175,7 @@ def to_response(task: Task, parent: Task | None = None, waiting: list[Task] = ()
         pm=pm.enabled(task),
         brief=pm.brief(task),
         acceptance=pm.acceptance(task),
+        scout=(task.metadata_ or {}).get(scout.KEY),
         qa=(task.metadata_ or {}).get("qa"),
         full_diff=(task.metadata_ or {}).get("full_diff"),
         test_plan=[] if with_main else (task.metadata_ or {}).get("test_plan") or [],
@@ -336,6 +342,28 @@ async def cancel_task(task_id: str, session: Annotated[AsyncSession, Depends(get
     return await respond_one(session, task)
 
 
+@router.post("/{task_id}/approve", summary="Take the scout's proposal into work")
+async def approve_task(task_id: str, session: Annotated[AsyncSession, Depends(get_session)]) -> TaskResponse:
+    task = await load_task(session, task_id, lock=True)
+    if task.status != TaskStatus.PROPOSED:
+        raise HTTPException(409, f"Can't approve a task in {task.status}")
+    move(session, task, TaskStatus.QUEUED, "approved by owner")
+    return await respond_one(session, task)
+
+
+@router.post("/{task_id}/reject", summary="Reject the scout's proposal")
+async def reject_task(
+    task_id: str, body: RejectRequest, session: Annotated[AsyncSession, Depends(get_session)]
+) -> TaskResponse:
+    task = await load_task(session, task_id, lock=True)
+    if task.status != TaskStatus.PROPOSED:
+        raise HTTPException(409, f"Can't reject a task in {task.status}")
+    metadata = dict(task.metadata_ or {})
+    metadata[scout.KEY] = {**(metadata.get(scout.KEY) or {}), "rejected": body.reason.strip()}
+    move(session, task, TaskStatus.CANCELLED, "rejected by owner", metadata_=metadata)
+    return await respond_one(session, task)
+
+
 @router.post("/{task_id}/retry", summary="Run a failed or cancelled task again")
 async def retry_task(task_id: str, session: Annotated[AsyncSession, Depends(get_session)]) -> TaskResponse:
     task = await load_task(session, task_id, lock=True)
@@ -393,7 +421,7 @@ async def request_changes(session: AsyncSession, task: Task, text: str, by: str 
         move(session, task, TaskStatus.QUEUED, "owner feedback", metadata_=metadata, error=None)
         return task
 
-    if task.status == TaskStatus.QUEUED and not task.branch:
+    if task.status in (TaskStatus.QUEUED, TaskStatus.PROPOSED) and not task.branch:
         task.description = f"{task.description or ''}\n\n{text}".strip()
         return task
 

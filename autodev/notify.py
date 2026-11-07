@@ -7,7 +7,7 @@ import logging
 import re
 
 from autodev.core.config import get_settings
-from autodev.core.models import Project, Release, Task
+from autodev.core.models import Project, Release, Task, TaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +86,16 @@ async def accepted(main: Task, project: Project | None, screenshot: bytes | None
     if (main.metadata_ or {}).get("test_plan"):
         button = {"text": "✅ Проверено", "callback_data": f"ok:{main.id}"}
         await _send(test_plan_text(main), reply_markup={"inline_keyboard": [[button]]})
+
+
+async def scouted(project: Project, tasks: list[Task], summary: str) -> None:
+    """The scout filed *tasks*: already in the queue, or proposals waiting for the owner."""
+    taken = tasks[0].status == TaskStatus.QUEUED
+    head = "взял в работу" if taken else "предлагает"
+    text = f"🔭 Скаут {head}: <b>{html.escape(project.name)}</b>"
+    if summary:
+        text += f"\n\n{html.escape(summary[:500])}"
+    await _send(text + "\n\n" + "\n".join(f"• {_task_link(t)}" for t in tasks))
 
 
 async def failed(task: Task, reason: str) -> None:

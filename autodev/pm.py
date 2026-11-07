@@ -24,7 +24,8 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from autodev.core.models import Chat, ChatMessage, Task
+from autodev import scout
+from autodev.core.models import Chat, ChatMessage, Task, TaskStatus
 
 #: Task metadata: whether the PM works on the task (absent: the project's default).
 KEY = "pm"
@@ -68,6 +69,17 @@ async def history(session: AsyncSession, project_id: str, limit: int = 25) -> li
     )
     for created_at, text, title in questions.all():
         items.append((created_at, f"Asked in the chat about «{title}»: {_flat(text)}"))
+    declined = await session.execute(
+        select(Task)
+        .where(Task.project_id == project_id, Task.created_by == scout.AUTHOR, Task.status == TaskStatus.CANCELLED)
+        .order_by(Task.status_changed_at.desc())
+        .limit(limit)
+    )
+    for task in declined.scalars():
+        reason = scout.rejected(task)
+        if reason is not None:
+            why = f": {_flat(reason)}" if reason else ""
+            items.append((task.status_changed_at, f"Rejected the scout's proposal «{task.title}»{why}"))
     items.sort(key=lambda item: item[0])
     return [text for _, text in items[-limit:]]
 

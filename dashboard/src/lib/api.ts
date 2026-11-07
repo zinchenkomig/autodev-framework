@@ -3,6 +3,7 @@
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? ''
 
 export type TaskStatus =
+  | 'proposed'
   | 'queued'
   | 'in_progress'
   | 'ci'
@@ -42,6 +43,7 @@ export interface Task {
   pm: boolean // the PM thinks the task through before the developer starts
   brief: string | null // the PM's brief the developer followed
   acceptance: Acceptance | null // the PM's check on stage before the owner's
+  scout: ScoutFinding | null // the scout found this one
   qa: { ok: boolean; problems: string[]; skipped: string | null } | null
   // The task's code with its follow-ups as one GitHub compare; error when a follow-up doesn't replay
   full_diff: { url?: string; tasks?: number; error?: string } | null
@@ -100,6 +102,23 @@ export interface Repo {
   setup?: string | null
 }
 
+export type ScoutFindingKind = 'bug' | 'ux' | 'tests' | 'debt'
+
+export interface ScoutFinding {
+  kind?: ScoutFindingKind
+  evidence?: string
+  rejected?: string // the owner's reason
+}
+
+export type ScoutMode = 'off' | 'propose' | 'auto'
+
+export interface ScoutRun {
+  state: 'requested' | 'running' | 'done' | 'failed'
+  at: string
+  found?: number
+  summary?: string
+}
+
 export interface Project {
   id: string
   name: string
@@ -111,13 +130,17 @@ export interface Project {
   instructions: string | null
   pm: boolean // new tasks get the PM by default
   principles: string | null // the owner's product principles for the PM and the developer
+  scout: ScoutMode
+  stage_limit: number // the scout stops at this many tasks on stage or on their way there
+  scout_run: ScoutRun | null
+  stage_load: number | null // what counts against stage_limit
   model: string | null
   max_parallel: number
   enabled: boolean
   task_counts: Partial<Record<TaskStatus, number>>
 }
 
-export type ProjectInput = Omit<Project, 'task_counts'>
+export type ProjectInput = Omit<Project, 'task_counts' | 'scout_run' | 'stage_load'>
 
 /** Create the repo on GitHub; a brief becomes the project's first task. */
 export interface NewRepo {
@@ -257,6 +280,7 @@ export const api = {
     request<Project>(`/api/projects/${id}`, { method: 'PUT', body: JSON.stringify(p) }),
   deleteProject: (id: string) => request<void>(`/api/projects/${id}`, { method: 'DELETE' }),
   release: (id: string) => post<Release>(`/api/projects/${id}/release`),
+  runScout: (id: string) => post<Project>(`/api/projects/${id}/scout`),
   secrets: (id: string) => request<ProjectSecrets>(`/api/projects/${id}/secrets`),
   setSecret: (id: string, env: SecretEnv, name: string, value: string) =>
     request<ProjectSecrets>(`/api/projects/${id}/secrets/${env}/${encodeURIComponent(name)}`, {
@@ -281,6 +305,8 @@ export const api = {
   deleteTask: (id: string) => request<void>(`/api/tasks/${id}`, { method: 'DELETE' }),
   cancelTask: (id: string) => post<Task>(`/api/tasks/${id}/cancel`),
   retryTask: (id: string) => post<Task>(`/api/tasks/${id}/retry`),
+  approveTask: (id: string) => post<Task>(`/api/tasks/${id}/approve`),
+  rejectTask: (id: string, reason: string) => post<Task>(`/api/tasks/${id}/reject`, { reason }),
   feedback: (id: string, text: string) => post<Task>(`/api/tasks/${id}/feedback`, { text }),
   checkStep: (id: string, step: number, done: boolean) => post<Task>(`/api/tasks/${id}/plan/${step}`, { done }),
   refreshPlan: (id: string) => post<Task>(`/api/tasks/${id}/plan/refresh`),

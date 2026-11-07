@@ -18,6 +18,7 @@ import {
   RotateCw,
   Square,
   Trash2,
+  X,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
@@ -26,7 +27,7 @@ import { ChatSheet } from '@/components/Chat'
 import { Inline, Markdown } from '@/components/Markdown'
 import { Badge, Button, Card, ErrorNote, Lightbox, Sheet, inputClass } from '@/components/ui'
 import { api, type Acceptance, type LogEntry, type Task } from '@/lib/api'
-import { FIX_KIND, PRIORITY, STATUS, ago, cx, dateTime, time } from '@/lib/format'
+import { FIX_KIND, PRIORITY, SCOUT_KIND, STATUS, ago, cx, dateTime, time } from '@/lib/format'
 import { usePoll } from '@/lib/hooks'
 
 const MERGED = ['deploying', 'on_stage', 'released']
@@ -81,7 +82,13 @@ export default function TaskPage() {
   const waiting = t.waiting_for.length > 0
   // Follow-ups are checked with their main task, by its one plan.
   const withMain = !!t.parent
-  const canFeedback = merged || (['ci', 'failed', 'cancelled'].includes(t.status) && t.pr_number) || (t.status === 'queued' && !t.branch)
+  const canFeedback = merged || (['ci', 'failed', 'cancelled'].includes(t.status) && t.pr_number) || (['queued', 'proposed'].includes(t.status) && !t.branch)
+  const proposed = t.status === 'proposed'
+
+  function reject() {
+    const reason = prompt('Почему не нужно? Скаут и PM это учтут. Можно оставить пустым.')
+    if (reason !== null) act(() => api.rejectTask(t!.id, reason))
+  }
 
   return (
     <div className="mx-auto max-w-3xl space-y-4 lg:max-w-6xl">
@@ -125,6 +132,16 @@ export default function TaskPage() {
       </div>
 
       <div className="flex flex-wrap gap-2">
+        {proposed && (
+          <>
+            <Button size="sm" variant="primary" disabled={busy} onClick={() => act(() => api.approveTask(t.id))}>
+              <Check size={15} /> В работу
+            </Button>
+            <Button size="sm" disabled={busy} onClick={reject}>
+              <X size={15} /> Отклонить
+            </Button>
+          </>
+        )}
         {t.full_diff?.url && (
           <a href={t.full_diff.url} target="_blank" rel="noreferrer">
             <Button size="sm" title={`Код задачи и доработок одним сравнением на GitHub (${t.full_diff.tasks} PR)`}>
@@ -162,7 +179,7 @@ export default function TaskPage() {
           <MessageCircleQuestion size={15} /> Спросить{asked > 0 && <span className="text-muted">· {asked}</span>}
           {undecided && <span className="h-2 w-2 rounded-full bg-warn" title="Есть предложение агента, ждёт решения" />}
         </Button>
-        {t.status === 'queued' && !t.branch && !t.brief && (
+        {['queued', 'proposed'].includes(t.status) && !t.branch && !t.brief && (
           <Button
             size="sm"
             disabled={busy}
@@ -204,12 +221,22 @@ export default function TaskPage() {
             </Card>
           )}
 
+          {t.scout?.rejected !== undefined && t.status === 'cancelled' && (
+            <Card className="p-4 text-sm">
+              <span className="font-semibold text-muted">Вы отклонили</span>
+              {t.scout.rejected && `: ${t.scout.rejected}`}
+            </Card>
+          )}
+
           {t.description && (
             <Card className="p-4">
-              <div className="mb-1.5 text-sm font-semibold text-muted">{t.parent ? 'Что попросили' : 'Задача'}</div>
+              <div className="mb-1.5 text-sm font-semibold text-muted">
+                {t.created_by === 'scout' ? `Нашёл скаут${t.scout?.kind ? ` · ${SCOUT_KIND[t.scout.kind]}` : ''}` : t.parent ? 'Что попросили' : 'Задача'}
+              </div>
               <Collapsible>
                 <Markdown text={t.parent ? request(t) : t.description} className="text-[15px] leading-relaxed" />
               </Collapsible>
+              {t.created_by === 'scout' && <Shots taskId={t.id} by="Скаут" />}
             </Card>
           )}
 
@@ -544,7 +571,7 @@ function QaCard({ taskId, qa }: { taskId: string; qa: NonNullable<Task['qa']> })
           ))}
         </ul>
       )}
-      <Shots taskId={taskId} pm={false} />
+      <Shots taskId={taskId} />
     </Card>
   )
 }
@@ -586,18 +613,20 @@ function AcceptanceCard({ task: t }: { task: Task }) {
           ))}
         </ul>
       )}
-      <Shots taskId={t.id} pm />
+      <Shots taskId={t.id} by="PM" />
     </Card>
   )
 }
 
-/** Screenshots of the task: the stage QA's, or the PM's ("PM: …"). */
-function Shots({ taskId, pm }: { taskId: string; pm: boolean }) {
+const SHOT_AUTHOR = /^(PM|Скаут): /
+
+/** Screenshots of the task: the stage QA's, or the PM's ("PM: …") or the scout's ("Скаут: …"). */
+function Shots({ taskId, by }: { taskId: string; by?: 'PM' | 'Скаут' }) {
   const { data: artifacts } = usePoll(() => api.artifacts(taskId), 60000, [taskId])
   const [open, setOpen] = useState<number | null>(null)
-  const shots = (artifacts ?? []).filter((a) => a.kind === 'screenshot' && a.name.startsWith('PM: ') === pm)
+  const shots = (artifacts ?? []).filter((a) => a.kind === 'screenshot' && (by ? a.name.startsWith(`${by}: `) : !SHOT_AUTHOR.test(a.name)))
   if (shots.length === 0) return null
-  const caption = (name: string) => name.replace(/^PM: /, '').replace(/^https?:\/\/[^/]+/, '') || '/'
+  const caption = (name: string) => name.replace(SHOT_AUTHOR, '').replace(/^https?:\/\/[^/]+/, '') || '/'
   return (
     <div className="no-scrollbar -mx-1 flex snap-x gap-2 overflow-x-auto px-1">
       {shots.map((a, i) => (

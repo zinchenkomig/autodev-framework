@@ -20,7 +20,7 @@ from autodev.core.models import (
     TaskStatus,
     TaskTransition,
 )
-from autodev.worker import acceptor, chat, combined, planner
+from autodev.worker import acceptor, chat, combined, planner, scout
 from autodev.worker.context import WorkerContext
 from autodev.worker.delivery import Delivery
 from autodev.worker.developer import develop
@@ -72,6 +72,7 @@ class Worker:
             self.delivery_loop(),
             self.planner_loop(),
             self.acceptance_loop(),
+            self.scout_loop(),
             self.combined_loop(),
         )
         logger.info("worker stopped")
@@ -105,6 +106,7 @@ class Worker:
                 ("delivery", "delivery"),
                 (planner.AGENT, "planner"),
                 (acceptor.AGENT, "pm"),
+                (scout.AGENT, "scout"),
             ]:
                 agent = await session.get(Agent, agent_id)
                 if agent is None:
@@ -117,6 +119,7 @@ class Worker:
     async def recover(self) -> None:
         """Tasks (and chats) left in progress by a previous process go back to the queue."""
         await chat.recover(self.ctx)
+        await scout.recover(self.ctx)
         async with self.ctx.session_factory() as session:
             rows = await session.execute(select(Task).where(Task.status == TaskStatus.IN_PROGRESS))
             for task in rows.scalars():
@@ -204,6 +207,24 @@ class Worker:
                     await self._agent_status(acceptor.AGENT, AgentStatus.IDLE, None)
             except Exception:
                 logger.exception("acceptance crashed — continuing")
+                await self._sleep(5)
+
+    async def scout_loop(self) -> None:
+        """The scout walks idle projects and finds what to fix, one at a time."""
+        while not self.stopping.is_set():
+            try:
+                runnable = not self.ctx.paused() and not self.draining() and await self.developers_enabled()
+                project_id = await scout.next_run(self.ctx) if runnable else None
+                if project_id is None:
+                    await self._sleep(self.ctx.settings.poll_interval)
+                    continue
+                await self._agent_status(scout.AGENT, AgentStatus.WORKING, None)
+                try:
+                    await scout.run(self.ctx, project_id)
+                finally:
+                    await self._agent_status(scout.AGENT, AgentStatus.IDLE, None)
+            except Exception:
+                logger.exception("scout crashed — continuing")
                 await self._sleep(5)
 
     async def chat_loop(self) -> None:

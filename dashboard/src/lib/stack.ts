@@ -9,7 +9,7 @@ export interface Stack {
 }
 
 // What still needs attention goes first: the card stands where its least finished part is.
-const URGENCY: TaskStatus[] = ['failed', 'in_progress', 'ci', 'deploying', 'queued', 'on_stage', 'released', 'cancelled']
+const URGENCY: TaskStatus[] = ['failed', 'in_progress', 'ci', 'deploying', 'queued', 'proposed', 'on_stage', 'released', 'cancelled']
 
 /** Folds follow-ups into their main task when it is in *tasks*; keeps the order of *tasks*. */
 export function stack(tasks: Task[]): Stack[] {
