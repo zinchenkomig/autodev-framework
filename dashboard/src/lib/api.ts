@@ -117,6 +117,7 @@ export interface ScoutRun {
   at: string
   found?: number
   summary?: string
+  collecting?: boolean // gathering a batch of proposals, goes on by itself
 }
 
 export interface Project {

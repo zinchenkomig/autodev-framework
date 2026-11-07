@@ -126,9 +126,12 @@ the project already has, is dropped; a run files at most `MAX_FINDINGS`.
 - **Mode** (`Project.scout`): `propose` files findings as `proposed`, which `claim()` never picks up, until
   the owner approves (`queued`) or rejects them (`cancelled`, the reason in `metadata["scout"]["rejected"]`).
   `auto` files them straight as `queued`. `off` runs only from the dashboard's button, and proposes.
-- **When**: a project is due when nothing is open or `proposed`, the PM isn't checking anything, there is
-  room under the limit and `AUTODEV_SCOUT_INTERVAL` has passed (`AUTODEV_SCOUT_IDLE_INTERVAL` after a run
-  that found nothing). The button skips all of that except the limit. Pausing the developers pauses the scout.
+- **When**: a project is due when nothing is open, the PM isn't checking anything, there is room under
+  the limit and `AUTODEV_SCOUT_INTERVAL` has passed (`AUTODEV_SCOUT_IDLE_INTERVAL` after a run that found
+  nothing).
+- **Batches** (`propose`): runs follow one another without the interval while each finds all it was asked
+  for and there is room (`scout_run["collecting"]`). Then the owner gets the whole batch in one message, and
+  no new batch starts while any proposal waits for a decision. The button skips all of that except the limit. Pausing the developers pauses the scout.
 - **The brake** (`Project.stage_limit`, default 10): tasks `on_stage`, open or `proposed`, follow-ups included,
   plus the scout's own `failed` ones. The scout never files past it; it doesn't hold back the owner's tasks.
   Releases stay with the owner, so an unattended project fills up to the limit and stops.

@@ -74,6 +74,7 @@ def ctx(monkeypatch, tmp_path, session_factory):
     monkeypatch.setattr(worker_scout.shell, "run", local_clone)
     monkeypatch.setattr(worker_scout, "ClaudeRunner", FakeRunner)
     monkeypatch.setattr(worker_scout.notify, "scouted", AsyncMock())
+    monkeypatch.setattr(worker_scout.notify, "proposals", AsyncMock())
     FakeRunner.calls, FakeRunner.shots_on_call = [], 1
     found()
     return WorkerContext(settings=Settings(AUTODEV_WORKDIR=str(tmp_path / "work")), session_factory=session_factory)
@@ -125,9 +126,7 @@ async def test_idle_project_is_due(ctx, project, session_factory, mode):
     assert await worker_scout.next_run(ctx) == "shop"
 
 
-@pytest.mark.parametrize(
-    "status", [TaskStatus.QUEUED, TaskStatus.IN_PROGRESS, TaskStatus.CI, TaskStatus.DEPLOYING, TaskStatus.PROPOSED]
-)
+@pytest.mark.parametrize("status", [TaskStatus.QUEUED, TaskStatus.IN_PROGRESS, TaskStatus.CI, TaskStatus.DEPLOYING])
 async def test_waits_while_work_or_decisions_are_open(ctx, project, session_factory, status):
     await configure(session_factory, scout=scout.AUTO)
     await add(session_factory, status=status)
@@ -245,9 +244,11 @@ async def test_propose_mode_waits_for_the_owner(ctx, project, session_factory):
     assert task.source == "agent_created"
     assert "app.py:10" in task.description
     assert task.metadata_[scout.KEY] == {"kind": "bug", "evidence": "app.py:10, клик не вызывает запрос"}
-    assert worker_scout.notify.scouted.await_count == 1
+    worker_scout.notify.scouted.assert_not_awaited()
+    worker_scout.notify.proposals.assert_awaited_once()  # found less than asked: the batch is done
     state = await run_state(session_factory)
     assert (state["state"], state["found"], state["summary"]) == (scout.DONE, 1, "Прошёл корзину")
+    assert state["collecting"] is False
 
 
 async def test_auto_mode_goes_straight_to_development(ctx, project, session_factory):
@@ -255,6 +256,70 @@ async def test_auto_mode_goes_straight_to_development(ctx, project, session_fact
     found(finding("Раз"), finding("Два", kind="ux"))
     await worker_scout.run(ctx, "shop")
     assert [t.status for t in await tasks(session_factory)] == [TaskStatus.QUEUED, TaskStatus.QUEUED]
+    worker_scout.notify.scouted.assert_awaited_once()
+    worker_scout.notify.proposals.assert_not_awaited()
+
+
+def five(start: int = 0) -> None:
+    found(*(finding(f"Находка {i}") for i in range(start, start + 5)))
+
+
+async def test_propose_mode_collects_a_batch_up_to_the_limit(ctx, project, session_factory):
+    await configure(session_factory, scout=scout.PROPOSE, stage_limit=12)
+    five()
+    await worker_scout.run(ctx, "shop")
+    assert (await run_state(session_factory))["collecting"] is True
+    worker_scout.notify.proposals.assert_not_awaited()
+    # Proposals waiting don't stop it, and it goes on without the interval.
+    assert await worker_scout.next_run(ctx) == "shop"
+
+    five(5)
+    await worker_scout.run(ctx, "shop")
+    assert await worker_scout.next_run(ctx) == "shop"
+    five(10)
+    await worker_scout.run(ctx, "shop")
+    assert "Report at most 2 findings." in FakeRunner.calls[-1]["prompt"]
+    assert len(await tasks(session_factory)) == 12
+    assert (await run_state(session_factory))["collecting"] is False
+    batch = worker_scout.notify.proposals.await_args.args[1]
+    assert len(batch) == 12
+    assert await worker_scout.next_run(ctx) is None
+
+
+async def test_next_batch_waits_until_the_owner_decided_on_all(ctx, project, session_factory):
+    await configure(session_factory, scout=scout.PROPOSE)
+    found(finding("Раз"), finding("Два"))
+    await worker_scout.run(ctx, "shop")
+    await configure(session_factory, scout_run={"state": scout.DONE, "at": ago(hours=2), "found": 2})
+    first, second = await tasks(session_factory)
+    async with session_factory() as s:
+        (await s.get(Task, first.id)).status = TaskStatus.CANCELLED
+        await s.commit()
+    assert await worker_scout.next_run(ctx) is None  # one still waits
+    async with session_factory() as s:
+        (await s.get(Task, second.id)).status = TaskStatus.CANCELLED
+        await s.commit()
+    assert await worker_scout.next_run(ctx) == "shop"
+
+
+async def test_a_failed_run_keeps_the_batch_after_the_interval(ctx, project, session_factory):
+    await configure(session_factory, scout=scout.PROPOSE)
+    five()
+    await worker_scout.run(ctx, "shop")
+    FakeRunner.result = ClaudeResult(ok=False, summary="сессия упала")
+    await worker_scout.run(ctx, "shop")
+    state = await run_state(session_factory)
+    assert (state["state"], state["collecting"]) == (scout.FAILED, True)
+    assert await worker_scout.next_run(ctx) is None
+    await configure(session_factory, scout_run={**state, "at": ago(hours=2)})
+    assert await worker_scout.next_run(ctx) == "shop"
+
+
+async def test_the_button_is_one_run_not_a_batch(ctx, project, session_factory):
+    five()
+    await worker_scout.run(ctx, "shop")
+    assert (await run_state(session_factory))["collecting"] is False
+    worker_scout.notify.proposals.assert_awaited_once()
 
 
 async def test_button_without_a_mode_proposes(ctx, project, session_factory):

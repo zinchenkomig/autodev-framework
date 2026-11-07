@@ -204,6 +204,7 @@ function ScoutCard({ project, onChange }: { project: Project; onChange: () => Pr
             {run.state === 'failed' ? 'Не получилось' : `Нашёл ${run.found ?? 0}`} · {ago(run.at)}
           </span>
           {run.summary && <span className="block">{run.summary}</span>}
+          {run.collecting && <span className="block text-muted">Собирает пачку предложений, продолжит сам.</span>}
         </p>
       )}
       <Button onClick={start} disabled={busy || working || full}>
