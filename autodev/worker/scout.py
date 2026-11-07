@@ -1,9 +1,14 @@
 """One scout pass over a project (see :mod:`autodev.scout`).
 
 A project is due when it is switched on and idle: no work in the pipeline, the PM not
-checking anything, no proposals waiting for the owner, room under the stage limit, and
-enough time passed since the last run. The owner's button skips everything but the limit.
-Scout sessions run one at a time, beside the developer slots.
+checking anything, room under the stage limit, and enough time passed since the last run.
+The owner's button skips everything but the limit. Scout sessions run one at a time,
+beside the developer slots.
+
+Proposals come as a batch: run after run, without the interval, until the limit is full
+or the scout finds less than it was asked for (``scout_run["collecting"]`` while it goes on).
+Then the owner gets the batch in one message, and the next batch starts once they have
+decided on all of it — nothing new turns up while they are going through it.
 """
 
 from __future__ import annotations
@@ -108,19 +113,28 @@ async def _due(ctx: WorkerContext, session: AsyncSession, project: Project) -> b
     if project.scout == scout.OFF:
         return False
     last = scout.last_run(project)
-    # Nothing found: the code hardly changes by the hour, don't pay to read it again.
-    empty = last.get("state") == scout.DONE and last.get("found") == 0
-    wait = ctx.settings.scout_idle_interval if empty else ctx.settings.scout_interval
+    collecting = last.get("collecting") and last.get("state") == scout.DONE
+    if collecting:
+        wait = 0
+    elif last.get("state") == scout.DONE and last.get("found") == 0:
+        # Nothing found: the code hardly changes by the hour, don't pay to read it again.
+        wait = ctx.settings.scout_idle_interval
+    else:
+        wait = ctx.settings.scout_interval
     if last.get("at") and datetime.now(UTC) - datetime.fromisoformat(last["at"]) < timedelta(seconds=wait):
         return False
-    busy = await session.scalar(
-        select(func.count())
-        .select_from(Task)
-        .where(Task.project_id == project.id, Task.status.in_({*OPEN_STATUSES, TaskStatus.PROPOSED}))
-    )
-    if busy or await _accepting(session, project.id):
+    if await _count(session, project.id, OPEN_STATUSES) or await _accepting(session, project.id):
+        return False
+    # A batch the owner is still going through: the next one waits.
+    if not last.get("collecting") and await _count(session, project.id, {TaskStatus.PROPOSED}):
         return False
     return await scout.room(session, project) > 0
+
+
+async def _count(session: AsyncSession, project_id: str, statuses) -> int:
+    return await session.scalar(
+        select(func.count()).select_from(Task).where(Task.project_id == project_id, Task.status.in_(statuses))
+    )
 
 
 async def _accepting(session: AsyncSession, project_id: str) -> bool:
@@ -142,7 +156,9 @@ async def run(ctx: WorkerContext, project_id: str) -> None:
         project = await session.get(Project, project_id)
         if project is None:
             return
-        project.scout_run = {"state": scout.RUNNING, "at": scout.now()}
+        # A failed run keeps the batch going, after the interval.
+        collecting = bool(scout.last_run(project).get("collecting"))
+        project.scout_run = {"state": scout.RUNNING, "at": scout.now(), "collecting": collecting}
         limit = min(MAX_FINDINGS, await scout.room(session, project))
         known = list(
             (
@@ -199,15 +215,37 @@ async def run(ctx: WorkerContext, project_id: str) -> None:
         summary = str(result.data.get("summary") or "").strip()
         tasks = await _file(ctx, project_id, _findings(result.data.get("findings"), known), shots)
         cost = round(result.cost_usd or 0, 2)
-        await _finish(ctx, project_id, scout.DONE, found=len(tasks), summary=summary, cost_usd=cost)
-        if tasks:
+        async with ctx.session_factory() as session:
+            project = await session.get(Project, project_id)
+            # As many as asked: there may be more. Only the mode collects batches, not the button.
+            collecting = (
+                project.scout == scout.PROPOSE and len(tasks) >= limit and await scout.room(session, project) > 0
+            )
+            batch = await _proposals(session, project_id)
+        await _finish(
+            ctx, project_id, scout.DONE, found=len(tasks), summary=summary, cost_usd=cost, collecting=collecting
+        )
+        if tasks and tasks[0].status == TaskStatus.QUEUED:
             await notify.scouted(project, tasks, summary)
+        elif batch and not collecting:
+            await notify.proposals(project, batch, summary)
     except Exception as exc:
         logger.exception("scout of %s failed", project_id)
         reason = str(exc).splitlines()[0][:300] if str(exc) else type(exc).__name__
-        await _finish(ctx, project_id, scout.FAILED, summary=f"Скаут не смог пройти проект: {reason}")
+        await _finish(
+            ctx, project_id, scout.FAILED, summary=f"Скаут не смог пройти проект: {reason}", collecting=collecting
+        )
     finally:
         shutil.rmtree(root, ignore_errors=True)
+
+
+async def _proposals(session: AsyncSession, project_id: str) -> list[Task]:
+    rows = await session.execute(
+        select(Task)
+        .where(Task.project_id == project_id, Task.status == TaskStatus.PROPOSED)
+        .order_by(Task.ticket_number)
+    )
+    return list(rows.scalars())
 
 
 def _findings(raw, known: list[Task]) -> list[dict]:
