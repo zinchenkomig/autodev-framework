@@ -148,7 +148,7 @@ export interface SystemStatus {
 }
 
 /** What a chat is about; decides the agent's context and the actions it may propose. */
-export type ChatSubject = 'task'
+export type ChatSubject = 'task' | 'project'
 
 export interface ChatProposal {
   action: string
@@ -294,6 +294,8 @@ export const api = {
   chats: (subject: ChatSubject, subjectId: string) =>
     request<Chat[]>(`/api/chats/?subject=${subject}&subject_id=${encodeURIComponent(subjectId)}`),
   /** A new chat with its first question. */
+  allChats: (projectId?: string) =>
+    request<Chat[]>(`/api/chats/?limit=100${projectId ? `&project_id=${encodeURIComponent(projectId)}` : ''}`),
   createChat: (subject: ChatSubject, subjectId: string, text: string, quote?: string | null) =>
     post<Chat>('/api/chats/', { subject, subject_id: subjectId, text, quote: quote ?? null }),
   chat: (id: string) => request<Chat>(`/api/chats/${id}`),

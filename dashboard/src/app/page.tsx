@@ -3,6 +3,7 @@
 import { Plus, Rocket } from 'lucide-react'
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
+import { ProjectChatSheet } from '@/components/Chat'
 import { NewTaskSheet } from '@/components/NewTaskSheet'
 import { ProjectChips } from '@/components/ProjectChips'
 import { TaskCard } from '@/components/TaskCard'
@@ -27,6 +28,7 @@ export default function Board() {
   const [projectFilter, setProjectFilter] = useStoredState<string>('autodev.project', ALL)
   const [tab, setTab] = useStoredState<string>('autodev.tab', 'work')
   const [creating, setCreating] = useState(false)
+  const [discussing, setDiscussing] = useState<{ projectId: string; chatId: string | null } | null>(null)
 
   const projects = usePoll(api.projects, 30000)
   const filter = projectFilter === ALL ? undefined : projectFilter
@@ -149,7 +151,18 @@ export default function Board() {
         projects={projectList}
         defaultProject={filter ?? null}
         onCreated={added}
+        onDiscuss={(projectId, chatId) => setDiscussing({ projectId, chatId })}
       />
+
+      {discussing && (
+        <ProjectChatSheet
+          open
+          onClose={() => setDiscussing(null)}
+          projectId={discussing.projectId}
+          openChat={discussing.chatId}
+          onChange={tasks.refresh}
+        />
+      )}
     </div>
   )
 }

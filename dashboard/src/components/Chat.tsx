@@ -9,14 +9,17 @@ import { Badge, Button, ErrorNote } from '@/components/ui'
 import { api, type Chat, type ChatMessage, type ChatProposal, type ChatSubject } from '@/lib/api'
 import { ago, cx, time } from '@/lib/format'
 
+export const PROJECT_CHAT_HINT =
+  'Спросите, как что-то устроено сейчас, или посоветуйтесь, как лучше сделать. Агент читает код проекта и знает, что уже в работе. Когда договоритесь — предложит задачу, а создаст только после вашего «да».'
+
 /** The list of chats, or one chat (`id` null: a new question, created when it is sent). */
 type View = { kind: 'list' } | { kind: 'chat'; id: string | null }
 
 /**
- * Chats with an agent about a subject (a task now; a project or anything later), in a
- * bottom sheet: a chat per question, the earlier ones listed with what they came to.
- * The agent answers read-only; actions it proposes wait for the owner's approval right
- * here. `quote` (e.g. a test-plan step) opens a new question about it.
+ * Chats with an agent about a subject (a task, a project), in a bottom sheet: a chat per
+ * question, the earlier ones listed with what they came to. The agent answers read-only;
+ * actions it proposes wait for the owner's approval right here. `quote` (e.g. a test-plan
+ * step) opens a new question about it, `openChat` opens that chat.
  */
 export function ChatSheet({
   open,
@@ -26,6 +29,8 @@ export function ChatSheet({
   title,
   hint,
   quote,
+  openChat,
+  onBack,
   onChange,
 }: {
   open: boolean
@@ -35,6 +40,9 @@ export function ChatSheet({
   title: string
   hint: string
   quote?: string | null
+  openChat?: string | null
+  /** Where the back arrow leads, instead of the subject's list of chats. */
+  onBack?: () => void
   /** Something changed outside the chat: a proposal was applied, a chat created or deleted. */
   onChange?: () => void
 }) {
@@ -61,10 +69,10 @@ export function ChatSheet({
     setPendingQuote(quote ?? null)
     setChat(null)
     setError(null)
-    setView(quote ? { kind: 'chat', id: null } : { kind: 'list' })
+    setView(openChat ? { kind: 'chat', id: openChat } : quote ? { kind: 'chat', id: null } : { kind: 'list' })
     /* eslint-enable react-hooks/set-state-in-effect */
-    startNew.current = !quote
-  }, [open, quote])
+    startNew.current = !quote && !openChat
+  }, [open, quote, openChat])
 
   useEffect(() => {
     if (!open) return
@@ -124,6 +132,8 @@ export function ChatSheet({
     setView(next)
   }
 
+  const back = () => (onBack ? onBack() : show({ kind: 'list' }))
+
   async function run(fn: () => Promise<Chat | void>) {
     setError(null)
     try {
@@ -164,7 +174,7 @@ export function ChatSheet({
       <div className="relative flex h-[90dvh] w-full flex-col rounded-t-3xl border border-line bg-surface shadow-2xl sm:h-[80dvh] sm:max-w-lg sm:rounded-3xl">
         <div className="flex items-center gap-1 border-b border-line px-2 py-3">
           {!listing && (
-            <button onClick={() => show({ kind: 'list' })} className="rounded-full p-2 hover:bg-surface-2" aria-label="Все вопросы">
+            <button onClick={back} className="rounded-full p-2 hover:bg-surface-2" aria-label="Все вопросы">
               <ArrowLeft size={18} />
             </button>
           )}
@@ -179,7 +189,7 @@ export function ChatSheet({
                 run(async () => {
                   await api.deleteChat(chat.id)
                   onChange?.()
-                  show({ kind: 'list' })
+                  back()
                 })
               }
               className="rounded-full p-2 text-muted hover:bg-surface-2 hover:text-fg"
@@ -286,6 +296,34 @@ export function ChatSheet({
   )
 }
 
+/** Talking something over with the agent before there is a task. */
+export function ProjectChatSheet({
+  open,
+  onClose,
+  projectId,
+  openChat,
+  onChange,
+}: {
+  open: boolean
+  onClose: () => void
+  projectId: string
+  openChat?: string | null
+  onChange?: () => void
+}) {
+  return (
+    <ChatSheet
+      open={open}
+      onClose={onClose}
+      subject="project"
+      subjectId={projectId}
+      openChat={openChat}
+      title="Обсуждения проекта"
+      hint={PROJECT_CHAT_HINT}
+      onChange={onChange}
+    />
+  )
+}
+
 /** Earlier questions, newest first, each with what it came to. */
 function ChatList({ chats, onOpen, onNew }: { chats: Chat[] | null; onOpen: (id: string) => void; onNew: () => void }) {
   if (!chats) return <Loader2 className="mx-auto mt-10 animate-spin text-muted" />
@@ -320,7 +358,7 @@ function ChatList({ chats, onOpen, onNew }: { chats: Chat[] | null; onOpen: (id:
   )
 }
 
-function ChatOutcome({ chat: c }: { chat: Chat }) {
+export function ChatOutcome({ chat: c }: { chat: Chat }) {
   if (c.state !== 'idle') {
     return (
       <Badge tone="info">

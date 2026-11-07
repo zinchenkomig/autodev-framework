@@ -443,3 +443,89 @@ async def test_next_chat_knows_what_earlier_chats_decided(client, project, sessi
     assert f"- approved new_task «Экспорт в CSV» → task #{ticket}" in prompt
     assert "- rejected follow_up «Сброс фильтра»" in prompt
     assert "Owner: Новый вопрос" in prompt and "Похоже на баг" not in prompt  # not the other chat's talk
+
+
+# ---------------------------------------------------------------------------
+# A project: thinking something through before there is a task
+# ---------------------------------------------------------------------------
+
+
+async def open_project_chat(client, text: str = "Как лучше сделать экспорт?") -> dict:
+    r = await client.post("/api/chats/", json={"subject": "project", "subject_id": "shop", "text": text})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+async def test_project_chats_are_many_and_need_a_project(client, project) -> None:
+    first = await open_project_chat(client)
+    assert first["title"] == project.name and first["project_id"] == "shop" and first["state"] == "queued"
+    second = await open_project_chat(client, "Как устроен логин?")
+    assert second["id"] != first["id"]
+    found = (await client.get("/api/chats/", params={"subject": "project", "subject_id": "shop"})).json()
+    assert [c["id"] for c in found] == [second["id"], first["id"]]
+    r = await client.post("/api/chats/", json={"subject": "project", "subject_id": "nope"})
+    assert r.status_code == 404
+
+
+async def test_all_chats_are_listed_together(client, project, session_factory) -> None:
+    task = await add_task(session_factory)
+    about_task = await open_chat(client, task)
+    about_project = await open_project_chat(client)
+    everything = (await client.get("/api/chats/")).json()
+    assert [c["id"] for c in everything] == [about_project["id"], about_task["id"]]
+    assert len((await client.get("/api/chats/", params={"project_id": "shop"})).json()) == 2
+    assert (await client.get("/api/chats/", params={"project_id": "other"})).json() == []
+
+
+async def test_deleting_a_project_deletes_its_chats(client, project) -> None:
+    chat = await open_project_chat(client)
+    assert (await client.delete("/api/projects/shop")).status_code == 204
+    assert (await client.get(f"/api/chats/{chat['id']}")).status_code == 404
+
+
+async def test_project_chat_agent_knows_the_projects_tasks(client, project, session_factory, ctx) -> None:
+    await add_task(session_factory, title="Фильтр в работе", status=TaskStatus.IN_PROGRESS)
+    await add_task(session_factory, title="Уже в проде", status=TaskStatus.RELEASED, summary="Ускорил   поиск\nзаказов")
+    await add_task(session_factory, title="Передумал", status=TaskStatus.CANCELLED)
+    await open_project_chat(client)
+    FakeRunner.results = [reply("Рекомендую фоновую выгрузку")]
+    await turn(ctx)
+
+    prompt = FakeRunner.calls[0]["prompt"]
+    assert f"## Project: {project.name}" in prompt
+    assert "[агент работает] Фильтр в работе" in prompt
+    assert "Уже в проде: Ускорил поиск заказов" in prompt
+    assert "Передумал" not in prompt
+    assert "Owner: Как лучше сделать экспорт?" in prompt
+    assert FakeRunner.options["disallowed_tools"] == chat_mod.READ_ONLY
+    assert "no task exists yet" in FakeRunner.options["system_prompt_append"]
+    assert FakeRunner.options["schema"]["properties"]["proposals"]["items"]["properties"]["action"]["enum"] == [
+        "new_task",
+        "principle",
+    ]
+
+
+async def test_approved_project_proposals(client, project, session_factory) -> None:
+    chat = await open_project_chat(client)
+    mid = await add_proposal(
+        session_factory,
+        chat["id"],
+        {"action": "new_task", "title": "Экспорт в CSV", "description": "Фоновая выгрузка: решили так"},
+        {"action": "principle", "title": "Без настроек", "description": "Меньше настроек,\nбольше умолчаний"},
+        {"action": "follow_up", "title": "Осталось от задачи", "description": "У проекта такого нет"},
+    )
+    url = f"/api/chats/{chat['id']}/messages/{mid}/proposals"
+
+    body = (await client.post(f"{url}/0", json={"approve": True})).json()
+    outcome = body["outcome"][0]
+    assert outcome["label"] == "Создать задачу" and body["pending"] == 2
+    task = (await client.get(f"/api/tasks/{outcome['task_id']}")).json()
+    assert task["title"] == "Экспорт в CSV" and task["status"] == "queued" and task["created_by"] == "chat"
+    assert task["project_id"] == "shop" and task["repo"] == "acme/shop" and task["priority"] == "normal"
+    assert task["description"].startswith("Фоновая выгрузка: решили так\n\n---\n")
+
+    assert (await client.post(f"{url}/1", json={"approve": True})).status_code == 200
+    async with session_factory() as session:
+        assert (await session.get(Project, "shop")).principles.endswith("- Меньше настроек, больше умолчаний")
+
+    assert (await client.post(f"{url}/2", json={"approve": True})).status_code == 409  # not this subject's action

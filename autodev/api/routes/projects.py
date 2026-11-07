@@ -10,14 +10,14 @@ from typing import Annotated, Any
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator, model_validator
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from autodev import scaffold, secrets
 from autodev.api.database import get_session
 from autodev.api.routes.releases import ReleaseResponse, release_to_response
 from autodev.core.config import RepoSpec, get_settings
-from autodev.core.models import Project, Task, TaskStatus
+from autodev.core.models import Chat, Project, Task, TaskStatus
 from autodev.integrations.github import GitHubClient
 from autodev.release import ReleaseError, start_release
 
@@ -234,6 +234,7 @@ async def delete_project(project_id: str, session: Annotated[AsyncSession, Depen
     project = await _load(session, project_id)
     if await session.scalar(select(func.count()).select_from(Task).where(Task.project_id == project_id)):
         raise HTTPException(409, "Project has tasks — disable it instead")
+    await session.execute(delete(Chat).where(Chat.subject == "project", Chat.subject_id == project_id))
     await session.delete(project)
 
 

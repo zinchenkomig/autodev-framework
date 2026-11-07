@@ -1,6 +1,6 @@
 """Chats with an agent about something — the reusable part.
 
-A chat is about a *subject*: a task now, a project or the whole system later. The
+A chat is about a *subject*: a task, a project, later maybe the whole system. The
 subject decides two things:
 
 - the **topic**: the agent's context (what the task is, its test plan, its follow-ups…)
@@ -156,22 +156,33 @@ async def _follow_up(session: AsyncSession, chat: Chat, proposal: dict) -> Appli
     return Applied("Добавлено в описание задачи — агент учтёт, когда возьмёт её", ref)
 
 
-async def _new_task(session: AsyncSession, chat: Chat, proposal: dict) -> Applied:
-    task = await _task(session, chat)
+async def _create_task(session: AsyncSession, proposal: dict, origin: str, **target: Any) -> Applied:
     new = Task(
         title=proposal["title"],
-        description=f"{proposal['description']}\n\n---\nFrom the chat about #{task.ticket_number}.",
-        project_id=task.project_id,
-        repo=task.repo,
-        priority=task.priority,
+        description=f"{proposal['description']}\n\n---\n{origin}",
         created_by="chat",
         status=TaskStatus.QUEUED,
         metadata_={},
+        **target,
     )
     session.add(new)
     await session.flush()
     await session.refresh(new)
     return Applied(f"Создана задача #{new.ticket_number}", {"task_id": str(new.id), "ticket_number": new.ticket_number})
+
+
+async def _new_task(session: AsyncSession, chat: Chat, proposal: dict) -> Applied:
+    task = await _task(session, chat)
+    origin = f"From the chat about #{task.ticket_number}."
+    return await _create_task(
+        session, proposal, origin, project_id=task.project_id, repo=task.repo, priority=task.priority
+    )
+
+
+def _remember(project: Project, proposal: dict) -> Applied:
+    line = f"- {' '.join(proposal['description'].split())}"
+    project.principles = f"{(project.principles or '').rstrip()}\n{line}".strip()
+    return Applied(f"Принцип добавлен в проект {project.name}: PM учтёт его в следующих задачах")
 
 
 async def _principle(session: AsyncSession, chat: Chat, proposal: dict) -> Applied:
@@ -181,9 +192,7 @@ async def _principle(session: AsyncSession, chat: Chat, proposal: dict) -> Appli
         from fastapi import HTTPException
 
         raise HTTPException(409, "У задачи нет проекта")
-    line = f"- {' '.join(proposal['description'].split())}"
-    project.principles = f"{(project.principles or '').rstrip()}\n{line}".strip()
-    return Applied(f"Принцип добавлен в проект {project.name}: PM учтёт его в следующих задачах")
+    return _remember(project, proposal)
 
 
 STATUS_TEXT = {
@@ -327,17 +336,117 @@ def task_context(task: Task, main: Task | None, children: list[Task], project: P
             parts.append(line)
 
     if project is not None:
-        repo = project.repo()
-        parts += ["", f"## Project: {project.name}"]
-        if repo:
-            parts.append(f"Repository: {repo['name']}; the current directory is its `{project.base_branch}` branch.")
-        if project.stage_url:
-            parts.append(f"Stage: {project.stage_url}")
-        if project.principles:
-            parts += ["", "The owner's product principles (already remembered):", project.principles.strip()[:3000]]
-        if project.instructions:
-            parts += ["", "Project instructions:", project.instructions.strip()[:3000]]
+        parts += ["", project_section(project)]
     return "\n".join(parts)
 
 
-SUBJECTS: dict[str, Subject] = {s.kind: s for s in (TaskSubject(),)}
+def project_section(project: Project) -> str:
+    repo = project.repo()
+    parts = [f"## Project: {project.name}"]
+    if repo:
+        parts.append(f"Repository: {repo['name']}; the current directory is its `{project.base_branch}` branch.")
+    if project.stage_url:
+        parts.append(f"Stage: {project.stage_url}")
+    if project.principles:
+        parts += ["", "The owner's product principles (already remembered):", project.principles.strip()[:3000]]
+    if project.instructions:
+        parts += ["", "Project instructions:", project.instructions.strip()[:3000]]
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# A project: thinking something through before there is a task
+# ---------------------------------------------------------------------------
+
+#: Tasks of the project the agent sees, so it knows what is already under way or just shipped.
+ACTIVE_TASKS, SHIPPED_TASKS = 30, 10
+FINISHED = (TaskStatus.RELEASED, TaskStatus.CANCELLED)
+
+
+async def _project(session: AsyncSession, chat: Chat) -> Project:
+    from fastapi import HTTPException
+
+    project = await session.get(Project, chat.subject_id, with_for_update=True) if chat.subject_id else None
+    if project is None:
+        raise HTTPException(409, "Проекта больше нет")
+    return project
+
+
+async def _project_task(session: AsyncSession, chat: Chat, proposal: dict) -> Applied:
+    project = await _project(session, chat)
+    repo = project.repo()
+    origin = "From a discussion of the project with the owner."
+    return await _create_task(session, proposal, origin, project_id=project.id, repo=repo["name"] if repo else None)
+
+
+async def _project_principle(session: AsyncSession, chat: Chat, proposal: dict) -> Applied:
+    return _remember(await _project(session, chat), proposal)
+
+
+class ProjectSubject(Subject):
+    """A project's chat: how something works now, how best to build it — before a task exists."""
+
+    kind = "project"
+    single = False
+    actions = {
+        "new_task": Action(
+            "new_task",
+            "Создать задачу",
+            "the task the conversation came to, once the owner settled on an approach or asked for it. "
+            "Several only if they are really independent. The description is the brief for a developer "
+            "who won't see this chat: what to build and why, what was decided here and which options "
+            "were dropped, how to check it. Don't paste code: they read the same repository.",
+            _project_task,
+        ),
+        "principle": Action(
+            "principle",
+            "Запомнить",
+            "remember a product principle of the owner for the whole project, when the conversation shows a "
+            "general preference the PM should apply to future tasks without being told. The description is "
+            "the principle itself: one general sentence.",
+            _project_principle,
+        ),
+    }
+
+    def instructions(self) -> str:
+        return f"""\
+This chat is about the project as a whole, and no task exists yet: the owner wants to understand how
+something works now, or to think through with you how best to do something before asking for it.
+- Read the code before answering: explain how it really works now, with the names of the files that
+  matter. Check the tasks in your context: it may be under way already.
+- When asked how to do something, recommend one way and say why. Name the alternatives only if the
+  choice is real, with what each one costs. Say what you would not do.
+- If the answer depends on something only the owner knows, ask: one or two questions at a time.
+- This conversation is the point: don't rush to a task. Propose one when the owner has settled on
+  an approach or asks for it.
+
+{super().instructions()}"""
+
+    async def topic(self, session: AsyncSession, subject_id: str | None) -> Topic | None:
+        project = await session.get(Project, subject_id) if subject_id else None
+        if project is None:
+            return None
+        ours = select(Task).where(Task.project_id == project.id).order_by(Task.status_changed_at.desc())
+        active = await session.execute(ours.where(Task.status.not_in(FINISHED)).limit(ACTIVE_TASKS))
+        shipped = await session.execute(ours.where(Task.status == TaskStatus.RELEASED).limit(SHIPPED_TASKS))
+        context = project_context(project, list(active.scalars()), list(shipped.scalars()))
+        decided = await decisions(session, self.kind, subject_id)
+        if decided:
+            context += "\n\n" + decided
+        return Topic(title=project.name, project=project, context=context)
+
+
+def project_context(project: Project, active: list[Task], shipped: list[Task]) -> str:
+    parts = [project_section(project)]
+    if active:
+        parts += ["", "### Tasks in progress (latest first)"]
+        parts += [f"- #{t.ticket_number} [{STATUS_TEXT.get(t.status, t.status)}] {t.title}" for t in active]
+    if shipped:
+        parts += ["", "### Recently released"]
+        for t in shipped:
+            done = " ".join((t.summary or "").split())[:300]
+            parts.append(f"- #{t.ticket_number} {t.title}" + (f": {done}" if done else ""))
+    return "\n".join(parts)
+
+
+SUBJECTS: dict[str, Subject] = {s.kind: s for s in (TaskSubject(), ProjectSubject())}
