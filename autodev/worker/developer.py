@@ -11,7 +11,7 @@ from sqlalchemy import select
 from autodev import notify, pm, review
 from autodev.core.claude import ClaudeResult, ClaudeRunner
 from autodev.core.models import Task, TaskStatus
-from autodev.worker import brief, prompts
+from autodev.worker import brief, prompts, reviewer
 from autodev.worker.context import WorkerContext
 from autodev.worker.workspace import Workspace, branch_name
 
@@ -120,6 +120,10 @@ async def develop(ctx: WorkerContext, task_id: uuid.UUID, slot: str) -> None:
                 return
             if not result.ok:
                 raise TaskFailed(result.summary or "Agent session failed")
+            result = await _review(ctx, task, project, fix, ws.path, log, cancelled, result, main)
+            if result.cancelled:
+                await log("warning", "⏹ Cancelled")
+                return
             fields: dict = {"session_id": result.session_id or task.session_id}
             if not fix:
                 fields["summary"] = result.summary
@@ -212,14 +216,18 @@ async def _requeue_rate_limited(
     )
 
 
-async def _run_agent(ctx, task, project, repo, deps, fix, existing, cwd, log, cancelled, main=None) -> ClaudeResult:
-    runner = ClaudeRunner(
+def _developer(ctx: WorkerContext, project, cwd: str) -> ClaudeRunner:
+    return ClaudeRunner(
         cwd,
         model=project.model or ctx.settings.model,
         timeout=ctx.settings.claude_timeout,
         env=ctx.env(),
         system_prompt_append=prompts.SYSTEM,
     )
+
+
+async def _run_agent(ctx, task, project, repo, deps, fix, existing, cwd, log, cancelled, main=None) -> ClaudeResult:
+    runner = _developer(ctx, project, cwd)
     if fix and existing and task.session_id:
         await log("info", f"🧠 Resuming session for {fix.get('kind')} fix")
         result = await runner.run(
@@ -240,6 +248,46 @@ async def _run_agent(ctx, task, project, repo, deps, fix, existing, cwd, log, ca
             prompt += "\n\n## Notes from the previous attempt\n" + fix["details"]
     await log("info", "🧠 Agent started")
     return await runner.run(prompt, on_log=log, should_cancel=cancelled)
+
+
+async def _review(ctx, task, project, fix, cwd, log, cancelled, result: ClaudeResult, main) -> ClaudeResult:
+    """The reviewer's looks at the finished change, each followed by the developer's fixes.
+
+    Returns the developer's latest result. The review only improves a working change: when it or
+    a fix session fails, the change goes on as it is.
+    """
+    if not reviewer.needed(fix):
+        return result
+    earlier: list[dict] = []
+    for _ in range(ctx.settings.review_rounds):
+        looked = await reviewer.review(ctx, task, project, fix, cwd, result.summary, earlier, log, cancelled)
+        if looked.cancelled:
+            return looked
+        if not looked.ok:
+            await log("warning", "🔍 Ревью не получилось — изменение идёт дальше без него", details=looked.summary)
+            return result
+        found = reviewer.findings(looked)
+        await log(
+            "info",
+            f"🔍 Ревью: замечаний {len(found)}, ${looked.cost_usd:.2f}",
+            details="\n\n".join(filter(None, [looked.summary, reviewer.describe(found)])) or None,
+        )
+        if not found:
+            return result
+        fixed = await _developer(ctx, project, cwd).run(
+            prompts.review_fix(reviewer.describe(found), main),
+            resume=result.session_id,
+            on_log=log,
+            should_cancel=cancelled,
+        )
+        if fixed.cancelled:
+            return fixed
+        if not fixed.ok:
+            await log("warning", "🛠 Исправить по ревью не получилось", details=fixed.summary or None)
+            return result
+        await log("info", f"🛠 Исправлено по ревью: {fixed.num_turns} turns, ${fixed.cost_usd:.2f}")
+        result, earlier = fixed, found
+    return result
 
 
 async def _load_deps(ctx: WorkerContext, task: Task) -> list[Task]:

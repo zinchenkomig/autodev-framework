@@ -42,8 +42,8 @@ Rules:
 - Follow the repository's CLAUDE.md / README conventions.
 - Run the project's tests, linters and type checks that are relevant to your change
   and fix what you broke. If a check cannot run here (missing service etc.), say so.
-- Before finishing, review your own diff critically (use a subagent for an
-  independent review when the change is non-trivial) and fix real problems.
+- Before finishing, re-read your own diff and fix real problems. An independent
+  reviewer checks it after you.
 - Commit your work with a conventional commit message. Do NOT push, do NOT open or
   merge PRs, do NOT switch branches — the orchestrator does that.
 - If the task is impossible or too ambiguous to do safely, make no changes and
@@ -292,6 +292,89 @@ def pm_brief(task: Task, project: Project, main: Task | None, history: list[str]
         parts += ["", "## Project instructions", project.instructions.strip()]
     parts += ["", 'Return status "done" and the brief.']
     return "\n".join(parts)
+
+
+REVIEW_SYSTEM = """\
+You are AutoDev's code reviewer. A developer agent has just implemented a task on
+this branch; you see the change with fresh eyes, before it goes to CI and the
+product owner. What you return goes back to the developer to fix, then you look
+again. The goal: everything the task needs is there, and nothing more.
+
+How to work:
+- The current directory is the developer's checkout. Read the diff
+  (`git diff origin/<base>...HEAD`), then the code around it: callers, the models,
+  the screens it touches, the tests. Run the tests if it helps. Never edit files,
+  commit or push.
+- Check, most important first:
+  1. Correctness and edge cases: no / one / many items, empty and wrong input,
+     repeated clicks, concurrent runs, errors from the network or the database,
+     time zones, permissions, what happens to existing data. Trace them in the
+     code; show the case that breaks.
+  2. Completeness: everything the owner asked and the brief describes works end to
+     end, through the real UI; no stubs or dead controls.
+  3. Simplicity. Developer agents overbuild, and the bugs hide in what was
+     overbuilt. Look for: abstractions, options, layers, flags and fallbacks the
+     task doesn't need; code that duplicates what the project already has (find
+     it and name it); state that can be derived; a long way round where the
+     framework or the existing code does it in a line. Name what to delete or
+     replace with what.
+  4. The user's flow: if the same goal can be reached with fewer steps, screens,
+     settings or concepts within what the owner asked, say how.
+  5. Naming and readability: every name (function, variable, field, UI label)
+     says what it is or does — not what it was in an earlier draft, not vaguer
+     or broader than it is. Code reads top to bottom without puzzles; comments
+     only where the why isn't obvious; matches the surrounding code's style.
+  6. Tests: the main scenario and the risky edge cases are covered by tests
+     that would fail if they broke.
+- Report what is worth a change, with evidence: file:line and the failing case.
+  Not taste, not formatting a linter handles, not speculative risks you can't
+  show, not new features beyond the request.
+- An empty list is a good result when the change is right. Don't pad it.
+- On a second look you get your earlier findings: check each is fixed, and don't
+  bring back what the developer deliberately left out unless it is really wrong.
+
+Return status "done", summary and findings (in Russian): kind, where, problem,
+fix — each one the whole instruction for the developer.
+"""
+
+
+def code_review(task: Task, project: Project, asked: str, done: str, earlier: str) -> str:
+    """Prompt for the reviewer's look at the branch: *asked* is the owner's change request of this
+    round, if any, *done* the developer's summary, *earlier* the reviewer's previous findings."""
+    parts = [
+        f"# Review task #{task.ticket_number}: {task.title}",
+        "",
+        "What the owner asked:",
+        (task.description or "").strip()[:4000] or "(only the title)",
+        "",
+        f"Branch `{task.branch}`; the change is `git diff origin/{project.base_branch}...HEAD`.",
+    ]
+    if asked.strip():
+        parts += ["", "## Then the owner asked for this change (this round's work)", asked.strip()[:4000]]
+    if done.strip():
+        parts += ["", "## What the developer says they did", done.strip()[:3000]]
+    brief = pm.brief(task)
+    if brief:
+        parts += ["", "## Product brief from the PM", brief.strip()[:6000]]
+    if earlier:
+        parts += ["", "## Your findings from the previous look (check they are fixed)", earlier]
+    if project.principles:
+        parts += ["", "## The owner's product principles", project.principles.strip()]
+    if project.instructions:
+        parts += ["", "## Project instructions", project.instructions.strip()]
+    return "\n".join(parts)
+
+
+def review_fix(findings: str, main: Task | None = None) -> str:
+    """Sent to the developer's session with the reviewer's findings."""
+    text = (
+        "An independent reviewer read your change. Fix every finding below that is real and commit. "
+        "If one is wrong, skip it. Then return the whole result again: summary and test_plan for the "
+        "whole task as it is now, not for these fixes.\n\n" + findings
+    )
+    if main is not None:
+        text += f"\n\nAs before, test_plan is the whole plan of main task #{main.ticket_number}."
+    return text
 
 
 ACCEPT_SYSTEM = """\

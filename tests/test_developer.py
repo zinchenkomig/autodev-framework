@@ -69,6 +69,26 @@ class FakePM:
         return FakePM.result
 
 
+class FakeReviewer:
+    """Stands in for the reviewer's ClaudeRunner (autodev.worker.reviewer); one result per look."""
+
+    calls: list[dict] = []
+    results: list[ClaudeResult] = []
+
+    def __init__(self, cwd, **kw) -> None:
+        FakeReviewer.calls.append({"cwd": cwd, **kw})
+
+    async def run(self, prompt, *, resume=None, on_log=None, should_cancel=None):
+        FakeReviewer.calls[-1]["prompt"] = prompt
+        if FakeReviewer.results:
+            return FakeReviewer.results.pop(0)
+        return clean_review()
+
+
+def clean_review() -> ClaudeResult:
+    return ClaudeResult(ok=True, summary="Всё хорошо", data={"status": "done", "findings": []})
+
+
 def write_and_commit(cwd: Path) -> None:
     (cwd / "feature.txt").write_text("new feature\n")
     git("add", "-A", cwd=cwd)
@@ -84,6 +104,9 @@ def wired(monkeypatch, remote, tmp_path, session_factory, project):
     FakePM.calls = []
     FakePM.result = ClaudeResult(ok=True, summary="", data={"status": "done", "brief": "**Что и зачем** — поиск"})
     monkeypatch.setattr(dev_mod.brief, "ClaudeRunner", FakePM)
+    FakeReviewer.calls = []
+    FakeReviewer.results = []
+    monkeypatch.setattr(dev_mod.reviewer, "ClaudeRunner", FakeReviewer)
 
     class LocalWorkspace(Workspace):
         def __init__(self, root, task_id, repo, env):
@@ -419,3 +442,88 @@ async def test_pm_reads_the_owner_recent_corrections(wired, session_factory) -> 
     t = await new_task(session_factory, metadata_={"pm": True})
     await develop(ctx, t.id, "developer-1")
     assert "Asked for a change to «Пороги»: иконка показывает ±, а проверка только вверх" in FakePM.calls[0]["prompt"]
+
+
+FINDING = {"kind": "edge-case", "where": "app.py:10", "problem": "Пустой список падает", "fix": "Вернуть []"}
+
+
+def findings_review() -> ClaudeResult:
+    return ClaudeResult(ok=True, summary="Есть баг", data={"status": "done", "findings": [FINDING]})
+
+
+def append_and_commit(cwd: Path) -> None:
+    with (cwd / "feature.txt").open("a") as f:
+        f.write("change\n")
+    git("add", "-A", cwd=cwd)
+    git("-c", "user.name=a", "-c", "user.email=a@a", "commit", "-qm", "feat: change", cwd=cwd)
+
+
+async def test_reviewer_findings_go_back_to_the_developer(wired, session_factory) -> None:
+    ctx, _, remote = wired
+    FakeRunner.behaviour = append_and_commit
+    FakeReviewer.results = [findings_review(), clean_review()]
+    t = await new_task(session_factory, description="Добавь фичу")
+    await develop(ctx, t.id, "developer-1")
+
+    t = await reload(session_factory, t.id)
+    assert t.status == TaskStatus.CI, t.error
+    first, second = FakeReviewer.calls
+    assert "Добавь фичу" in first["prompt"] and "Добавил файл" in first["prompt"]
+    assert "Edit" in first["disallowed_tools"] and "git diff origin/stage...HEAD" in first["prompt"]
+    assert "Пустой список падает" in second["prompt"]  # the second look checks the first one's findings
+    fix = FakeRunner.calls[1]
+    assert fix["resume"] == "sess-1" and "app.py:10" in fix["prompt"] and "Вернуть []" in fix["prompt"]
+    assert git("show", f"{t.branch}:feature.txt", cwd=remote) == "change\nchange\n"
+
+
+async def test_review_stops_after_its_rounds(wired, session_factory) -> None:
+    ctx, _, _ = wired
+    FakeRunner.behaviour = append_and_commit
+    FakeReviewer.results = [findings_review() for _ in range(3)]
+    t = await new_task(session_factory)
+    await develop(ctx, t.id, "developer-1")
+    assert len(FakeReviewer.calls) == ctx.settings.review_rounds == 2
+    assert len(FakeRunner.calls) == 3  # the task and a fix after each look
+    assert (await reload(session_factory, t.id)).status == TaskStatus.CI
+
+
+async def test_owner_feedback_round_is_reviewed_against_the_feedback(wired, session_factory) -> None:
+    ctx, _, _ = wired
+    t = await new_task(session_factory, metadata_={"fix": {"kind": "feedback", "details": "Сделай кнопку синей"}})
+    await develop(ctx, t.id, "developer-1")
+    assert "Сделай кнопку синей" in FakeReviewer.calls[0]["prompt"]
+
+
+async def test_ci_fix_is_not_reviewed(wired, session_factory) -> None:
+    ctx, _, _ = wired
+    t = await new_task(session_factory, metadata_={"fix": {"kind": "ci", "details": "red"}})
+    await develop(ctx, t.id, "developer-1")
+    assert FakeReviewer.calls == []
+
+
+async def test_failed_review_keeps_the_change(wired, session_factory) -> None:
+    ctx, _, _ = wired
+    FakeReviewer.results = [ClaudeResult(ok=False, summary="boom")]
+    t = await new_task(session_factory)
+    await develop(ctx, t.id, "developer-1")
+    t = await reload(session_factory, t.id)
+    assert t.status == TaskStatus.CI and t.summary == "Добавил файл"
+
+
+async def test_failed_review_fix_keeps_the_change(wired, session_factory, monkeypatch) -> None:
+    ctx, _, _ = wired
+    FakeRunner.behaviour = append_and_commit
+    FakeReviewer.results = [findings_review()]
+    results = [FakeRunner.result, ClaudeResult(ok=False, summary="timeout")]
+    original_run = FakeRunner.run
+
+    async def run(self, prompt, **kw):
+        FakeRunner.result = results.pop(0)
+        return await original_run(self, prompt, **kw)
+
+    monkeypatch.setattr(FakeRunner, "run", run)
+    t = await new_task(session_factory)
+    await develop(ctx, t.id, "developer-1")
+    t = await reload(session_factory, t.id)
+    assert t.status == TaskStatus.CI and t.summary == "Добавил файл"
+    assert len(FakeReviewer.calls) == 1
