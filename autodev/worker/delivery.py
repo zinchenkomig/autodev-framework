@@ -259,7 +259,7 @@ class Delivery:
             parent_id=task.root_id,
             created_by="deploy",
             status=TaskStatus.QUEUED,
-            metadata_={},
+            metadata_=task.carried(),
         )
         async with self.ctx.session_factory() as session:
             session.add(fix)
@@ -412,7 +412,7 @@ class Delivery:
                     parent_id=task.root_id,
                     created_by="qa",
                     status=TaskStatus.QUEUED,
-                    metadata_={},
+                    metadata_=task.carried(),
                 )
             )
             await session.commit()

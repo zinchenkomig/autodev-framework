@@ -61,7 +61,7 @@ async def review(
     """One look at the branch; *done* is the developer's summary, *earlier* the previous look's findings."""
     runner = ClaudeRunner(
         cwd,
-        model=project.model or ctx.settings.model,
+        model=task.model or project.model or ctx.settings.model,
         timeout=ctx.settings.claude_timeout,
         env=ctx.env(),
         system_prompt_append=prompts.REVIEW_SYSTEM,

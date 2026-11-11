@@ -43,7 +43,7 @@ async def write(
         history = await pm.history(session, project.id)
     runner = ClaudeRunner(
         cwd,
-        model=project.model or ctx.settings.model,
+        model=task.model or project.model or ctx.settings.model,
         timeout=ctx.settings.claude_timeout,
         env=ctx.env(),
         system_prompt_append=prompts.PM_SYSTEM,

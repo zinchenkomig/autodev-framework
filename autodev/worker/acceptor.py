@@ -112,7 +112,7 @@ async def accept(ctx: WorkerContext, task_id: uuid.UUID) -> None:
         )  # fmt: skip
         runner = ClaudeRunner(
             str(checkout),
-            model=project.model or ctx.settings.model,
+            model=main.model or project.model or ctx.settings.model,
             timeout=ctx.settings.claude_timeout,
             env=ctx.env(),
             system_prompt_append=prompts.ACCEPT_SYSTEM,
@@ -197,7 +197,7 @@ async def _follow_up(ctx: WorkerContext, main: Task, issues: list[dict]) -> Task
             parent_id=main.id,
             created_by=pm.PM_AUTHOR,
             status=TaskStatus.QUEUED,
-            metadata_={pm.KEY: True},
+            metadata_={pm.KEY: True, **main.carried()},
         )
         session.add(fix)
         root = await session.get(Task, main.id, with_for_update=True)

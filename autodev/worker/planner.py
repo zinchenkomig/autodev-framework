@@ -100,7 +100,7 @@ async def refresh_plan(ctx: WorkerContext, task_id: uuid.UUID) -> None:
             )  # fmt: skip
         runner = ClaudeRunner(
             str(root),
-            model=project.model or ctx.settings.model,
+            model=main.model or project.model or ctx.settings.model,
             timeout=ctx.settings.claude_timeout,
             env=ctx.env(),
             system_prompt_append=prompts.PLANNER_SYSTEM,

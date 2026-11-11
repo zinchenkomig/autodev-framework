@@ -245,6 +245,10 @@ class Project(Base):
         return f"<Project id={self.id!r}>"
 
 
+#: Task metadata: the Claude model for this task's agents (absent: the project's).
+MODEL_KEY = "model"
+
+
 class Task(Base):
     """A development task assigned to an agent."""
 
@@ -303,6 +307,16 @@ class Task(Base):
     )
 
     project: Mapped[Project | None] = relationship("Project", lazy="selectin")
+
+    @property
+    def model(self) -> str | None:
+        """The Claude model the owner picked for this task (overrides the project's); None: no pick."""
+        value = (self.metadata_ or {}).get(MODEL_KEY)
+        return value if isinstance(value, str) and value.strip() else None
+
+    def carried(self) -> dict:
+        """Metadata a task spawned from this one inherits: the owner's model pick."""
+        return {MODEL_KEY: self.model} if self.model else {}
 
     @property
     def root_id(self) -> uuid.UUID:

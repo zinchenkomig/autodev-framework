@@ -41,6 +41,7 @@ export interface Task {
   attempts: number
   pending_fix: string | null
   pm: boolean // the PM thinks the task through before the developer starts
+  model: string | null // the owner's Claude model for this task; null: the project's
   brief: string | null // the PM's brief the developer followed
   acceptance: Acceptance | null // the PM's check on stage before the owner's
   scout: ScoutFinding | null // the scout found this one
@@ -299,9 +300,9 @@ export const api = {
     request<Task[]>(`/api/tasks/?limit=500${statuses.map((s) => `&status=${s}`).join('')}`),
   task: (id: string) => request<Task>(`/api/tasks/${id}`),
   children: (id: string) => request<Task[]>(`/api/tasks/?parent_id=${encodeURIComponent(id)}`),
-  createTask: (t: { title: string; description: string; project_id: string; repo?: string | null; priority: Priority; pm?: boolean }) =>
+  createTask: (t: { title: string; description: string; project_id: string; repo?: string | null; priority: Priority; pm?: boolean; model?: string | null }) =>
     post<Task>('/api/tasks/', t),
-  updateTask: (id: string, t: Partial<Pick<Task, 'title' | 'description' | 'priority' | 'pm'>>) =>
+  updateTask: (id: string, t: Partial<Pick<Task, 'title' | 'description' | 'priority' | 'pm'>> & { model?: string }) =>
     request<Task>(`/api/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(t) }),
   deleteTask: (id: string) => request<void>(`/api/tasks/${id}`, { method: 'DELETE' }),
   cancelTask: (id: string) => post<Task>(`/api/tasks/${id}/cancel`),

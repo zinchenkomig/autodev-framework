@@ -216,10 +216,10 @@ async def _requeue_rate_limited(
     )
 
 
-def _developer(ctx: WorkerContext, project, cwd: str) -> ClaudeRunner:
+def _developer(ctx: WorkerContext, task: Task, project, cwd: str) -> ClaudeRunner:
     return ClaudeRunner(
         cwd,
-        model=project.model or ctx.settings.model,
+        model=task.model or project.model or ctx.settings.model,
         timeout=ctx.settings.claude_timeout,
         env=ctx.env(),
         system_prompt_append=prompts.SYSTEM,
@@ -227,7 +227,7 @@ def _developer(ctx: WorkerContext, project, cwd: str) -> ClaudeRunner:
 
 
 async def _run_agent(ctx, task, project, repo, deps, fix, existing, cwd, log, cancelled, main=None) -> ClaudeResult:
-    runner = _developer(ctx, project, cwd)
+    runner = _developer(ctx, task, project, cwd)
     if fix and existing and task.session_id:
         await log("info", f"🧠 Resuming session for {fix.get('kind')} fix")
         result = await runner.run(
@@ -274,7 +274,7 @@ async def _review(ctx, task, project, fix, cwd, log, cancelled, result: ClaudeRe
         )
         if not found:
             return result
-        fixed = await _developer(ctx, project, cwd).run(
+        fixed = await _developer(ctx, task, project, cwd).run(
             prompts.review_fix(reviewer.describe(found), main),
             resume=result.session_id,
             on_log=log,

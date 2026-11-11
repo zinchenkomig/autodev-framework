@@ -15,6 +15,7 @@ from autodev import pm, review, scout
 from autodev.api.database import get_session
 from autodev.core.models import (
     MERGED_STATUSES,
+    MODEL_KEY,
     AgentLog,
     Chat,
     Priority,
@@ -42,6 +43,7 @@ class TaskCreate(BaseModel):
     depends_on: list[uuid.UUID] = Field(default_factory=list)
     created_by: str | None = None
     pm: bool | None = None  # the PM thinks the task through first; None: the project's default
+    model: str | None = Field(default=None, max_length=100)  # Claude model for its agents; None: the project's
 
 
 class TaskUpdate(BaseModel):
@@ -51,6 +53,7 @@ class TaskUpdate(BaseModel):
     repo: str | None = None
     project_id: str | None = None
     pm: bool | None = None
+    model: str | None = Field(default=None, max_length=100)  # "" clears the pick: back to the project's
 
 
 class RejectRequest(BaseModel):
@@ -95,6 +98,7 @@ class TaskResponse(BaseModel):
     attempts: int
     pending_fix: str | None  # kind of the queued fix round, if any
     pm: bool  # the PM thinks the task through before the developer starts
+    model: str | None  # the owner's Claude model for this task; None: the project's
     brief: str | None  # the PM's brief the developer followed
     # The PM's check on stage before the owner's: {"state": checking|fixing|accepted|concerns|failed,
     # "summary", "issues": [titles], "fixes", "fix_task": {"id", "ticket_number"}}
@@ -173,6 +177,7 @@ def to_response(task: Task, parent: Task | None = None, waiting: list[Task] = ()
         attempts=task.attempts,
         pending_fix=fix.get("kind") if isinstance(fix, dict) else None,
         pm=pm.enabled(task),
+        model=task.model,
         brief=pm.brief(task),
         acceptance=pm.acceptance(task),
         scout=(task.metadata_ or {}).get(scout.KEY),
@@ -288,7 +293,8 @@ async def create_task(body: TaskCreate, session: Annotated[AsyncSession, Depends
         depends_on=body.depends_on,
         created_by=body.created_by or "dashboard",
         status=TaskStatus.QUEUED,
-        metadata_={pm.KEY: project.pm if body.pm is None else body.pm},
+        metadata_={pm.KEY: project.pm if body.pm is None else body.pm}
+        | ({MODEL_KEY: body.model.strip()} if body.model and body.model.strip() else {}),
     )
     session.add(task)
     await session.flush()
@@ -315,6 +321,9 @@ async def update_task(
         task.priority = body.priority
     if body.pm is not None:
         task.metadata_ = {**(task.metadata_ or {}), pm.KEY: body.pm}
+    if body.model is not None:
+        meta = {k: v for k, v in (task.metadata_ or {}).items() if k != MODEL_KEY}
+        task.metadata_ = meta | ({MODEL_KEY: body.model.strip()} if body.model.strip() else {})
     if body.project_id is not None or body.repo is not None:
         if task.status != TaskStatus.QUEUED or task.branch:
             raise HTTPException(409, "Project/repo can only change before work starts")
@@ -404,7 +413,7 @@ async def request_changes(session: AsyncSession, task: Task, text: str, by: str 
             parent_id=task.root_id,
             created_by=by,
             status=TaskStatus.QUEUED,
-            metadata_={pm.KEY: pm.enabled(task)},  # the owner's choice for the main task holds
+            metadata_={pm.KEY: pm.enabled(task), **task.carried()},  # the owner's choices for the main task hold
         )
         session.add(follow_up)
         # The main task now includes unfinished work: the owner will check it again.

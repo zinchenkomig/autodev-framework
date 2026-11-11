@@ -3,7 +3,7 @@
 import { MessageCircleQuestion } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { api, type Priority, type Project, type Task } from '@/lib/api'
-import { PRIORITY } from '@/lib/format'
+import { MODELS, PRIORITY } from '@/lib/format'
 import { Button, ErrorNote, Field, Sheet, inputClass } from './ui'
 
 
@@ -27,6 +27,7 @@ export function NewTaskSheet({
   const [text, setText] = useState('')
   const [priority, setPriority] = useState<Priority>('normal')
   const [pm, setPm] = useState(true)
+  const [model, setModel] = useState('') // '' — the project's model
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -58,9 +59,10 @@ export function NewTaskSheet({
     setBusy(true)
     setError(null)
     try {
-      const task = await api.createTask({ title, description, project_id: project.id, priority, pm })
+      const task = await api.createTask({ title, description, project_id: project.id, priority, pm, model: model || null })
       setText('')
       setPriority('normal')
+      setModel('')
       onCreated(task)
       onClose()
     } catch (err) {
@@ -128,6 +130,16 @@ export function NewTaskSheet({
               </select>
             </Field>
           </div>
+          <Field label="Модель">
+            <select value={model} onChange={(e) => setModel(e.target.value)} className={inputClass}>
+              <option value="">Как в проекте{project?.model ? ` (${MODELS[project.model] ?? project.model})` : ''}</option>
+              {Object.entries(MODELS).map(([id, name]) => (
+                <option key={id} value={id}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </Field>
           <label className="flex items-start gap-3">
             <input type="checkbox" checked={pm} onChange={(e) => setPm(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--accent)]" />
             <span className="text-sm">
