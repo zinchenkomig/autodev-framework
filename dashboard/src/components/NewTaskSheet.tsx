@@ -3,9 +3,8 @@
 import { MessageCircleQuestion } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { api, type Priority, type Project, type Task } from '@/lib/api'
-import { MODELS, PRIORITY } from '@/lib/format'
+import { MODELS, PRIORITY, enabledFirst } from '@/lib/format'
 import { Button, ErrorNote, Field, Sheet, inputClass } from './ui'
-
 
 export function NewTaskSheet({
   open,
@@ -32,7 +31,7 @@ export function NewTaskSheet({
   const [error, setError] = useState<string | null>(null)
 
   // Paused projects still accept tasks; they just wait until the project is enabled.
-  const ordered = [...projects.filter((p) => p.enabled), ...projects.filter((p) => !p.enabled)]
+  const ordered = enabledFirst(projects)
   useEffect(() => {
     if (!open) return
     setError(null)

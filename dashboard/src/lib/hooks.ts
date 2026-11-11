@@ -78,3 +78,16 @@ export function useStoredState<T>(key: string, initial: T) {
   )
   return [value, update] as const
 }
+
+export const ALL_PROJECTS = '*'
+
+/**
+ * The project filter of a page, remembered under `key`. `projects` are the ones that can be
+ * picked (null while loading): a stored project that is no longer among them — deleted, say —
+ * reads as "all", so the page never gets stuck on a filter that has no chip to switch off.
+ */
+export function useProjectFilter(key: string, projects: { id: string }[] | null) {
+  const [stored, setFilter] = useStoredState<string>(key, ALL_PROJECTS)
+  const filter = !projects || projects.some((p) => p.id === stored) ? stored : ALL_PROJECTS
+  return [filter, setFilter] as const
+}

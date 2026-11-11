@@ -7,14 +7,11 @@ import { ProjectChips } from '@/components/ProjectChips'
 import { TaskCard } from '@/components/TaskCard'
 import { Card, Empty, ErrorNote } from '@/components/ui'
 import { plural } from '@/lib/format'
-import { usePoll, useStoredState } from '@/lib/hooks'
+import { ALL_PROJECTS, usePoll, useProjectFilter } from '@/lib/hooks'
 import { fetchInbox } from '@/lib/inbox'
-
-const ALL = '*'
 
 export default function InboxPage() {
   const { data: inbox, error } = usePoll(fetchInbox, 8000)
-  const [stored, setProject] = useStoredState<string>('autodev.inbox.project', ALL)
 
   // Projects that have something waiting, with how much, in the order projects are listed.
   const chips = useMemo(() => {
@@ -29,16 +26,16 @@ export default function InboxPage() {
   }, [inbox])
 
   // A project whose queue emptied out falls back to all of them.
-  const project = chips.some((c) => c.id === stored) ? stored : ALL
+  const [project, setProject] = useProjectFilter('autodev.inbox.project', inbox && chips)
   const data = useMemo(() => {
-    if (!inbox || project === ALL) return inbox
+    if (!inbox || project === ALL_PROJECTS) return inbox
     const check = inbox.check.filter((t) => t.project_id === project)
     const proposed = inbox.proposed.filter((t) => t.project_id === project)
     const failed = inbox.failed.filter((t) => t.project_id === project)
     const release = inbox.release.filter((r) => r.project.id === project)
     return { ...inbox, check, proposed, failed, release, total: check.length + proposed.length + failed.length + release.length }
   }, [inbox, project])
-  const multiProject = project === ALL && chips.length > 1
+  const multiProject = project === ALL_PROJECTS && chips.length > 1
 
   return (
     <div className="mx-auto max-w-3xl space-y-5">
@@ -46,7 +43,7 @@ export default function InboxPage() {
       <ErrorNote error={error} />
       {chips.length > 1 && (
         <ProjectChips
-          items={[{ id: ALL, name: 'Все проекты', count: inbox?.total }, ...chips]}
+          items={[{ id: ALL_PROJECTS, name: 'Все проекты', count: inbox?.total }, ...chips]}
           value={project}
           onChange={setProject}
         />

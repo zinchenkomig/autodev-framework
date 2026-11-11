@@ -339,26 +339,45 @@ function ChatList({ chats, onOpen, onNew }: { chats: Chat[] | null; onOpen: (id:
     <ul className="space-y-2">
       {asked.map((c) => (
         <li key={c.id}>
-          <button
-            onClick={() => onOpen(c.id)}
-            className="flex w-full items-center gap-2 rounded-2xl border border-line px-3 py-2.5 text-left transition hover:bg-surface-2 active:scale-[0.99]"
-          >
-            <span className="min-w-0 flex-1 space-y-1">
-              <span className="line-clamp-2 block break-words text-[15px] leading-snug">{c.question}</span>
-              <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
-                <span>{ago(c.updated_at)}</span>
-                <ChatOutcome chat={c} />
-              </span>
-            </span>
-            <ChevronRight size={16} className="shrink-0 text-muted" />
-          </button>
+          <ChatRow chat={c} onOpen={() => onOpen(c.id)} />
         </li>
       ))}
     </ul>
   )
 }
 
-export function ChatOutcome({ chat: c }: { chat: Chat }) {
+/** A chat in a list: the question, when, what it came to. `project` and `showTask` say what it is about. */
+export function ChatRow({
+  chat: c,
+  project,
+  showTask,
+  onOpen,
+}: {
+  chat: Chat
+  project?: string
+  showTask?: boolean
+  onOpen: () => void
+}) {
+  return (
+    <button
+      onClick={onOpen}
+      className="flex w-full items-center gap-2 rounded-2xl border border-line bg-surface px-3 py-2.5 text-left transition hover:bg-surface-2 active:scale-[0.99]"
+    >
+      <span className="min-w-0 flex-1 space-y-1">
+        <span className="line-clamp-2 block break-words text-[15px] leading-snug">{c.question}</span>
+        <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+          <span>{ago(c.updated_at)}</span>
+          {project && <span>· {project}</span>}
+          {showTask && c.subject === 'task' && <span className="min-w-0 truncate">· {c.title}</span>}
+          <ChatOutcome chat={c} />
+        </span>
+      </span>
+      <ChevronRight size={16} className="shrink-0 text-muted" />
+    </button>
+  )
+}
+
+function ChatOutcome({ chat: c }: { chat: Chat }) {
   if (c.state !== 'idle') {
     return (
       <Badge tone="info">
