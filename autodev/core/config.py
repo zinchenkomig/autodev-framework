@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     chat_slots: int = Field(default=2, validation_alias="AUTODEV_CHAT_SLOTS")
     chat_timeout: int = Field(default=10 * 60, validation_alias="AUTODEV_CHAT_TIMEOUT")
     max_fix_attempts: int = Field(default=3, validation_alias="AUTODEV_MAX_FIX_ATTEMPTS")
+    # Looks of the independent code reviewer per development round (0 = no review).
+    review_rounds: int = Field(default=2, validation_alias="AUTODEV_REVIEW_ROUNDS")
     # Scout: seconds between runs on an idle project, and after a run that found nothing.
     scout_interval: int = Field(default=60 * 60, validation_alias="AUTODEV_SCOUT_INTERVAL")
     scout_idle_interval: int = Field(default=24 * 60 * 60, validation_alias="AUTODEV_SCOUT_IDLE_INTERVAL")

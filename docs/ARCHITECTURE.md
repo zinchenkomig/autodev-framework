@@ -35,7 +35,8 @@
 | `autodev/core/config.py` | env `Settings`, `autodev.yaml` schema |
 | `autodev/worker/loop.py` | slots, claiming, recovery after restart |
 | `autodev/worker/scout.py` | the scout's pass over a project |
-| `autodev/worker/developer.py` | one development round: checkout → (PM brief) → agent → commit → push → PR |
+| `autodev/worker/developer.py` | one development round: checkout → (PM brief) → agent → code review → commit → push → PR |
+| `autodev/worker/reviewer.py` | the code reviewer: a read-only session over the branch diff, its findings back to the agent |
 | `autodev/pm.py`, `autodev/worker/brief.py` | the PM: per-task switch, the owner's history, the brief session |
 | `autodev/worker/acceptor.py` | the PM accepts a main task on stage before the owner is notified |
 | `autodev/worker/workspace.py` | per-task clone at `$AUTODEV_WORKDIR/tasks/<task id>` |
@@ -66,6 +67,11 @@
      choice; QA fixes skip it
    - one Claude session with the system rules from `worker/prompts.py`
    - the session ends with `{status: done|blocked, summary}`
+   - code review (`worker/reviewer.py`) on the first round, owner feedback and retries — not on CI or
+     conflict fixes: a read-only session with fresh context reads the branch diff against the request
+     and the brief — edge cases, completeness, overbuilding, a simpler user flow, naming, tests — and
+     returns findings. They go to the developer's session (resumed); then the reviewer looks again, up
+     to `AUTODEV_REVIEW_ROUNDS` (2) times. A failed review or fix session doesn't stop the round
    - leftovers are committed; then push and open a PR to the base branch. The summary becomes the PR body.
 4. **CI**: the delivery loop polls check runs on the PR head.
    - red checks → back to `queued` with `metadata.fix = {kind: "ci"}`. The next round resumes the
