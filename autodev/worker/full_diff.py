@@ -70,7 +70,7 @@ async def rebuild(ctx: WorkerContext, root_id: uuid.UUID) -> None:
     if len(merged) < 2 or root.project is None:
         await _save(ctx, root_id, shas, None)  # one PR is the whole change
         return
-    path = Path(ctx.settings.workdir) / "combined" / str(root_id)
+    path = Path(ctx.settings.workdir) / "full_diff" / str(root_id)
     shutil.rmtree(path, ignore_errors=True)
     path.parent.mkdir(parents=True, exist_ok=True)
     env = ctx.env()

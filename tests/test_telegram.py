@@ -7,15 +7,15 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-from autodev.integrations import telegram_pm
-from autodev.integrations.telegram_pm import COMMANDS, TelegramPMBot
+from autodev.integrations import telegram_bot
+from autodev.integrations.telegram_bot import COMMANDS, TelegramBot
 
 
 @pytest.mark.parametrize(
     ("typed", "handler"), [("/status", "_show_tasks"), ("/staging@autodev_agent_bot", "_show_stage")]
 )
 async def test_v1_command_names_still_work(typed, handler, monkeypatch) -> None:
-    bot = TelegramPMBot(token="t", owner_chat_id="1")
+    bot = TelegramBot(token="t", owner_chat_id="1")
     called = AsyncMock()
     monkeypatch.setattr(bot, handler, called)
     monkeypatch.setattr(bot, "send_message", AsyncMock())
@@ -31,11 +31,11 @@ async def test_sync_commands_pushes_menu(monkeypatch) -> None:
         sent.append({"path": request.url.path, "body": request.read()})
         return httpx.Response(200, json={"ok": True, "result": True})
 
-    bot = TelegramPMBot(token="t", owner_chat_id="1")
+    bot = TelegramBot(token="t", owner_chat_id="1")
     bot._client = httpx.AsyncClient(base_url="https://api.telegram.org/bott", transport=httpx.MockTransport(handler))
-    monkeypatch.setattr(telegram_pm, "get_telegram_bot", AsyncMock(return_value=bot))
+    monkeypatch.setattr(telegram_bot, "get_telegram_bot", AsyncMock(return_value=bot))
 
-    await telegram_pm.sync_commands()
+    await telegram_bot.sync_commands()
 
     assert sent[0]["path"].endswith("/setMyCommands")
     for name, _ in COMMANDS:
@@ -43,9 +43,9 @@ async def test_sync_commands_pushes_menu(monkeypatch) -> None:
 
 
 async def test_sync_commands_without_token_does_nothing(monkeypatch) -> None:
-    bot = TelegramPMBot()
-    monkeypatch.setattr(telegram_pm, "get_telegram_bot", AsyncMock(return_value=bot))
-    await telegram_pm.sync_commands()  # no client created, no exception
+    bot = TelegramBot()
+    monkeypatch.setattr(telegram_bot, "get_telegram_bot", AsyncMock(return_value=bot))
+    await telegram_bot.sync_commands()  # no client created, no exception
     assert bot._client is None
 
 
@@ -60,7 +60,7 @@ async def test_verify_button_marks_task_checked(session_factory, project, monkey
         await s.commit()
         await s.refresh(task)
 
-    bot = TelegramPMBot(token="t", owner_chat_id="1")
+    bot = TelegramBot(token="t", owner_chat_id="1")
     monkeypatch.setattr(bot, "answer_callback_query", AsyncMock())
     monkeypatch.setattr(bot, "edit_message_text", AsyncMock())
     callback = {"id": "c", "data": f"ok:{task.id}", "message": {"chat": {"id": 1}, "message_id": 9}}

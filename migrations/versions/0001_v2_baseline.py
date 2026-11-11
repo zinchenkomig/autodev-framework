@@ -9,8 +9,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
-
-import autodev.core.models
+from sqlalchemy.dialects import postgresql
 
 revision: str = "0001"
 down_revision: str | None = None
@@ -22,7 +21,7 @@ def upgrade() -> None:
     op.execute("CREATE SEQUENCE IF NOT EXISTS task_ticket_seq")
     op.create_table(
         "alerts",
-        sa.Column("id", autodev.core.models._UUID(), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("type", sa.String(length=50), nullable=False),
         sa.Column("severity", sa.String(length=20), nullable=False),
         sa.Column("title", sa.String(length=255), nullable=False),
@@ -37,7 +36,7 @@ def upgrade() -> None:
     )
     op.create_table(
         "chat_sessions",
-        sa.Column("id", autodev.core.models._UUID(), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("title", sa.String(length=255), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
@@ -45,16 +44,16 @@ def upgrade() -> None:
     )
     op.create_table(
         "events",
-        sa.Column("id", autodev.core.models._UUID(), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("type", sa.String(length=100), nullable=False),
-        sa.Column("payload", autodev.core.models._JSONEncodedDict(), nullable=False),
+        sa.Column("payload", postgresql.JSONB(), nullable=False),
         sa.Column("source", sa.String(length=100), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_table(
         "project_contexts",
-        sa.Column("id", autodev.core.models._UUID(), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("repo", sa.String(length=255), nullable=False),
         sa.Column("name", sa.String(length=255), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
@@ -73,11 +72,11 @@ def upgrade() -> None:
         "projects",
         sa.Column("id", sa.String(length=100), nullable=False),
         sa.Column("name", sa.String(length=255), nullable=False),
-        sa.Column("repos", autodev.core.models._JSONEncodedDict(), nullable=False),
+        sa.Column("repos", postgresql.JSONB(), nullable=False),
         sa.Column("base_branch", sa.String(length=100), nullable=False),
         sa.Column("prod_branch", sa.String(length=100), nullable=False),
         sa.Column("stage_url", sa.String(length=500), nullable=True),
-        sa.Column("smoke_paths", autodev.core.models._JSONEncodedDict(), nullable=False),
+        sa.Column("smoke_paths", postgresql.JSONB(), nullable=False),
         sa.Column("instructions", sa.Text(), nullable=True),
         sa.Column("model", sa.String(length=100), nullable=True),
         sa.Column("max_parallel", sa.Integer(), nullable=False),
@@ -95,11 +94,11 @@ def upgrade() -> None:
     )
     op.create_table(
         "pm_chat_messages",
-        sa.Column("id", autodev.core.models._UUID(), nullable=False),
-        sa.Column("session_id", autodev.core.models._UUID(), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("session_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("role", sa.String(length=20), nullable=False),
         sa.Column("content", sa.Text(), nullable=False),
-        sa.Column("task_id", autodev.core.models._UUID(), nullable=True),
+        sa.Column("task_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
             ["session_id"],
@@ -109,13 +108,13 @@ def upgrade() -> None:
     )
     op.create_table(
         "releases",
-        sa.Column("id", autodev.core.models._UUID(), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("project_id", sa.String(length=100), nullable=True),
         sa.Column("version", sa.String(length=50), nullable=False),
         sa.Column("status", sa.String(length=30), nullable=False),
-        sa.Column("tasks", autodev.core.models._JSONEncodedList(), nullable=False),
+        sa.Column("tasks", postgresql.ARRAY(postgresql.UUID(as_uuid=True)), nullable=False),
         sa.Column("release_notes", sa.Text(), nullable=True),
-        sa.Column("release_prs", autodev.core.models._JSONEncodedDict(), nullable=True),
+        sa.Column("release_prs", postgresql.JSONB(), nullable=True),
         sa.Column("error", sa.Text(), nullable=True),
         sa.Column("created_by", sa.String(length=100), nullable=True),
         sa.Column("production_deployed_at", sa.DateTime(timezone=True), nullable=True),
@@ -126,7 +125,7 @@ def upgrade() -> None:
     op.create_index(op.f("ix_releases_project_id"), "releases", ["project_id"], unique=False)
     op.create_table(
         "tasks",
-        sa.Column("id", autodev.core.models._UUID(), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("ticket_number", sa.Integer(), server_default=sa.text("nextval('task_ticket_seq')"), nullable=False),
         sa.Column("title", sa.Text(), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
@@ -147,9 +146,9 @@ def upgrade() -> None:
         sa.Column("merge_sha", sa.String(length=64), nullable=True),
         sa.Column("summary", sa.Text(), nullable=True),
         sa.Column("error", sa.Text(), nullable=True),
-        sa.Column("release_id", autodev.core.models._UUID(), nullable=True),
-        sa.Column("depends_on", autodev.core.models._JSONEncodedList(), nullable=True),
-        sa.Column("metadata", autodev.core.models._JSONEncodedDict(), nullable=True),
+        sa.Column("release_id", postgresql.UUID(as_uuid=True), nullable=True),
+        sa.Column("depends_on", postgresql.ARRAY(postgresql.UUID(as_uuid=True)), nullable=True),
+        sa.Column("metadata", postgresql.JSONB(), nullable=True),
         sa.Column("created_by", sa.String(length=100), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("status_changed_at", sa.DateTime(timezone=True), nullable=False),
@@ -161,9 +160,9 @@ def upgrade() -> None:
     op.create_index(op.f("ix_tasks_ticket_number"), "tasks", ["ticket_number"], unique=True)
     op.create_table(
         "agent_logs",
-        sa.Column("id", autodev.core.models._UUID(), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("agent_id", sa.String(length=100), nullable=False),
-        sa.Column("task_id", autodev.core.models._UUID(), nullable=True),
+        sa.Column("task_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("level", sa.String(length=20), nullable=False),
         sa.Column("message", sa.Text(), nullable=False),
         sa.Column("details", sa.Text(), nullable=True),
@@ -177,7 +176,7 @@ def upgrade() -> None:
         sa.Column("id", sa.String(length=100), nullable=False),
         sa.Column("role", sa.String(length=50), nullable=False),
         sa.Column("status", sa.String(length=20), nullable=False),
-        sa.Column("current_task_id", autodev.core.models._UUID(), nullable=True),
+        sa.Column("current_task_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("last_run_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("total_runs", sa.Integer(), nullable=False),
         sa.Column("total_failures", sa.Integer(), nullable=False),
@@ -187,8 +186,8 @@ def upgrade() -> None:
     )
     op.create_table(
         "task_transitions",
-        sa.Column("id", autodev.core.models._UUID(), nullable=False),
-        sa.Column("task_id", autodev.core.models._UUID(), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("task_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("from_status", sa.String(length=30), nullable=False),
         sa.Column("to_status", sa.String(length=30), nullable=False),
         sa.Column("reason", sa.Text(), nullable=True),

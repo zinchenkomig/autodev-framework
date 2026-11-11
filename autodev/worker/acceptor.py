@@ -20,16 +20,15 @@ from typing import Any
 from sqlalchemy import String, cast, select
 
 from autodev import notify, pm, review
-from autodev.core import shell
-from autodev.core.claude import ClaudeRunner
-from autodev.core.models import MERGED_STATUSES, Project, Task, TaskArtifact, TaskStatus
+from autodev.core.claude import READ_ONLY_WITH_SCRIPTS, ClaudeRunner
+from autodev.core.models import MERGED_STATUSES, Project, Task, TaskStatus
 from autodev.worker import prompts
 from autodev.worker.context import WorkerContext
+from autodev.worker.workspace import clone_stage
 
 logger = logging.getLogger(__name__)
 
 AGENT = "pm"
-MAX_SHOTS = 8
 
 SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -105,11 +104,7 @@ async def accept(ctx: WorkerContext, task_id: uuid.UUID) -> None:
         shutil.rmtree(root, ignore_errors=True)
         shots.mkdir(parents=True)
         checkout = root / "code"
-        await shell.run(
-            "git", "clone", "--filter=blob:none", "-b", project.base_branch,
-            f"https://github.com/{project.repo()['name']}.git", str(checkout),
-            env=ctx.env(), timeout=600,
-        )  # fmt: skip
+        await clone_stage(project, checkout, ctx.env())
         runner = ClaudeRunner(
             str(checkout),
             model=main.model or project.model or ctx.settings.model,
@@ -117,16 +112,16 @@ async def accept(ctx: WorkerContext, task_id: uuid.UUID) -> None:
             env=ctx.env(),
             system_prompt_append=prompts.ACCEPT_SYSTEM,
             schema=SCHEMA,
-            disallowed_tools=["Edit", "NotebookEdit"],  # Write stays: its browser scripts
+            disallowed_tools=READ_ONLY_WITH_SCRIPTS,
         )
         result = await runner.run(prompts.acceptance(main, children, project, sys.executable, str(shots)), on_log=log)
         if result.rate_limited:
-            ctx.paused_until = result.rate_limited_until
+            await ctx.pause(result.rate_limited_until)
             await log("warning", f"⏸ Лимит Claude, продолжу в {result.rate_limited_until:%H:%M} UTC")
             return
         if not result.ok:
             raise RuntimeError(result.summary or "сессия PM не завершилась")
-        screenshot = await _save_shots(ctx, task_id, shots)
+        screenshot = await store.attach_screenshots(task_id, sorted(shots.glob("*.png")), "PM")
         await _decide(ctx, main, project, result.data, screenshot, result.cost_usd, log)
     except Exception as exc:
         logger.exception("acceptance of %s failed", task_id)
@@ -216,26 +211,3 @@ async def _notify(ctx: WorkerContext, task_id: uuid.UUID, project: Project | Non
     main = await ctx.store.get(task_id)
     if main is not None:
         await notify.accepted(main, project, screenshot=screenshot)
-
-
-async def _save_shots(ctx: WorkerContext, task_id: uuid.UUID, shots: Path) -> bytes | None:
-    """The PM's screenshots, as the task's artifacts; the first one for the notification."""
-    files = sorted(p for p in shots.glob("*.png") if p.is_file())[:MAX_SHOTS]
-    first = None
-    async with ctx.session_factory() as session:
-        for path in files:
-            content = path.read_bytes()
-            if not content.startswith(b"\x89PNG") or len(content) > 5_000_000:
-                continue
-            first = first or content
-            session.add(
-                TaskArtifact(
-                    task_id=task_id,
-                    kind="screenshot",
-                    name=f"PM: {path.stem}",
-                    content=content,
-                    content_type="image/png",
-                )
-            )
-        await session.commit()
-    return first

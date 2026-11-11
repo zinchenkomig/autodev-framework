@@ -350,29 +350,6 @@ async def test_cancelled_while_running_keeps_cancelled(wired, session_factory, m
     assert (await reload(session_factory, t.id)).status == TaskStatus.CANCELLED
 
 
-async def test_blocked_with_unknown_prerequisite_repo_fails(wired, session_factory) -> None:
-    ctx, _, _ = wired
-    FakeRunner.behaviour = None
-    FakeRunner.result = ClaudeResult(
-        ok=False,
-        blocked=True,
-        summary="нужно",
-        data={"needs": {"repo": "acme/other", "title": "x", "description": "y"}},
-    )
-    t = await new_task(session_factory)
-    await develop(ctx, t.id, "developer-1")
-    t = await reload(session_factory, t.id)
-    assert t.status == TaskStatus.FAILED and not t.depends_on
-    dev_mod.notify.blocked.assert_awaited_once()
-
-
-async def set_in_progress(session_factory, task_id) -> None:
-    async with session_factory() as s:
-        task = await s.get(Task, task_id)
-        task.status = TaskStatus.IN_PROGRESS
-        await s.commit()
-
-
 async def test_pm_writes_a_brief_the_developer_follows(wired, session_factory) -> None:
     ctx, _, _ = wired
     async with session_factory() as s:

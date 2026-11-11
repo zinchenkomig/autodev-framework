@@ -1,104 +1,17 @@
-"""SQLAlchemy ORM models for the AutoDev Framework.
-
-Defines persistent entities: projects, tasks, agents, logs, releases.
-Uses PostgreSQL-specific types (UUID, ARRAY, JSONB) on PostgreSQL, and falls
-back to JSON-serialised TEXT columns on other dialects (e.g. SQLite for tests).
-"""
+"""The database: projects, tasks, agents, their logs, chats, releases. Postgres only."""
 
 import enum
-import json
 import uuid
 from datetime import UTC, datetime
-from typing import Any
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, LargeBinary, Sequence, String, Text, func
-from sqlalchemy import types as sa_types
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB  # used in TypeDecorators below
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-# ---------------------------------------------------------------------------
-# Cross-dialect type helpers
-# ---------------------------------------------------------------------------
 
-
-class _JSONEncodedList(sa_types.TypeDecorator):
-    """Stores a list as a JSON string; uses native ARRAY(UUID) on PostgreSQL."""
-
-    impl = sa_types.Text
-    cache_ok = True
-
-    def load_dialect_impl(self, dialect: Any) -> Any:
-        if dialect.name == "postgresql":
-            return dialect.type_descriptor(ARRAY(PG_UUID(as_uuid=True)))
-        return dialect.type_descriptor(sa_types.Text())
-
-    def process_bind_param(self, value: Any, dialect: Any) -> Any:
-        if dialect.name == "postgresql":
-            return value  # pass list[UUID] directly to asyncpg
-        if value is None:
-            return None
-        return json.dumps([str(v) for v in value])
-
-    def process_result_value(self, value: Any, dialect: Any) -> Any:
-        if dialect.name == "postgresql":
-            return value  # asyncpg returns a list already
-        if value is None:
-            return []
-        raw = json.loads(value)
-        return [uuid.UUID(v) for v in raw]
-
-
-class _JSONEncodedDict(sa_types.TypeDecorator):
-    """Stores a dict as a JSON string; uses native JSONB on PostgreSQL."""
-
-    impl = sa_types.Text
-    cache_ok = True
-
-    def load_dialect_impl(self, dialect: Any) -> Any:
-        if dialect.name == "postgresql":
-            return dialect.type_descriptor(JSONB())
-        return dialect.type_descriptor(sa_types.Text())
-
-    def process_bind_param(self, value: Any, dialect: Any) -> Any:
-        if dialect.name == "postgresql":
-            return value
-        if value is None:
-            return None
-        return json.dumps(value)
-
-    def process_result_value(self, value: Any, dialect: Any) -> Any:
-        if dialect.name == "postgresql":
-            return value
-        if value is None:
-            return {}
-        return json.loads(value)
-
-
-class _UUID(sa_types.TypeDecorator):
-    """Stores UUID as a native PG UUID or as a TEXT string on other dialects."""
-
-    impl = sa_types.Text
-    cache_ok = True
-
-    def load_dialect_impl(self, dialect: Any) -> Any:
-        if dialect.name == "postgresql":
-            return dialect.type_descriptor(PG_UUID(as_uuid=True))
-        return dialect.type_descriptor(sa_types.Text())
-
-    def process_bind_param(self, value: Any, dialect: Any) -> Any:
-        if value is None:
-            return None
-        if dialect.name == "postgresql":
-            return value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))
-        return str(value)
-
-    def process_result_value(self, value: Any, dialect: Any) -> Any:
-        if value is None:
-            return None
-        if isinstance(value, uuid.UUID):
-            return value
-        return uuid.UUID(str(value))
+def _UUID() -> PG_UUID:
+    return PG_UUID(as_uuid=True)
 
 
 class Base(DeclarativeBase):
@@ -113,16 +26,8 @@ class Base(DeclarativeBase):
 class TaskSource(enum.StrEnum):
     """Origin of a task."""
 
-    GITHUB_ISSUE = "github_issue"
     AGENT_CREATED = "agent_created"
     MANUAL = "manual"
-
-
-class TaskType(enum.StrEnum):
-    """Task types that affect routing."""
-
-    FEATURE = "feature"
-    HOTFIX = "hotfix"  # bypasses release manager, goes straight to current staging
 
 
 class Priority(enum.StrEnum):
@@ -158,29 +63,13 @@ class TaskStatus(enum.StrEnum):
 MERGED_STATUSES = frozenset({TaskStatus.DEPLOYING, TaskStatus.ON_STAGE, TaskStatus.RELEASED})
 #: Statuses of work that is still on its way to stage.
 OPEN_STATUSES = frozenset({TaskStatus.QUEUED, TaskStatus.IN_PROGRESS, TaskStatus.CI, TaskStatus.DEPLOYING})
-#: Statuses a task never leaves on its own.
-TERMINAL_STATUSES = frozenset({TaskStatus.RELEASED, TaskStatus.FAILED, TaskStatus.CANCELLED})
-
-
-class AgentRole(enum.StrEnum):
-    """Available agent roles in the system."""
-
-    DEVELOPER = "developer"
-    TESTER = "tester"
-    BA = "ba"
-    RELEASE_MANAGER = "release_manager"
-    PM = "pm"
 
 
 class AgentStatus(enum.StrEnum):
-    """Agent availability states."""
+    """Whether a worker loop is running something now."""
 
     IDLE = "idle"
-    ASSIGNED = "assigned"
     WORKING = "working"
-    BUSY = "busy"
-    ERROR = "error"
-    OFFLINE = "offline"
 
 
 class ReleaseStatus(enum.StrEnum):
@@ -204,11 +93,11 @@ class Project(Base):
     id: Mapped[str] = mapped_column(String(100), primary_key=True)  # slug
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     # [{"name": "owner/repo", "version_url": "...", "setup": "..."}] — exactly one entry
-    repos: Mapped[list[dict]] = mapped_column(_JSONEncodedDict(), nullable=False, default=list)
+    repos: Mapped[list[dict]] = mapped_column(JSONB(), nullable=False, default=list)
     base_branch: Mapped[str] = mapped_column(String(100), nullable=False, default="stage")
     prod_branch: Mapped[str] = mapped_column(String(100), nullable=False, default="main")
     stage_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    smoke_paths: Mapped[list[str]] = mapped_column(_JSONEncodedDict(), nullable=False, default=list)
+    smoke_paths: Mapped[list[str]] = mapped_column(JSONB(), nullable=False, default=list)
     # What the product is and who it is for, in the owner's words: what the agents shape it towards.
     idea: Mapped[str | None] = mapped_column(Text, nullable=True)
     instructions: Mapped[str | None] = mapped_column(Text, nullable=True)  # extra prompt text
@@ -222,7 +111,7 @@ class Project(Base):
     scout: Mapped[str] = mapped_column(String(10), nullable=False, default="off", server_default="off")
     # The scout stops at this many tasks on stage or on their way there, follow-ups included.
     stage_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=10, server_default="10")
-    scout_run: Mapped[dict | None] = mapped_column(_JSONEncodedDict(), nullable=True)  # the last run
+    scout_run: Mapped[dict | None] = mapped_column(JSONB(), nullable=True)  # the last run
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
@@ -268,16 +157,13 @@ class Task(Base):
     title: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     source: Mapped[str] = mapped_column(String(50), nullable=False, default=TaskSource.MANUAL)
-    task_type: Mapped[str] = mapped_column(String(20), nullable=False, default=TaskType.FEATURE)
     priority: Mapped[str] = mapped_column(String(20), nullable=False, default=Priority.NORMAL)
-    story_points: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=TaskStatus.QUEUED)
     assigned_to: Mapped[str | None] = mapped_column(String(100), nullable=True)
     project_id: Mapped[str | None] = mapped_column(
         String(100), ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True
     )
     repo: Mapped[str | None] = mapped_column(String(255), nullable=True)  # owner/name
-    issue_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     pr_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     pr_url: Mapped[str | None] = mapped_column(String, nullable=True)
     branch: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -287,13 +173,15 @@ class Task(Base):
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)  # Claude's summary → PR body
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     release_id: Mapped[uuid.UUID | None] = mapped_column(_UUID(), nullable=True)
-    depends_on: Mapped[list[uuid.UUID] | None] = mapped_column(_JSONEncodedList(), nullable=True, default=list)
+    depends_on: Mapped[list[uuid.UUID] | None] = mapped_column(
+        ARRAY(PG_UUID(as_uuid=True)), nullable=True, default=list
+    )
     # The main task this one belongs to (follow-ups, QA fixes).
     # Always the root, so the hierarchy is one level deep.
     parent_id: Mapped[uuid.UUID | None] = mapped_column(
         _UUID(), ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    metadata_: Mapped[dict | None] = mapped_column("metadata", _JSONEncodedDict(), nullable=True, default=dict)
+    metadata_: Mapped[dict | None] = mapped_column("metadata", JSONB(), nullable=True, default=dict)
     created_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
@@ -406,10 +294,10 @@ class Release(Base):
     )
     version: Mapped[str] = mapped_column(String(50), nullable=False)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default=ReleaseStatus.PENDING)
-    tasks: Mapped[list[uuid.UUID]] = mapped_column(_JSONEncodedList(), nullable=False, default=list)
+    tasks: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(PG_UUID(as_uuid=True)), nullable=False, default=list)
     release_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     # [{"repo": "owner/name", "pr_number": 1, "pr_url": "...", "merged": false}]
-    release_prs: Mapped[list[dict] | None] = mapped_column(_JSONEncodedDict(), nullable=True, default=list)
+    release_prs: Mapped[list[dict] | None] = mapped_column(JSONB(), nullable=True, default=list)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
     production_deployed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -419,6 +307,10 @@ class Release(Base):
 
     def __repr__(self) -> str:
         return f"<Release id={self.id} version={self.version!r} status={self.status}>"
+
+
+#: ``Setting`` key: until when Claude's subscription limit pauses the worker (ISO time).
+PAUSED_UNTIL_SETTING = "worker_paused_until"
 
 
 class Setting(Base):
@@ -442,17 +334,6 @@ class AlertSeverity(enum.StrEnum):
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
-
-
-class AlertType(enum.StrEnum):
-    """Types of alerts."""
-
-    TASK_FAILED = "task_failed"
-    API_ERROR = "api_error"
-    TASK_STUCK = "task_stuck"
-    AGENT_STUCK = "agent_stuck"
-    ORCHESTRATOR_ERROR = "orchestrator_error"
-    CUSTOM = "custom"
 
 
 class Alert(Base):
@@ -525,7 +406,7 @@ class Chat(Base):
     activity: Mapped[str | None] = mapped_column(Text, nullable=True)  # what the agent is doing right now
     # {"seen": iso time of the last message the agent took in, "context_digest": the subject's
     #  context as the agent last saw it, "stop": the owner pressed stop}
-    metadata_: Mapped[dict | None] = mapped_column("metadata", _JSONEncodedDict(), nullable=True, default=dict)
+    metadata_: Mapped[dict | None] = mapped_column("metadata", JSONB(), nullable=True, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
@@ -556,7 +437,7 @@ class ChatMessage(Base):
     # Actions the agent proposes; each waits for the owner's approval:
     # [{"action": "follow_up", "title": ..., "description": ..., "state": "pending|applied|rejected",
     #   "result": {...}, "error": ...}]
-    proposals: Mapped[list[dict] | None] = mapped_column(_JSONEncodedDict(), nullable=True, default=list)
+    proposals: Mapped[list[dict] | None] = mapped_column(JSONB(), nullable=True, default=list)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )

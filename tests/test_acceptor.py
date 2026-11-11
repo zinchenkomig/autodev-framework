@@ -13,7 +13,7 @@ from autodev import pm
 from autodev.core.claude import ClaudeResult
 from autodev.core.config import Settings
 from autodev.core.models import Task, TaskArtifact, TaskStatus
-from autodev.worker import acceptor
+from autodev.worker import acceptor, workspace
 from autodev.worker.context import WorkerContext
 
 
@@ -49,13 +49,13 @@ def ctx(monkeypatch, tmp_path, session_factory):
     git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init", cwd=seed)
     git("remote", "add", "origin", str(bare), cwd=seed)
     git("push", "-q", "origin", "stage", cwd=seed)
-    real_run = acceptor.shell.run
+    real_run = workspace.shell.run
 
     async def local_clone(*args, **kw):
         args = [str(bare) if a == "https://github.com/acme/shop.git" else a for a in args]
         return await real_run(*args, **kw)
 
-    monkeypatch.setattr(acceptor.shell, "run", local_clone)
+    monkeypatch.setattr(workspace.shell, "run", local_clone)
     monkeypatch.setattr(acceptor, "ClaudeRunner", FakeRunner)
     FakeRunner.calls, FakeRunner.shot = [], True
     FakeRunner.result = ClaudeResult(
@@ -192,8 +192,8 @@ async def test_failed_check_calls_the_owner_and_rate_limit_waits(ctx, session_fa
 
 def test_start_acceptance_counts_only_the_pm_own_fixes() -> None:
     meta = {"acceptance": {"state": "fixing", "fixes": 1}}
-    pm.start_acceptance(meta, Task(created_by="pm"))
+    pm.start_acceptance(meta, "pm")
     assert meta["acceptance"]["state"] == "checking" and meta["acceptance"]["fixes"] == 1
     meta = {"acceptance": {"state": "accepted", "fixes": 2}}
-    pm.start_acceptance(meta, Task(created_by="feedback"))
+    pm.start_acceptance(meta, "feedback")
     assert meta["acceptance"]["fixes"] == 0

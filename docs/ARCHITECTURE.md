@@ -15,11 +15,14 @@
 │ Worker (AUTODEV_ROLE=worker), host systemd, full rights    │
 │                                                            │
 │  developer-1..N  ── claim (SKIP LOCKED) ── develop()       │
-│                       checkout → Claude → push/PR          │
+│                       checkout → PM brief → Claude →       │
+│                       code review → push/PR                │
 │  delivery        ── every 2×poll: CI → merge → stage → ✅  │
 │                     + pending releases (stage→main merge)  │
-│  planner         ── requested test-plan rebuilds           │
 │  pm              ── accept on stage before the owner       │
+│  scout           ── walk an idle project, file findings    │
+│  planner         ── requested test-plan rebuilds           │
+│  full diff       ── one compare link per task + follow-ups │
 │  chat-1..N       ── answer the owner in chats (read-only)  │
 └────────────────────────────────────────────────────────────┘
              │ GitHub REST (polling)       │ Claude Agent SDK
@@ -30,23 +33,41 @@
 | path | what |
 |---|---|
 | `autodev/main.py` | entry point: migrations, seeding projects, start API and/or worker |
-| `autodev/core/claude.py` | `ClaudeRunner`: one SDK session, log streaming, structured result, rate limits, host guard |
-| `autodev/core/models.py` | `Project`, `Task` (statuses), `Release`, logs, transitions |
+| `autodev/cli/` | `autodev start`, `autodev task …` |
+| `autodev/core/models.py` | `Project`, `Task` (statuses), `Release`, chats, logs |
 | `autodev/core/config.py` | env `Settings`, `autodev.yaml` schema |
-| `autodev/worker/loop.py` | slots, claiming, recovery after restart |
-| `autodev/worker/scout.py` | the scout's pass over a project |
-| `autodev/worker/developer.py` | one development round: checkout → (PM brief) → agent → code review → commit → push → PR |
-| `autodev/worker/reviewer.py` | the code reviewer: a read-only session over the branch diff, its findings back to the agent |
-| `autodev/pm.py`, `autodev/worker/brief.py` | the PM: per-task switch, the owner's history, the brief session |
-| `autodev/worker/acceptor.py` | the PM accepts a main task on stage before the owner is notified |
-| `autodev/worker/workspace.py` | per-task clone at `$AUTODEV_WORKDIR/tasks/<task id>` |
+| `autodev/core/claude.py` | `ClaudeRunner`: one SDK session, log streaming, structured result, rate limits, host guard |
+| `autodev/core/shell.py` | run a command or a script, git credentials |
+| **Rules shared by the API and the worker** | |
+| `autodev/pm.py` | the PM: per-task switch, the owner's history, acceptance states |
+| `autodev/scout.py` | the scout: modes, kinds of findings, the stage limit |
+| `autodev/review.py` | the owner's check on stage: test-plan ticks, «verified», plan versions |
 | `autodev/chats.py` | chat subjects: the agent's context and the actions it may propose |
-| `autodev/worker/chat.py` | chat slots: one read-only Claude turn per owner message |
-| `autodev/worker/planner.py` | rebuild a main task's test plan from the task, its follow-ups and stage |
-| `autodev/worker/delivery.py` | CI/merge/stage verification, fix rounds, release merging |
 | `autodev/release.py` | start a release: the stage→prod PR |
+| `autodev/scaffold.py` | projects started from scratch: the deploy contract and the first task |
+| `autodev/secrets.py` | project secrets, sealed into the repo's `deploy/secrets.yaml` |
 | `autodev/notify.py` | Telegram notifications |
-| `autodev/api/routes/` | REST API (`projects`, `tasks`, `releases`, `agents`, …) |
+| **Worker** | |
+| `autodev/worker/loop.py` | slots, claiming, recovery after restart |
+| `autodev/worker/prompts.py` | every agent's system rules and prompts |
+| `autodev/worker/developer.py` | one development round: checkout → (PM brief) → agent → code review → commit → push → PR |
+| `autodev/worker/brief.py` | the PM's brief session |
+| `autodev/worker/reviewer.py` | the code reviewer: a read-only session over the branch diff, its findings back to the agent |
+| `autodev/worker/workspace.py` | per-task clone at `$AUTODEV_WORKDIR/tasks/<task id>`; `clone_stage` for read-only agents |
+| `autodev/worker/delivery.py` | CI/merge/stage verification, fix rounds, release merging |
+| `autodev/worker/qa.py` | stage QA: a headless browser opens the changed pages |
+| `autodev/worker/cluster.py` | why a deploy didn't come up (for projects the cluster deploys) |
+| `autodev/worker/acceptor.py` | the PM accepts a main task on stage before the owner is notified |
+| `autodev/worker/scout.py` | the scout's pass over a project |
+| `autodev/worker/planner.py` | rebuild a main task's test plan from the task, its follow-ups and stage |
+| `autodev/worker/full_diff.py` | one GitHub compare for a task with its follow-ups |
+| `autodev/worker/chat.py` | chat slots: one read-only Claude turn per owner message |
+| `autodev/worker/store.py` | DB helpers of the loops: log, transitions, metadata, screenshots |
+| **Outside** | |
+| `autodev/integrations/github.py` | GitHub REST client |
+| `autodev/integrations/telegram_bot.py` | the owner's bot: notifications, a task per message, `/tasks`, `/stage`, `/release` |
+| `autodev/api/routes/` | REST API (`projects`, `tasks`, `releases`, `chats`, `agents`, …) |
+| `dashboard/` | the Next.js dashboard |
 
 ## A task's life
 
@@ -95,7 +116,9 @@
      again. After `pm.MAX_FIXES` (2) such rounds the owner is notified with what is left (`concerns`).
      Any other follow-up landing starts the count over.
    - the session fails → `failed`, the owner is notified as usual
-   While `checking`, the main task isn't in «Ждут меня».
+   While `checking`, the main task isn't in «Ждут меня». A change that lands while other follow-ups of
+   the task are still open is held (`metadata.acceptance_held`): the check starts when the last of them
+   lands — or fails or is cancelled, so the owner always hears about what did land.
 7. **Release**: `POST /api/projects/{id}/release`.
    - opens the stage→prod PR
    - the delivery loop merges it with a merge commit once its checks pass. A squash here would
@@ -120,7 +143,7 @@
   its landed follow-ups changed, and a read-only Claude session writes the whole plan again. The new
   plan starts the check over; on failure the old plan stays. A follow-up landing meanwhile keeps
   its new steps.
-- **Pause everything**: toggle the `developer` agent off in the dashboard (pauses the planner too).
+- **Pause everything**: toggle the `developer` agent off in the dashboard (pauses the planner, the PM's acceptance and the scout too; chats keep answering).
 
 ## Scout
 
@@ -189,4 +212,5 @@ task's follow-ups, the project's tasks, and every approved or rejected proposal)
 ## Subscription limits
 
 Claude reports a rejected rate limit (`rate_limit_event`), or the result text says the limit was hit.
-In that case the task goes back to `queued` and every slot pauses until the reset time.
+In that case the task goes back to `queued` and every slot pauses until the reset time
+(`WorkerContext.pause`; the dashboard's header shows it).

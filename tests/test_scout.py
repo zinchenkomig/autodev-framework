@@ -15,6 +15,7 @@ from autodev.core.claude import ClaudeResult
 from autodev.core.config import Settings
 from autodev.core.models import Project, Task, TaskArtifact, TaskStatus
 from autodev.worker import scout as worker_scout
+from autodev.worker import workspace
 from autodev.worker.context import WorkerContext
 from autodev.worker.loop import Worker
 
@@ -65,13 +66,13 @@ def ctx(monkeypatch, tmp_path, session_factory):
     git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init", cwd=seed)
     git("remote", "add", "origin", str(bare), cwd=seed)
     git("push", "-q", "origin", "stage", cwd=seed)
-    real_run = worker_scout.shell.run
+    real_run = workspace.shell.run
 
     async def local_clone(*args, **kw):
         args = [str(bare) if a == "https://github.com/acme/shop.git" else a for a in args]
         return await real_run(*args, **kw)
 
-    monkeypatch.setattr(worker_scout.shell, "run", local_clone)
+    monkeypatch.setattr(workspace.shell, "run", local_clone)
     monkeypatch.setattr(worker_scout, "ClaudeRunner", FakeRunner)
     monkeypatch.setattr(worker_scout.notify, "scouted", AsyncMock())
     monkeypatch.setattr(worker_scout.notify, "proposals", AsyncMock())

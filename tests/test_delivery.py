@@ -510,6 +510,31 @@ async def test_pm_waits_for_open_follow_ups_and_counts_its_own(session_factory, 
     }
 
 
+async def test_pm_stops_waiting_for_a_follow_up_that_failed(session_factory, project, no_notifications):
+    main = await make_task(
+        session_factory,
+        status=TaskStatus.ON_STAGE,
+        metadata_={"pm": True, "acceptance": {"state": "fixing", "fixes": 1}},
+    )
+    own = await make_task(
+        session_factory, status=TaskStatus.DEPLOYING, merge_sha="m2", parent_id=main.id, created_by="pm"
+    )
+    other = await make_task(session_factory, status=TaskStatus.CI, parent_id=main.id, created_by="feedback")
+    delivery = Delivery(ctx(session_factory))
+    await delivery.on_stage(own, "test")
+    await delivery.start_held_acceptance()
+    assert (await reload(session_factory, main.id)).metadata_["acceptance"]["state"] == "fixing"  # #other is open
+
+    async with session_factory() as s:
+        (await s.get(Task, other.id)).status = TaskStatus.FAILED
+        await s.commit()
+    await delivery.start_held_acceptance()
+    metadata = (await reload(session_factory, main.id)).metadata_
+    # Only the PM's own fix landed, so its count goes on.
+    assert (metadata["acceptance"]["state"], metadata["acceptance"]["fixes"]) == ("checking", 1)
+    assert "acceptance_held" not in metadata
+
+
 async def test_pm_on_but_broken_stage_or_no_stage_calls_the_owner(session_factory, project, stub_qa, no_notifications):
     stub_qa.return_value = qa.QAResult(
         pages=[qa.PageResult(url="https://stage.shop.test/", status=500, problems=["HTTP 500"])]

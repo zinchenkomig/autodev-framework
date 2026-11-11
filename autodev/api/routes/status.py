@@ -11,11 +11,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from autodev.api.database import get_session
-from autodev.core.models import Agent, Setting, Task
+from autodev.core.models import PAUSED_UNTIL_SETTING, Agent, Setting, Task
 
 router = APIRouter()
 
-PAUSED_UNTIL_KEY = "worker_paused_until"
 HEARTBEAT_AGENT = "delivery"
 #: The delivery loop ticks every ~20 s; allow a few missed ticks.
 ONLINE_WINDOW_SECONDS = 120
@@ -45,7 +44,7 @@ async def get_status(session: Annotated[AsyncSession, Depends(get_session)]) -> 
     online = last_seen is not None and (datetime.now(UTC) - last_seen).total_seconds() < ONLINE_WINDOW_SECONDS
 
     paused_until = None
-    setting = await session.get(Setting, PAUSED_UNTIL_KEY)
+    setting = await session.get(Setting, PAUSED_UNTIL_SETTING)
     if setting and setting.value:
         moment = datetime.fromisoformat(setting.value)
         paused_until = moment if moment > datetime.now(UTC) else None

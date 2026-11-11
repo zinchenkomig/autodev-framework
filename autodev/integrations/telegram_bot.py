@@ -32,6 +32,7 @@ COMMANDS = [
 ALIASES = {"/status": "/tasks", "/staging": "/stage"}
 
 STATUS_EMOJI = {
+    "proposed": "💡",
     "queued": "⏳",
     "in_progress": "🛠",
     "ci": "🧪",
@@ -64,7 +65,7 @@ def _esc(text: str) -> str:
     return html.escape(text or "")
 
 
-class TelegramPMBot:
+class TelegramBot:
     """Telegram bot bound to the owner's chat."""
 
     def __init__(self, token: str = "", owner_chat_id: str = "", current_project: str = "") -> None:
@@ -74,7 +75,7 @@ class TelegramPMBot:
         self._client: httpx.AsyncClient | None = None
 
     @classmethod
-    async def from_settings(cls) -> TelegramPMBot:
+    async def from_settings(cls) -> TelegramBot:
         settings = await get_telegram_settings()
         return cls(token=settings["token"], owner_chat_id=settings["chat_id"], current_project=settings["project"])
 
@@ -406,9 +407,9 @@ async def sync_commands() -> None:
         await bot.close()
 
 
-async def get_telegram_bot() -> TelegramPMBot:
+async def get_telegram_bot() -> TelegramBot:
     """Get Telegram bot from settings."""
-    return await TelegramPMBot.from_settings()
+    return await TelegramBot.from_settings()
 
 
 async def notify_owner(text: str, photo: bytes | None = None, reply_markup: dict | None = None) -> bool:

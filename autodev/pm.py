@@ -112,14 +112,24 @@ def acceptance(task: Task) -> dict | None:
     return value if isinstance(value, dict) else None
 
 
-def start_acceptance(metadata: dict, landed: Task) -> None:
-    """*landed* (the main task or one of its follow-ups) reached stage: the PM checks the whole again.
+#: Main task metadata: whose change landed while other follow-ups of the task were still open.
+#: The PM's check starts once none is — they landed, or failed and won't.
+HELD = "acceptance_held"
+
+
+def hold_acceptance(metadata: dict, by: str | None) -> None:
+    """A change created by *by* reached stage, but the PM waits for the task's open follow-ups."""
+    metadata[HELD] = by if metadata.get(HELD, by) == by else "several"
+
+
+def start_acceptance(metadata: dict, by: str | None) -> None:
+    """A change created by *by* (the main task or a follow-up) reached stage: the PM checks the whole again.
 
     Its own follow-ups count toward MAX_FIXES; anything else (the owner's follow-up, a QA fix after
-    the owner's change…) starts the count over.
+    the owner's change…), also among the changes it waited for, starts the count over.
     """
     previous = metadata.get(ACCEPTANCE) if isinstance(metadata.get(ACCEPTANCE), dict) else {}
-    own = landed.created_by == PM_AUTHOR and previous.get("state") == FIXING
+    own = by == metadata.pop(HELD, by) == PM_AUTHOR and previous.get("state") == FIXING
     metadata[ACCEPTANCE] = {"state": CHECKING, "fixes": previous.get("fixes", 0) if own else 0, "at": _now()}
 
 

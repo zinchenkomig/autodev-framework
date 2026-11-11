@@ -31,6 +31,16 @@ def branch_name(ticket: int, title: str) -> str:
     return f"autodev/{ticket}-{slug}" if slug else f"autodev/{ticket}"
 
 
+async def clone_stage(project, path: Path, env: dict[str, str], repo: str | None = None) -> None:
+    """A fresh clone of the project's stage branch at *path*, for an agent that reads what is on stage."""
+    shutil.rmtree(path, ignore_errors=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    url = f"https://github.com/{repo or project.repo()['name']}.git"
+    await shell.run(
+        "git", "clone", "-q", "--filter=blob:none", "-b", project.base_branch, url, str(path), env=env, timeout=600
+    )  # fmt: skip
+
+
 class Workspace:
     """A fresh clone of one repo for one task at ``<root>/tasks/<task_id>``.
 

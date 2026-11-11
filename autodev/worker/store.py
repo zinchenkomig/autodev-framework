@@ -4,16 +4,21 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from autodev import review
-from autodev.core.models import AgentLog, Task, TaskTransition
+from autodev.core.models import AgentLog, Task, TaskArtifact, TaskTransition
 
 logger = logging.getLogger(__name__)
+
+#: Screenshots an agent may attach to one task, and the largest one kept.
+MAX_SHOTS = 8
+MAX_SHOT_BYTES = 5_000_000
 
 
 class Store:
@@ -57,6 +62,30 @@ class Store:
             change(metadata)
             task.metadata_ = metadata
             await session.commit()
+
+    async def attach_screenshots(self, task_id: uuid.UUID, files: Iterable[Path], label: str) -> bytes | None:
+        """Keep an agent's PNG screenshots as the task's artifacts named «*label*: <file name>».
+
+        Returns the first one kept, for the notification.
+        """
+        first = None
+        async with self.session_factory() as session:
+            for path in list(files)[:MAX_SHOTS]:
+                content = path.read_bytes() if path.is_file() else b""
+                if not content.startswith(b"\x89PNG") or len(content) > MAX_SHOT_BYTES:
+                    continue
+                first = first or content
+                session.add(
+                    TaskArtifact(
+                        task_id=task_id,
+                        kind="screenshot",
+                        name=f"{label}: {path.stem}",
+                        content=content,
+                        content_type="image/png",
+                    )
+                )
+            await session.commit()
+        return first
 
     async def transition(
         self,

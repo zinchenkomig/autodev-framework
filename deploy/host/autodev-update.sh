@@ -50,18 +50,20 @@ from autodev.core.models import Agent, AgentStatus, Chat, ChatState, Task, TaskS
 async def main():
     async with SessionLocal() as s:
         tasks = await s.scalar(select(func.count()).select_from(Task).where(Task.status == TaskStatus.IN_PROGRESS))
-        # The planner rebuilds a test plan without moving the task to in_progress.
-        planner = await s.scalar(
-            select(func.count()).select_from(Agent).where(Agent.id == "planner", Agent.status == AgentStatus.WORKING)
+        # The planner, the PM's acceptance and the scout run sessions without a task in_progress.
+        agents = await s.scalar(
+            select(func.count())
+            .select_from(Agent)
+            .where(Agent.id.in_(("planner", "pm", "scout")), Agent.status == AgentStatus.WORKING)
         )
         chats = await s.scalar(select(func.count()).select_from(Chat).where(Chat.state == ChatState.ANSWERING))
-        print(tasks + planner + chats)
+        print(tasks + agents + chats)
 
 asyncio.run(main())
 PY
 )
 if [ "${busy:-0}" != "0" ]; then
-  echo "update ${target:0:7} waits for $busy running task(s) and chat answer(s)"
+  echo "update ${target:0:7} waits for $busy running session(s)"
   exit 0
 fi
 

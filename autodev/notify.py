@@ -20,7 +20,7 @@ def _task_link(task: Task) -> str:
 
 async def _send(text: str, photo: bytes | None = None, reply_markup: dict | None = None) -> None:
     try:
-        from autodev.integrations.telegram_pm import notify_owner
+        from autodev.integrations.telegram_bot import notify_owner
 
         await notify_owner(text, photo=photo, reply_markup=reply_markup)
     except Exception:
