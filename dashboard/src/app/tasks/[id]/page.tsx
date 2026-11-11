@@ -27,7 +27,7 @@ import { ChatSheet } from '@/components/Chat'
 import { Inline, Markdown } from '@/components/Markdown'
 import { Badge, Button, Card, ErrorNote, Lightbox, Sheet, inputClass } from '@/components/ui'
 import { api, type Acceptance, type LogEntry, type Task } from '@/lib/api'
-import { FIX_KIND, PRIORITY, SCOUT_KIND, STATUS, ago, cx, dateTime, time } from '@/lib/format'
+import { FIX_KIND, MODELS, PRIORITY, SCOUT_KIND, STATUS, ago, cx, dateTime, time } from '@/lib/format'
 import { usePoll } from '@/lib/hooks'
 
 const MERGED = ['deploying', 'on_stage', 'released']
@@ -107,6 +107,7 @@ export default function TaskPage() {
               <CheckCircle2 size={12} /> проверено
             </Badge>
           )}
+          {t.model && <Badge tone="neutral">{MODELS[t.model] ?? t.model}</Badge>}
           {t.priority !== 'normal' && <Badge tone={t.priority === 'low' ? 'neutral' : 'warn'}>{PRIORITY[t.priority]}</Badge>}
           <span>{ago(t.status_changed_at)}</span>
         </div>

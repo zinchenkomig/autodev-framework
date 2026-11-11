@@ -65,3 +65,6 @@ export function plural(n: number, forms: [string, string, string]): string {
   if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return forms[1]
   return forms[2]
 }
+
+/** Claude models offered for a task; the API takes any name the CLI does. */
+export const MODELS: Record<string, string> = { opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku' }

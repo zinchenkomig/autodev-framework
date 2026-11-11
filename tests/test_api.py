@@ -196,6 +196,22 @@ async def test_follow_up_keeps_the_main_task_pm_choice(client, session_factory, 
     assert follow_up["id"] != t["id"] and follow_up["pm"] is False
 
 
+async def test_task_model_pick_and_follow_up_inherits_it(client, session_factory, project) -> None:
+    plain = (await client.post("/api/tasks/", json={"title": "Поиск"})).json()
+    assert plain["model"] is None
+    t = (await client.post("/api/tasks/", json={"title": "Поиск", "model": " opus "})).json()
+    assert t["model"] == "opus"
+    async with session_factory() as s:
+        task = await s.get(Task, uuid.UUID(t["id"]))
+        assert task.model == "opus"
+        task.status = TaskStatus.ON_STAGE
+        await s.commit()
+    follow_up = (await client.post(f"/api/tasks/{t['id']}/feedback", json={"text": "ещё"})).json()
+    assert follow_up["model"] == "opus"
+    assert (await client.patch(f"/api/tasks/{t['id']}", json={"model": "sonnet"})).json()["model"] == "sonnet"
+    assert (await client.patch(f"/api/tasks/{t['id']}", json={"model": ""})).json()["model"] is None
+
+
 async def test_create_task_needs_project_when_ambiguous(client, session_factory, project) -> None:
     async with session_factory() as s:
         s.add(make_project("blog"))
