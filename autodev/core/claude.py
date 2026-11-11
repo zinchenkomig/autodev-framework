@@ -80,6 +80,10 @@ _RATE_LIMIT_TEXT = re.compile(r"usage limit|hit your limit|rate limit|limit reac
 _RESET_AT = re.compile(r"resets?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*\(?UTC\)?", re.IGNORECASE)
 _NO_SESSION = re.compile(r"no conversation found", re.IGNORECASE)
 
+#: Longest single message from the CLI. A screenshot the agent reads comes back as one
+#: base64 line, and the SDK's default of 1 MB ends the session on a full-page one.
+_MAX_MESSAGE_BYTES = 32 * 1024 * 1024
+
 # Commands that would hurt the host or other workloads on it. The agent may
 # do anything else (docker, kubectl in its own namespaces, package installs…).
 _FORBIDDEN_COMMANDS = [
@@ -216,6 +220,7 @@ class ClaudeRunner:
             cli_path=self.cli_path,
             hooks={"PreToolUse": [HookMatcher(matcher="Bash", hooks=[_guard_hook])]},
             disallowed_tools=self.disallowed_tools,
+            max_buffer_size=_MAX_MESSAGE_BYTES,
         )
 
     async def run(

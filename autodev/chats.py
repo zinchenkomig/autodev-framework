@@ -347,6 +347,8 @@ def project_section(project: Project) -> str:
         parts.append(f"Repository: {repo['name']}; the current directory is its `{project.base_branch}` branch.")
     if project.stage_url:
         parts.append(f"Stage: {project.stage_url}")
+    if project.idea:
+        parts += ["", "The owner's idea of the product:", project.idea.strip()[:3000]]
     if project.principles:
         parts += ["", "The owner's product principles (already remembered):", project.principles.strip()[:3000]]
     if project.instructions:

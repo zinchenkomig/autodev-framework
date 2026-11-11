@@ -1,7 +1,9 @@
-"""The scout: walks a project on its own and finds what is worth fixing.
+"""The scout: walks a project on its own and finds what is worth changing.
 
 Every other agent starts from a task the owner wrote. The scout writes tasks: it reads
-the stage branch, opens stage in a phone-sized browser and returns a few findings, each
+the stage branch, opens stage in a phone-sized browser and holds what it sees against
+the project's idea (``Project.idea``): what is broken, what the idea still lacks, what
+is superfluous, what in the code a person can't read. It returns a few findings, each
 with evidence (:mod:`autodev.worker.scout`). What happens to them is the project's mode:
 
 - ``propose``: they wait in status ``proposed`` until the owner takes or rejects them;
@@ -29,7 +31,8 @@ OFF, PROPOSE, AUTO = "off", "propose", "auto"
 
 #: Who created a task, and its metadata: {"kind", "evidence", "rejected": the owner's reason}.
 AUTHOR = KEY = "scout"
-KINDS = ("bug", "ux", "tests", "debt")
+#: What a finding is: something broken, awkward, missing from the idea, superfluous, unguarded, hard to read.
+KINDS = ("bug", "ux", "feature", "simplify", "tests", "debt")
 
 #: ``scout_run["state"]``: the owner pressed the button / a session runs / it ended.
 REQUESTED, RUNNING, DONE, FAILED = "requested", "running", "done", "failed"

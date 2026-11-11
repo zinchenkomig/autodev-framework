@@ -15,6 +15,7 @@ export const EMPTY_PROJECT: ProjectInput = {
   smoke_paths: [],
   instructions: null,
   pm: true,
+  idea: null,
   principles: null,
   scout: 'off',
   stage_limit: 10,
@@ -60,6 +61,7 @@ export function ProjectForm({
           ...p,
           stage_url: orNull(p.stage_url ?? ''),
           model: orNull(p.model ?? ''),
+          idea: orNull(p.idea ?? ''),
           principles: orNull(p.principles ?? ''),
           instructions: orNull(p.instructions ?? ''),
           repos: [{ name: r.name.trim(), version_url: orNull(r.version_url ?? ''), setup: orNull(r.setup ?? '') }],
@@ -130,9 +132,12 @@ export function ProjectForm({
             className={inputClass}
           />
         </Field>
-        {newRepo ? (
+        {newRepo && (
           <>
-            <Field label="Что строим" hint="Станет первой задачей: агент выберет стек и заложит каркас — код, тесты, CI, CLAUDE.md.">
+            <Field
+              label="Что строим"
+              hint="Идея продукта и первая задача: агент выберет стек и заложит каркас — код, тесты, CI, CLAUDE.md."
+            >
               <textarea
                 rows={5}
                 placeholder="Сервис заметок с тегами и поиском. Бэкенд на FastAPI, фронт на Next.js."
@@ -151,75 +156,46 @@ export function ProjectForm({
               <span className="text-sm">Приватный репозиторий</span>
             </label>
           </>
-        ) : (
-          <>
-            <Field label="URL версии на stage" hint="Отдаёт SHA задеплоенного коммита. Без него ждём успешных workflow на stage.">
-              <input
-                placeholder="https://stage.example.com/api/version"
-                value={r.version_url ?? ''}
-                onChange={(e) => setRepo({ version_url: e.target.value })}
-                className={inputClass}
-              />
-            </Field>
-            <Field label="Setup-скрипт" hint="Выполняется в свежем чекауте до старта агента (кодген и т.п.).">
-              <textarea
-                rows={2}
-                value={r.setup ?? ''}
-                onChange={(e) => setRepo({ setup: e.target.value })}
-                className={`${inputClass} font-mono text-sm`}
-              />
-            </Field>
-          </>
         )}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="URL stage" hint={newRepo ? 'пусто — выдадим для проекта в организации' : undefined}>
-          <input
-            type="url"
-            placeholder="https://stage.example.com"
-            value={p.stage_url ?? ''}
-            onChange={(e) => set('stage_url', e.target.value || null)}
-            className={inputClass}
-          />
-        </Field>
-        <Field label="Модель Claude" hint="пусто — по умолчанию">
-          <input
-            placeholder="opus / sonnet"
-            value={p.model ?? ''}
-            onChange={(e) => set('model', e.target.value || null)}
-            className={inputClass}
-          />
-        </Field>
-        <Field label="Ветка stage">
-          <input required value={p.base_branch} onChange={(e) => set('base_branch', e.target.value)} className={inputClass} />
-        </Field>
-        <Field label="Ветка прода">
-          <input required value={p.prod_branch} onChange={(e) => set('prod_branch', e.target.value)} className={inputClass} />
-        </Field>
-        <Field label="Задач параллельно">
-          <input
-            type="number"
-            min={1}
-            max={10}
-            value={p.max_parallel}
-            onChange={(e) => set('max_parallel', Number(e.target.value) || 1)}
-            className={inputClass}
-          />
-        </Field>
-        <label className="flex items-center gap-3 self-end pb-3">
-          <input type="checkbox" checked={p.enabled} onChange={(e) => set('enabled', e.target.checked)} className="h-5 w-5 accent-[var(--accent)]" />
-          <span className="text-sm">Агенты работают над проектом</span>
-        </label>
-      </div>
+      <Field label="URL stage" hint={newRepo ? 'пусто — выдадим для проекта в организации' : undefined}>
+        <input
+          type="url"
+          placeholder="https://stage.example.com"
+          value={p.stage_url ?? ''}
+          onChange={(e) => set('stage_url', e.target.value || null)}
+          className={inputClass}
+        />
+      </Field>
 
-      <label className="flex items-start gap-3">
-        <input type="checkbox" checked={p.pm} onChange={(e) => set('pm', e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--accent)]" />
-        <span className="text-sm">
-          PM продумывает задачи перед разработкой
-          <span className="block text-muted">Значение по умолчанию для новых задач; у задачи можно выключить.</span>
-        </span>
-      </label>
+      {!newRepo && (
+        <Field
+          label="Идея продукта"
+          hint="Что это и для кого, своими словами. Скаут сверяет с ней продукт: чего не хватает и что лишнее. PM держит задачи в её рамках."
+        >
+          <textarea
+            rows={4}
+            value={p.idea ?? ''}
+            onChange={(e) => set('idea', e.target.value || null)}
+            placeholder="Учу слова карточками по 5 минут в день: добавил список — и сразу учишь, без настроек."
+            className={inputClass}
+          />
+        </Field>
+      )}
+
+      <Field
+        label="Принципы продукта"
+        hint="Чего вы ждёте без напоминаний: агенты учитывают это в каждой задаче. Из чата по задаче принцип добавляется кнопкой «Запомнить»."
+      >
+        <textarea
+          rows={4}
+          value={p.principles ?? ''}
+          onChange={(e) => set('principles', e.target.value || null)}
+          placeholder={'- Подписи и иконки совпадают с тем, что реально происходит\n- Меньше настроек и переходов, очевидное поведение по умолчанию'}
+          className={inputClass}
+        />
+      </Field>
 
       <div className="space-y-3 rounded-2xl border border-line p-3">
         <Field label="Скаут" hint={SCOUT_MODES.find((m) => m.value === p.scout)?.hint}>
@@ -252,27 +228,78 @@ export function ProjectForm({
         </Field>
       </div>
 
-      <Field
-        label="Принципы продукта"
-        hint="Чего вы ждёте без напоминаний: PM и разработчик учитывают это в каждой задаче. Из чата по задаче принцип добавляется кнопкой «Запомнить»."
-      >
-        <textarea
-          rows={4}
-          value={p.principles ?? ''}
-          onChange={(e) => set('principles', e.target.value || null)}
-          placeholder={'- Подписи и иконки совпадают с тем, что реально происходит\n- Меньше настроек и переходов, очевидное поведение по умолчанию'}
-          className={inputClass}
-        />
-      </Field>
+      <label className="flex items-start gap-3">
+        <input type="checkbox" checked={p.pm} onChange={(e) => set('pm', e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--accent)]" />
+        <span className="text-sm">
+          PM продумывает задачи перед разработкой
+          <span className="block text-muted">Значение по умолчанию для новых задач; у задачи можно выключить.</span>
+        </span>
+      </label>
 
-      <Field label="Инструкции для агента" hint="Дополнение к CLAUDE.md репозитория.">
-        <textarea
-          rows={4}
-          value={p.instructions ?? ''}
-          onChange={(e) => set('instructions', e.target.value || null)}
-          className={inputClass}
-        />
-      </Field>
+      {/* What a project rarely needs changed: the defaults work. */}
+      <details className="rounded-2xl border border-line p-3">
+        <summary className="cursor-pointer text-sm font-medium">Дополнительно</summary>
+        <div className="mt-4 space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Ветка stage">
+              <input required value={p.base_branch} onChange={(e) => set('base_branch', e.target.value)} className={inputClass} />
+            </Field>
+            <Field label="Ветка прода">
+              <input required value={p.prod_branch} onChange={(e) => set('prod_branch', e.target.value)} className={inputClass} />
+            </Field>
+            <Field label="Модель Claude" hint="пусто — по умолчанию">
+              <input
+                placeholder="opus / sonnet"
+                value={p.model ?? ''}
+                onChange={(e) => set('model', e.target.value || null)}
+                className={inputClass}
+              />
+            </Field>
+            <Field label="Задач параллельно">
+              <input
+                type="number"
+                min={1}
+                max={10}
+                value={p.max_parallel}
+                onChange={(e) => set('max_parallel', Number(e.target.value) || 1)}
+                className={inputClass}
+              />
+            </Field>
+          </div>
+          {!newRepo && (
+            <>
+              <Field label="URL версии на stage" hint="Отдаёт SHA задеплоенного коммита. Без него ждём успешных workflow на stage.">
+                <input
+                  placeholder="https://stage.example.com/api/version"
+                  value={r.version_url ?? ''}
+                  onChange={(e) => setRepo({ version_url: e.target.value })}
+                  className={inputClass}
+                />
+              </Field>
+              <Field label="Setup-скрипт" hint="Выполняется в свежем чекауте до старта агента (кодген и т.п.).">
+                <textarea
+                  rows={2}
+                  value={r.setup ?? ''}
+                  onChange={(e) => setRepo({ setup: e.target.value })}
+                  className={`${inputClass} font-mono text-sm`}
+                />
+              </Field>
+            </>
+          )}
+          <Field label="Инструкции для агента" hint="Дополнение к CLAUDE.md репозитория.">
+            <textarea
+              rows={4}
+              value={p.instructions ?? ''}
+              onChange={(e) => set('instructions', e.target.value || null)}
+              className={inputClass}
+            />
+          </Field>
+          <label className="flex items-center gap-3">
+            <input type="checkbox" checked={p.enabled} onChange={(e) => set('enabled', e.target.checked)} className="h-5 w-5 accent-[var(--accent)]" />
+            <span className="text-sm">Агенты работают над проектом</span>
+          </label>
+        </div>
+      </details>
 
       <ErrorNote error={error} />
       <Button type="submit" variant="primary" disabled={busy} className="w-full sm:w-auto">

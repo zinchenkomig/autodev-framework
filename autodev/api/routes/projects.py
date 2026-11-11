@@ -37,6 +37,7 @@ class ProjectBody(BaseModel):
     instructions: str | None = None
     # The PM thinks new tasks through before the developer starts; the default for new tasks.
     pm: bool = True
+    idea: str | None = None  # what the product is and who it is for
     principles: str | None = None  # the owner's product principles, for the PM and the developer
     # The scout finds tasks on its own: proposes them, or sends them straight to development.
     scout: Literal["off", "propose", "auto"] = "off"
@@ -59,7 +60,7 @@ class NewRepo(BaseModel):
     """Create the project's repo on GitHub instead of connecting an existing one."""
 
     private: bool = True
-    # What to build. Becomes the project's first task: the agent lays the groundwork.
+    # What to build. Becomes the project's idea and its first task: the agent lays the groundwork.
     brief: str = ""
 
 
@@ -119,6 +120,7 @@ def to_response(project: Project, counts: dict[str, int] | None = None, load: in
         smoke_paths=project.smoke_paths or [],
         instructions=project.instructions,
         pm=project.pm,
+        idea=project.idea,
         principles=project.principles,
         scout=project.scout,
         stage_limit=project.stage_limit,
@@ -171,6 +173,9 @@ async def create_project(
         body = body.model_copy(update={"stage_url": url, "repos": [repo]})
     project = Project(id=body.id)
     _apply(project, body)
+    if body.new_repo is not None and not project.idea:
+        # What the owner asked to build stays with the project after the first task is done.
+        project.idea = body.new_repo.brief.strip() or None
     session.add(project)
     await session.flush()
     if body.new_repo is not None and body.new_repo.brief.strip():
