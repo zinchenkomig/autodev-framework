@@ -1,4 +1,4 @@
-"""Worker process: developer slots + delivery loop."""
+"""Worker process: developer slots and the loops beside them — delivery, planner, PM, scout, chats, full diffs."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from autodev.core.models import (
     TaskStatus,
     TaskTransition,
 )
-from autodev.worker import acceptor, chat, combined, planner, scout
+from autodev.worker import acceptor, chat, full_diff, planner, scout
 from autodev.worker.context import WorkerContext
 from autodev.worker.delivery import Delivery
 from autodev.worker.developer import develop
@@ -73,7 +73,7 @@ class Worker:
             self.planner_loop(),
             self.acceptance_loop(),
             self.scout_loop(),
-            self.combined_loop(),
+            self.full_diff_loop(),
         )
         logger.info("worker stopped")
 
@@ -158,73 +158,50 @@ class Worker:
                 logger.exception("slot %s crashed — continuing", name)
                 await self._sleep(5)
 
-    async def combined_loop(self) -> None:
+    async def full_diff_loop(self) -> None:
         """Rebuild the one-diff view of a task and its follow-ups after their merges."""
         try:
-            await combined.backfill(self.ctx)
+            await full_diff.backfill(self.ctx)
         except Exception:
             logger.exception("full diff backfill failed")
         while not self.stopping.is_set():
             try:
-                for root_id in await combined.pending(self.ctx):
-                    await combined.rebuild(self.ctx, root_id)
+                for root_id in await full_diff.pending(self.ctx):
+                    await full_diff.rebuild(self.ctx, root_id)
                 await self._sleep(self.ctx.settings.poll_interval)
             except Exception:
                 logger.exception("full diff rebuild failed — retrying later")
                 await self._sleep(300)
 
     async def planner_loop(self) -> None:
-        """Test-plan refreshes the owner asked for, one at a time, beside the developer slots."""
-        while not self.stopping.is_set():
-            try:
-                runnable = not self.ctx.paused() and not self.draining() and await self.developers_enabled()
-                task_id = await planner.next_request(self.ctx) if runnable else None
-                if task_id is None:
-                    await self._sleep(self.ctx.settings.poll_interval)
-                    continue
-                await self._agent_status(planner.AGENT, AgentStatus.WORKING, task_id)
-                try:
-                    await planner.refresh_plan(self.ctx, task_id)
-                finally:
-                    await self._agent_status(planner.AGENT, AgentStatus.IDLE, None)
-            except Exception:
-                logger.exception("planner crashed — continuing")
-                await self._sleep(5)
+        """Test-plan refreshes the owner asked for."""
+        await self._one_at_a_time(planner.AGENT, planner.next_request, planner.refresh_plan)
 
     async def acceptance_loop(self) -> None:
-        """The PM accepts main tasks on stage before the owner is called, one at a time."""
-        while not self.stopping.is_set():
-            try:
-                runnable = not self.ctx.paused() and not self.draining() and await self.developers_enabled()
-                task_id = await acceptor.next_request(self.ctx) if runnable else None
-                if task_id is None:
-                    await self._sleep(self.ctx.settings.poll_interval)
-                    continue
-                await self._agent_status(acceptor.AGENT, AgentStatus.WORKING, task_id)
-                try:
-                    await acceptor.accept(self.ctx, task_id)
-                finally:
-                    await self._agent_status(acceptor.AGENT, AgentStatus.IDLE, None)
-            except Exception:
-                logger.exception("acceptance crashed — continuing")
-                await self._sleep(5)
+        """The PM accepts main tasks on stage before the owner is called."""
+        await self._one_at_a_time(acceptor.AGENT, acceptor.next_request, acceptor.accept)
 
     async def scout_loop(self) -> None:
-        """The scout walks idle projects and finds what to fix, one at a time."""
+        """The scout walks idle projects and finds what to change."""
+        await self._one_at_a_time(scout.AGENT, scout.next_run, scout.run)
+
+    async def _one_at_a_time(self, agent: str, next_item, run) -> None:
+        """An agent beside the developer slots: takes what *next_item* returns (a task or project id)
+        and runs it, one at a time. Paused with the developers."""
         while not self.stopping.is_set():
             try:
                 runnable = not self.ctx.paused() and not self.draining() and await self.developers_enabled()
-                project_id = await scout.next_run(self.ctx) if runnable else None
-                if project_id is None:
+                item = await next_item(self.ctx) if runnable else None
+                if item is None:
                     await self._sleep(self.ctx.settings.poll_interval)
                     continue
-                await self._agent_status(scout.AGENT, AgentStatus.WORKING, None)
+                await self._agent_status(agent, AgentStatus.WORKING, item if isinstance(item, uuid.UUID) else None)
                 try:
-                    await scout.run(self.ctx, project_id)
+                    await run(self.ctx, item)
                 finally:
-                    await self._agent_status(scout.AGENT, AgentStatus.IDLE, None)
+                    await self._agent_status(agent, AgentStatus.IDLE, None)
             except Exception:
-                logger.exception("scout crashed — continuing")
+                logger.exception("%s crashed — continuing", agent)
                 await self._sleep(5)
 
     async def chat_loop(self) -> None:

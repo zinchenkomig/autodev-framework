@@ -1,5 +1,5 @@
 [Unit]
-Description=AutoDev worker (developer slots + delivery)
+Description=AutoDev worker (agents and delivery)
 After=network-online.target k3s.service
 Wants=network-online.target
 

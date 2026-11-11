@@ -9,7 +9,7 @@ import pytest
 
 from autodev.core.config import Settings
 from autodev.core.models import Task, TaskStatus
-from autodev.worker import combined
+from autodev.worker import full_diff
 from autodev.worker.context import WorkerContext
 from tests.conftest import make_project
 
@@ -46,13 +46,13 @@ class Origin:
 @pytest.fixture
 def origin(tmp_path, monkeypatch) -> Origin:
     origin = Origin(tmp_path)
-    real_run = combined.shell.run
+    real_run = full_diff.shell.run
 
     async def local(*args, **kw):  # github.com → the local bare repo
         args = [str(origin.bare) if a == "https://github.com/acme/shop.git" else a for a in args]
         return await real_run(*args, **kw)
 
-    monkeypatch.setattr(combined.shell, "run", local)
+    monkeypatch.setattr(full_diff.shell, "run", local)
     return origin
 
 
@@ -83,25 +83,25 @@ async def test_follow_ups_replayed_without_other_tasks(ctx, origin) -> None:
     origin.merge({"other.txt": "чужое\n"}, "someone else's task")
     await add(ctx, title="Доработка", parent_id=main.id, merge_sha=origin.merge({"app.txt": "v2\n"}, "follow-up"))
     await add(ctx, title="Ещё в CI", parent_id=main.id, status=TaskStatus.CI)
-    await ctx.store.patch_metadata(main.id, lambda m: m.update({combined.PENDING: True}))
-    assert await combined.pending(ctx) == [main.id]
+    await ctx.store.patch_metadata(main.id, lambda m: m.update({full_diff.PENDING: True}))
+    assert await full_diff.pending(ctx) == [main.id]
 
-    await combined.rebuild(ctx, main.id)
+    await full_diff.rebuild(ctx, main.id)
 
-    full = (await metadata(ctx, main.id))[combined.KEY]
+    full = (await metadata(ctx, main.id))[full_diff.KEY]
     assert full["tasks"] == 2
     base, head = full["url"].removeprefix("https://github.com/acme/shop/compare/").split("...")
     assert origin.files(base) == {"app.txt": "v0"}
-    assert origin.files(combined.ref(main.ticket_number)) == {"app.txt": "v2"}  # no other.txt
-    assert git("--git-dir", str(origin.bare), "rev-parse", combined.ref(main.ticket_number), cwd=origin.seed) == head
-    assert await combined.pending(ctx) == []
+    assert origin.files(full_diff.ref(main.ticket_number)) == {"app.txt": "v2"}  # no other.txt
+    assert git("--git-dir", str(origin.bare), "rev-parse", full_diff.ref(main.ticket_number), cwd=origin.seed) == head
+    assert await full_diff.pending(ctx) == []
 
 
 async def test_single_pr_needs_no_diff(ctx, origin) -> None:
     main = await add(ctx, title="Главная", merge_sha=origin.merge({"app.txt": "v1\n"}, "main task"))
-    await ctx.store.patch_metadata(main.id, lambda m: m.update({combined.PENDING: True}))
+    await ctx.store.patch_metadata(main.id, lambda m: m.update({full_diff.PENDING: True}))
 
-    await combined.rebuild(ctx, main.id)
+    await full_diff.rebuild(ctx, main.id)
 
     assert await metadata(ctx, main.id) == {}
 
@@ -113,9 +113,9 @@ async def test_follow_up_that_needs_the_skipped_task_is_reported(ctx, origin) ->
         ctx, title="Доработка", parent_id=main.id, merge_sha=origin.merge({"app.txt": "v2\n"}, "follow-up")
     )
 
-    await combined.rebuild(ctx, main.id)
+    await full_diff.rebuild(ctx, main.id)
 
-    full = (await metadata(ctx, main.id))[combined.KEY]
+    full = (await metadata(ctx, main.id))[full_diff.KEY]
     assert "url" not in full
     assert f"#{child.ticket_number}" in full["error"]
 
@@ -125,7 +125,7 @@ async def test_backfill_marks_families_merged_earlier(ctx, origin) -> None:
     await add(ctx, title="Доработка", parent_id=main.id, merge_sha="b" * 40)
     alone = await add(ctx, title="Без доработок", merge_sha="c" * 40)
 
-    await combined.backfill(ctx)
+    await full_diff.backfill(ctx)
 
-    assert await combined.pending(ctx) == [main.id]
+    assert await full_diff.pending(ctx) == [main.id]
     assert await metadata(ctx, alone.id) == {}

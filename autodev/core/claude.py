@@ -193,8 +193,6 @@ class ClaudeRunner:
         timeout: int = 45 * 60,
         env: dict[str, str] | None = None,
         system_prompt_append: str | None = None,
-        max_budget_usd: float | None = None,
-        cli_path: str | None = None,
         schema: dict[str, Any] | None = None,
         disallowed_tools: list[str] | None = None,
     ) -> None:
@@ -203,8 +201,6 @@ class ClaudeRunner:
         self.timeout = timeout
         self.env = env or {}
         self.system_prompt_append = system_prompt_append
-        self.max_budget_usd = max_budget_usd
-        self.cli_path = cli_path
         self.schema = schema or RESULT_SCHEMA
         self.disallowed_tools = disallowed_tools or []
 
@@ -221,8 +217,6 @@ class ClaudeRunner:
             setting_sources=["project"],  # the repo's CLAUDE.md and .claude/settings.json
             env={"IS_SANDBOX": "1", **self.env},
             output_format={"type": "json_schema", "schema": self.schema},
-            max_budget_usd=self.max_budget_usd,
-            cli_path=self.cli_path,
             hooks={"PreToolUse": [HookMatcher(matcher="Bash", hooks=[_guard_hook])]},
             disallowed_tools=self.disallowed_tools,
             max_buffer_size=_MAX_MESSAGE_BYTES,

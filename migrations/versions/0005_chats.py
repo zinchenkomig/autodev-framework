@@ -9,8 +9,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
-
-import autodev.core.models
+from sqlalchemy.dialects import postgresql
 
 revision: str = "0005"
 down_revision: str | None = "0004"
@@ -21,7 +20,7 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     op.create_table(
         "chats",
-        sa.Column("id", autodev.core.models._UUID(), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("subject", sa.String(length=30), nullable=False),
         sa.Column("subject_id", sa.String(length=100), nullable=True),
         sa.Column("project_id", sa.String(length=100), nullable=True),
@@ -29,7 +28,7 @@ def upgrade() -> None:
         sa.Column("state", sa.String(length=20), nullable=False),
         sa.Column("session_id", sa.String(length=100), nullable=True),
         sa.Column("activity", sa.Text(), nullable=True),
-        sa.Column("metadata", autodev.core.models._JSONEncodedDict(), nullable=True),
+        sa.Column("metadata", postgresql.JSONB(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(["project_id"], ["projects.id"], ondelete="SET NULL"),
@@ -39,12 +38,12 @@ def upgrade() -> None:
     op.create_index(op.f("ix_chats_project_id"), "chats", ["project_id"], unique=False)
     op.create_table(
         "chat_messages",
-        sa.Column("id", autodev.core.models._UUID(), nullable=False),
-        sa.Column("chat_id", autodev.core.models._UUID(), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("chat_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("role", sa.String(length=20), nullable=False),
         sa.Column("text", sa.Text(), nullable=False),
         sa.Column("quote", sa.Text(), nullable=True),
-        sa.Column("proposals", autodev.core.models._JSONEncodedDict(), nullable=True),
+        sa.Column("proposals", postgresql.JSONB(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(["chat_id"], ["chats.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),

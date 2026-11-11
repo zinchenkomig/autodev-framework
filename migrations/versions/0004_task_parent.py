@@ -9,8 +9,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
-
-import autodev.core.models
+from sqlalchemy.dialects import postgresql
 
 revision: str = "0004"
 down_revision: str | None = "0003"
@@ -22,7 +21,7 @@ _SPAWNED_BY = ("feedback", "triage", "qa", "developer")
 
 
 def upgrade() -> None:
-    op.add_column("tasks", sa.Column("parent_id", autodev.core.models._UUID(), nullable=True))
+    op.add_column("tasks", sa.Column("parent_id", postgresql.UUID(as_uuid=True), nullable=True))
     op.create_index(op.f("ix_tasks_parent_id"), "tasks", ["parent_id"], unique=False)
     op.create_foreign_key("fk_tasks_parent_id", "tasks", "tasks", ["parent_id"], ["id"], ondelete="SET NULL")
 

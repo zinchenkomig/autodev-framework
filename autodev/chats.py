@@ -196,6 +196,7 @@ async def _principle(session: AsyncSession, chat: Chat, proposal: dict) -> Appli
 
 
 STATUS_TEXT = {
+    "proposed": "предложение скаута, ждёт решения владельца",
     "queued": "в очереди",
     "in_progress": "агент работает",
     "ci": "PR открыт, идут проверки",

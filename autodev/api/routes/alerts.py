@@ -55,7 +55,7 @@ class AlertStats(BaseModel):
 
 async def notify_alert(alert: Alert) -> bool:
     """Send an alert to the owner's Telegram chat."""
-    from autodev.integrations.telegram_pm import notify_owner
+    from autodev.integrations.telegram_bot import notify_owner
 
     severity_emoji = {"critical": "🚨", "high": "🔴", "medium": "🟡", "low": "🟢"}
     emoji = severity_emoji.get(alert.severity, "⚠️")

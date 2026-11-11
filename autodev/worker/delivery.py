@@ -17,7 +17,7 @@ from sqlalchemy import String, cast, select
 from autodev import notify, pm, review, scaffold
 from autodev.core.models import OPEN_STATUSES, Project, Release, ReleaseStatus, Task, TaskArtifact, TaskStatus
 from autodev.integrations.github import GitHubClient
-from autodev.worker import acceptor, cluster, combined, qa
+from autodev.worker import acceptor, cluster, full_diff, qa
 from autodev.worker.context import WorkerContext
 
 logger = logging.getLogger(__name__)
@@ -169,7 +169,7 @@ class Delivery:
             metadata_=metadata,
         )
         if sha:
-            await self.store.patch_metadata(task.root_id, lambda m: m.update({combined.PENDING: True}))
+            await self.store.patch_metadata(task.root_id, lambda m: m.update({full_diff.PENDING: True}))
 
     async def schedule_fix(self, task: Task, kind: str, details: str) -> None:
         if task.attempts >= self.ctx.settings.max_fix_attempts:

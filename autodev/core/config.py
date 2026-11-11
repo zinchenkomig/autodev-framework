@@ -45,7 +45,6 @@ class Settings(BaseSettings):
 
     # Claude Code. Empty model = the CLI's default for the account.
     model: str = Field(default="", validation_alias="AUTODEV_MODEL")
-    claude_bin: str = Field(default="claude", validation_alias="AUTODEV_CLAUDE_BIN")
     claude_timeout: int = Field(default=45 * 60, validation_alias="AUTODEV_CLAUDE_TIMEOUT")
 
     # Worker

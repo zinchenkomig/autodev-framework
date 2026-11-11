@@ -18,7 +18,7 @@ router = APIRouter()
 @router.post("/telegram", summary="Receive Telegram webhook")
 async def telegram_webhook(request: Request) -> dict[str, str]:
     """Receive Telegram bot update."""
-    from autodev.integrations.telegram_pm import get_telegram_bot, get_telegram_settings
+    from autodev.integrations.telegram_bot import get_telegram_bot, get_telegram_settings
 
     body = await request.body()
     logger.info("Telegram webhook: bytes=%d", len(body))

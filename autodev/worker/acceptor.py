@@ -21,7 +21,7 @@ from sqlalchemy import String, cast, select
 
 from autodev import notify, pm, review
 from autodev.core.claude import READ_ONLY_WITH_SCRIPTS, ClaudeRunner
-from autodev.core.models import MERGED_STATUSES, Project, Task, TaskArtifact, TaskStatus
+from autodev.core.models import MERGED_STATUSES, Project, Task, TaskStatus
 from autodev.worker import prompts
 from autodev.worker.context import WorkerContext
 from autodev.worker.workspace import clone_stage
@@ -29,7 +29,6 @@ from autodev.worker.workspace import clone_stage
 logger = logging.getLogger(__name__)
 
 AGENT = "pm"
-MAX_SHOTS = 8
 
 SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -122,7 +121,7 @@ async def accept(ctx: WorkerContext, task_id: uuid.UUID) -> None:
             return
         if not result.ok:
             raise RuntimeError(result.summary or "сессия PM не завершилась")
-        screenshot = await _save_shots(ctx, task_id, shots)
+        screenshot = await store.attach_screenshots(task_id, sorted(shots.glob("*.png")), "PM")
         await _decide(ctx, main, project, result.data, screenshot, result.cost_usd, log)
     except Exception as exc:
         logger.exception("acceptance of %s failed", task_id)
@@ -212,26 +211,3 @@ async def _notify(ctx: WorkerContext, task_id: uuid.UUID, project: Project | Non
     main = await ctx.store.get(task_id)
     if main is not None:
         await notify.accepted(main, project, screenshot=screenshot)
-
-
-async def _save_shots(ctx: WorkerContext, task_id: uuid.UUID, shots: Path) -> bytes | None:
-    """The PM's screenshots, as the task's artifacts; the first one for the notification."""
-    files = sorted(p for p in shots.glob("*.png") if p.is_file())[:MAX_SHOTS]
-    first = None
-    async with ctx.session_factory() as session:
-        for path in files:
-            content = path.read_bytes()
-            if not content.startswith(b"\x89PNG") or len(content) > 5_000_000:
-                continue
-            first = first or content
-            session.add(
-                TaskArtifact(
-                    task_id=task_id,
-                    kind="screenshot",
-                    name=f"PM: {path.stem}",
-                    content=content,
-                    content_type="image/png",
-                )
-            )
-        await session.commit()
-    return first

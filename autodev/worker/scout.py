@@ -31,7 +31,6 @@ from autodev.core.models import (
     Priority,
     Project,
     Task,
-    TaskArtifact,
     TaskSource,
     TaskStatus,
 )
@@ -44,7 +43,6 @@ logger = logging.getLogger(__name__)
 AGENT = "scout"
 #: Findings of one run, however much room there is: the owner reads them, the developers take turns.
 MAX_FINDINGS = 5
-MAX_SHOTS = 8
 #: Recent tasks the scout is told about, so it doesn't find them again.
 KNOWN_TASKS = 100
 
@@ -290,29 +288,13 @@ async def _file(ctx: WorkerContext, project_id: str, findings: list[dict], shots
                 metadata_={scout.KEY: {"kind": finding["kind"], "evidence": finding["evidence"]}},
             )
             session.add(task)
-            await session.flush()
-            _attach(session, task, finding["screenshots"], shots)
             tasks.append(task)
         await session.commit()
-        return tasks
-
-
-def _attach(session: AsyncSession, task: Task, names: list[str], shots: Path) -> None:
-    for name in names[:MAX_SHOTS]:
-        path = shots / Path(name).name  # the agent's text, keep it inside the directory
-        if not path.is_file():
-            continue
-        content = path.read_bytes()
-        if content.startswith(b"\x89PNG") and len(content) <= 5_000_000:
-            session.add(
-                TaskArtifact(
-                    task_id=task.id,
-                    kind="screenshot",
-                    name=f"Скаут: {path.stem}",
-                    content=content,
-                    content_type="image/png",
-                )
-            )
+    for task, finding in zip(tasks, findings, strict=True):
+        # The names are the agent's text: keep them inside the directory.
+        files = [shots / Path(name).name for name in finding["screenshots"]]
+        await ctx.store.attach_screenshots(task.id, files, "Скаут")
+    return tasks
 
 
 async def _finish(ctx: WorkerContext, project_id: str, state: str, **fields) -> None:
