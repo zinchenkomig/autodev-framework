@@ -12,7 +12,7 @@ import uuid
 from datetime import UTC, datetime
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import String, cast, select
 
 from autodev import notify, pm, review, scaffold
 from autodev.core.models import OPEN_STATUSES, Project, Release, ReleaseStatus, Task, TaskArtifact, TaskStatus
@@ -89,6 +89,7 @@ class Delivery:
                     await advance_release(self.ctx, gh, release.id)
                 except Exception:
                     logger.exception("delivery: release %s", release.version)
+        await self.start_held_acceptance()
 
     # -- CI → merge ---------------------------------------------------------
 
@@ -375,9 +376,24 @@ class Delivery:
                 + ", ".join(f"#{t.ticket_number}" for t in waiting),
                 agent=acceptor.AGENT,
             )
+            await self.store.patch_metadata(root.id, lambda m: pm.hold_acceptance(m, landed.created_by))
             return True
-        await self.store.patch_metadata(root.id, lambda m: pm.start_acceptance(m, landed))
+        await self.store.patch_metadata(root.id, lambda m: pm.start_acceptance(m, landed.created_by))
         return True
+
+    async def start_held_acceptance(self) -> None:
+        """The PM waited for a follow-up that then failed or was cancelled: it checks what did land."""
+        async with self.ctx.session_factory() as session:
+            rows = await session.execute(
+                select(Task).where(
+                    Task.status == TaskStatus.ON_STAGE, cast(Task.metadata_, String).like(f'%"{pm.HELD}"%')
+                )
+            )
+            held = [t for t in rows.scalars() if pm.HELD in (t.metadata_ or {})]
+            waiting = await review.waiting_children(session, {t.id for t in held})
+        for task in held:
+            if not waiting.get(task.id):
+                await self.store.patch_metadata(task.id, lambda m: pm.start_acceptance(m, m.get(pm.HELD)))
 
     async def run_qa(self, task: Task, project) -> qa.QAResult | None:
         if project is None or not project.stage_url:

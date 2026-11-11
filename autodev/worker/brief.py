@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from autodev import pm
-from autodev.core.claude import ClaudeResult, ClaudeRunner
+from autodev.core.claude import READ_ONLY, ClaudeResult, ClaudeRunner
 from autodev.core.models import Project, Task
 from autodev.worker import prompts
 from autodev.worker.context import WorkerContext
@@ -48,7 +48,7 @@ async def write(
         env=ctx.env(),
         system_prompt_append=prompts.PM_SYSTEM,
         schema=SCHEMA,
-        disallowed_tools=["Edit", "Write", "NotebookEdit"],
+        disallowed_tools=READ_ONLY,
     )
     await log("info", "📝 PM продумывает задачу")
     return await runner.run(prompts.pm_brief(task, project, main, history), on_log=log, should_cancel=cancelled)

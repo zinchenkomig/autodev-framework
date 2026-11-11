@@ -205,7 +205,7 @@ def _strings(value) -> list[str]:
 async def _requeue_rate_limited(
     ctx: WorkerContext, task: Task, until, slot: str, session_id: str | None = None
 ) -> None:
-    ctx.paused_until = until
+    await ctx.pause(until)
     await ctx.store.transition(
         task.id,
         TaskStatus.QUEUED,

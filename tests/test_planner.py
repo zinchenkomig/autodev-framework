@@ -10,7 +10,7 @@ import pytest
 from autodev.core.claude import ClaudeResult
 from autodev.core.config import Settings
 from autodev.core.models import Project, Task, TaskStatus
-from autodev.worker import planner, prompts
+from autodev.worker import planner, prompts, workspace
 from autodev.worker.context import WorkerContext
 from tests.conftest import make_project
 
@@ -55,7 +55,7 @@ class FakeRunner:
 @pytest.fixture
 def ctx(monkeypatch, tmp_path, session_factory):
     origins = {r: bare_repo(tmp_path, r.split("/")[-1]) for r in ("acme/back", "acme/front")}
-    real_run = planner.shell.run
+    real_run = workspace.shell.run
 
     async def local_clone(*args, **kw):  # github.com → the local bare repos
         args = [
@@ -66,7 +66,7 @@ def ctx(monkeypatch, tmp_path, session_factory):
         ]
         return await real_run(*args, **kw)
 
-    monkeypatch.setattr(planner.shell, "run", local_clone)
+    monkeypatch.setattr(workspace.shell, "run", local_clone)
     monkeypatch.setattr(planner, "ClaudeRunner", FakeRunner)
     FakeRunner.calls, FakeRunner.before_return = [], None
     FakeRunner.result = ClaudeResult(

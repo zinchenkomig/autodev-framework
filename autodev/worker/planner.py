@@ -19,11 +19,11 @@ from typing import Any
 from sqlalchemy import String, cast, select
 
 from autodev import review
-from autodev.core import shell
-from autodev.core.claude import ClaudeRunner
+from autodev.core.claude import READ_ONLY, ClaudeRunner
 from autodev.core.models import MERGED_STATUSES, Project, Task
 from autodev.worker import prompts
 from autodev.worker.context import WorkerContext
+from autodev.worker.workspace import clone_stage
 
 logger = logging.getLogger(__name__)
 
@@ -91,13 +91,8 @@ async def refresh_plan(ctx: WorkerContext, task_id: uuid.UUID) -> None:
             raise RuntimeError(f"У проекта {project.id} нет репозитория")
         await log("info", f"🧭 Пересобираю план: задача и доработки {_tickets(children) or '— нет'}")
         shutil.rmtree(root, ignore_errors=True)
-        root.mkdir(parents=True)
         for repo in repos:
-            await shell.run(
-                "git", "clone", "--filter=blob:none", "-b", project.base_branch,
-                f"https://github.com/{repo}.git", str(root / repo.split("/")[-1]),
-                env=ctx.env(), timeout=600,
-            )  # fmt: skip
+            await clone_stage(project, root / repo.split("/")[-1], ctx.env(), repo)
         runner = ClaudeRunner(
             str(root),
             model=main.model or project.model or ctx.settings.model,
@@ -105,10 +100,11 @@ async def refresh_plan(ctx: WorkerContext, task_id: uuid.UUID) -> None:
             env=ctx.env(),
             system_prompt_append=prompts.PLANNER_SYSTEM,
             schema=SCHEMA,
+            disallowed_tools=READ_ONLY,
         )
         result = await runner.run(prompts.plan_refresh(main, children, project, repos), on_log=log)
         if result.rate_limited:
-            ctx.paused_until = result.rate_limited_until
+            await ctx.pause(result.rate_limited_until)
             await log("warning", f"⏸ Лимит Claude, продолжу в {result.rate_limited_until:%H:%M} UTC")
             return
         plan = [s.strip() for s in result.data.get("test_plan") or [] if isinstance(s, str) and s.strip()]
@@ -124,7 +120,8 @@ async def refresh_plan(ctx: WorkerContext, task_id: uuid.UUID) -> None:
         )
     except Exception as exc:
         logger.exception("plan refresh for %s failed", task_id)
-        await log("error", f"❌ План не пересобран: {str(exc).splitlines()[0][:200]}", details=str(exc)[-4000:])
+        reason = str(exc).splitlines()[0][:200] if str(exc) else type(exc).__name__
+        await log("error", f"❌ План не пересобран: {reason}", details=str(exc)[-4000:] or None)
         await _clear(ctx, task_id)
     finally:
         shutil.rmtree(root, ignore_errors=True)

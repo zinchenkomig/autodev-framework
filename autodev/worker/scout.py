@@ -24,8 +24,7 @@ from sqlalchemy import String, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from autodev import notify, pm, scout
-from autodev.core import shell
-from autodev.core.claude import ClaudeRunner
+from autodev.core.claude import READ_ONLY_WITH_SCRIPTS, ClaudeRunner
 from autodev.core.models import (
     MERGED_STATUSES,
     OPEN_STATUSES,
@@ -38,6 +37,7 @@ from autodev.core.models import (
 )
 from autodev.worker import prompts
 from autodev.worker.context import WorkerContext
+from autodev.worker.workspace import clone_stage
 
 logger = logging.getLogger(__name__)
 
@@ -182,11 +182,7 @@ async def run(ctx: WorkerContext, project_id: str) -> None:
         shutil.rmtree(root, ignore_errors=True)
         shots.mkdir(parents=True)
         checkout = root / "code"
-        await shell.run(
-            "git", "clone", "--filter=blob:none", "-b", project.base_branch,
-            f"https://github.com/{project.repo()['name']}.git", str(checkout),
-            env=ctx.env(), timeout=600,
-        )  # fmt: skip
+        await clone_stage(project, checkout, ctx.env())
         runner = ClaudeRunner(
             str(checkout),
             model=project.model or ctx.settings.model,
@@ -194,7 +190,7 @@ async def run(ctx: WorkerContext, project_id: str) -> None:
             env=ctx.env(),
             system_prompt_append=prompts.SCOUT_SYSTEM,
             schema=SCHEMA,
-            disallowed_tools=["Edit", "NotebookEdit"],  # Write stays: its browser scripts
+            disallowed_tools=READ_ONLY_WITH_SCRIPTS,
         )
         prompt = prompts.scouting(project, known, history, limit, sys.executable, str(shots))
 
@@ -206,7 +202,7 @@ async def run(ctx: WorkerContext, project_id: str) -> None:
         if result.ok and project.stage_url and not any(shots.glob("*.png")):
             result = await runner.run(prompts.scout_walk(str(shots)), resume=result.session_id, on_log=log)
         if result.rate_limited:
-            ctx.paused_until = result.rate_limited_until
+            await ctx.pause(result.rate_limited_until)
             logger.warning("scout %s: Claude limit until %s", project_id, result.rate_limited_until)
             await _finish(ctx, project_id, scout.REQUESTED)
             return

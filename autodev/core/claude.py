@@ -80,6 +80,11 @@ _RATE_LIMIT_TEXT = re.compile(r"usage limit|hit your limit|rate limit|limit reac
 _RESET_AT = re.compile(r"resets?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*\(?UTC\)?", re.IGNORECASE)
 _NO_SESSION = re.compile(r"no conversation found", re.IGNORECASE)
 
+#: Tools taken from an agent that only reads the checkout.
+READ_ONLY = ["Edit", "MultiEdit", "Write", "NotebookEdit"]
+#: The same for an agent that also walks stage in a browser: it writes its Playwright scripts.
+READ_ONLY_WITH_SCRIPTS = ["Edit", "MultiEdit", "NotebookEdit"]
+
 #: Longest single message from the CLI. A screenshot the agent reads comes back as one
 #: base64 line, and the SDK's default of 1 MB ends the session on a full-page one.
 _MAX_MESSAGE_BYTES = 32 * 1024 * 1024

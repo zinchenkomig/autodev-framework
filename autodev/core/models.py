@@ -421,6 +421,10 @@ class Release(Base):
         return f"<Release id={self.id} version={self.version!r} status={self.status}>"
 
 
+#: ``Setting`` key: until when Claude's subscription limit pauses the worker (ISO time).
+PAUSED_UNTIL_SETTING = "worker_paused_until"
+
+
 class Setting(Base):
     """Key-value settings storage."""
 

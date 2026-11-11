@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from autodev.core.claude import ClaudeResult, ClaudeRunner
+from autodev.core.claude import READ_ONLY, ClaudeResult, ClaudeRunner
 from autodev.core.models import Project, Task
 from autodev.worker import prompts
 from autodev.worker.context import WorkerContext
@@ -66,7 +66,7 @@ async def review(
         env=ctx.env(),
         system_prompt_append=prompts.REVIEW_SYSTEM,
         schema=SCHEMA,
-        disallowed_tools=["Edit", "Write", "NotebookEdit"],
+        disallowed_tools=READ_ONLY,
     )
     await log("info", "🔍 Ревьюер смотрит изменение")
     asked = fix.get("details", "") if fix and fix.get("kind") == "feedback" else ""

@@ -24,15 +24,14 @@ from sqlalchemy import select, true
 
 from autodev import chats
 from autodev.core import shell
-from autodev.core.claude import ClaudeResult, ClaudeRunner
+from autodev.core.claude import READ_ONLY, ClaudeResult, ClaudeRunner
 from autodev.core.models import Chat, ChatMessage, ChatState, Project
 from autodev.worker import prompts
 from autodev.worker.context import WorkerContext
+from autodev.worker.workspace import clone_stage
 
 logger = logging.getLogger(__name__)
 
-#: The agent only reads; the checkout is reset before every turn anyway.
-READ_ONLY = ["Edit", "MultiEdit", "Write", "NotebookEdit"]
 #: Messages a fresh session gets when the old one can't be resumed.
 HISTORY = 30
 #: Checkouts of chats idle this long are removed (the next turn clones again).
@@ -135,7 +134,7 @@ async def answer(ctx: WorkerContext, chat_id: uuid.UUID) -> None:
         return
 
     if result.rate_limited:
-        ctx.paused_until = result.rate_limited_until
+        await ctx.pause(result.rate_limited_until)
         await _requeue(ctx, chat_id, f"Лимит Claude — отвечу после {result.rate_limited_until:%H:%M} UTC")
         return
     reply = str(result.data.get("reply") or "").strip()
@@ -175,12 +174,7 @@ async def checkout(ctx: WorkerContext, chat_id: uuid.UUID, project: Project | No
     if repo is None:
         path.mkdir(parents=True, exist_ok=True)
     elif not await _refresh(path, project.base_branch, ctx.env()):
-        shutil.rmtree(path, ignore_errors=True)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        await shell.run(
-            "git", "clone", "-q", "--filter=blob:none", "-b", project.base_branch,
-            f"https://github.com/{repo['name']}.git", str(path), env=ctx.env(), timeout=600,
-        )  # fmt: skip
+        await clone_stage(project, path, ctx.env())
     os.utime(path)  # in use: keep it from the sweep
     return str(path)
 

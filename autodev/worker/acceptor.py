@@ -20,11 +20,11 @@ from typing import Any
 from sqlalchemy import String, cast, select
 
 from autodev import notify, pm, review
-from autodev.core import shell
-from autodev.core.claude import ClaudeRunner
+from autodev.core.claude import READ_ONLY_WITH_SCRIPTS, ClaudeRunner
 from autodev.core.models import MERGED_STATUSES, Project, Task, TaskArtifact, TaskStatus
 from autodev.worker import prompts
 from autodev.worker.context import WorkerContext
+from autodev.worker.workspace import clone_stage
 
 logger = logging.getLogger(__name__)
 
@@ -105,11 +105,7 @@ async def accept(ctx: WorkerContext, task_id: uuid.UUID) -> None:
         shutil.rmtree(root, ignore_errors=True)
         shots.mkdir(parents=True)
         checkout = root / "code"
-        await shell.run(
-            "git", "clone", "--filter=blob:none", "-b", project.base_branch,
-            f"https://github.com/{project.repo()['name']}.git", str(checkout),
-            env=ctx.env(), timeout=600,
-        )  # fmt: skip
+        await clone_stage(project, checkout, ctx.env())
         runner = ClaudeRunner(
             str(checkout),
             model=main.model or project.model or ctx.settings.model,
@@ -117,11 +113,11 @@ async def accept(ctx: WorkerContext, task_id: uuid.UUID) -> None:
             env=ctx.env(),
             system_prompt_append=prompts.ACCEPT_SYSTEM,
             schema=SCHEMA,
-            disallowed_tools=["Edit", "NotebookEdit"],  # Write stays: its browser scripts
+            disallowed_tools=READ_ONLY_WITH_SCRIPTS,
         )
         result = await runner.run(prompts.acceptance(main, children, project, sys.executable, str(shots)), on_log=log)
         if result.rate_limited:
-            ctx.paused_until = result.rate_limited_until
+            await ctx.pause(result.rate_limited_until)
             await log("warning", f"⏸ Лимит Claude, продолжу в {result.rate_limited_until:%H:%M} UTC")
             return
         if not result.ok:
