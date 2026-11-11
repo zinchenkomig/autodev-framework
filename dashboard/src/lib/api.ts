@@ -103,7 +103,7 @@ export interface Repo {
   setup?: string | null
 }
 
-export type ScoutFindingKind = 'bug' | 'ux' | 'tests' | 'debt'
+export type ScoutFindingKind = 'bug' | 'ux' | 'feature' | 'simplify' | 'tests' | 'debt'
 
 export interface ScoutFinding {
   kind?: ScoutFindingKind
@@ -131,6 +131,7 @@ export interface Project {
   smoke_paths: string[]
   instructions: string | null
   pm: boolean // new tasks get the PM by default
+  idea: string | null // what the product is and who it is for: what the scout and the PM hold it to
   principles: string | null // the owner's product principles for the PM and the developer
   scout: ScoutMode
   stage_limit: number // the scout stops at this many tasks on stage or on their way there

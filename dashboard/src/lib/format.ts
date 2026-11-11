@@ -22,8 +22,10 @@ export const PRIORITY: Record<Priority, string> = {
 export const SCOUT_KIND: Record<string, string> = {
   bug: 'Баг',
   ux: 'Удобство',
+  feature: 'Не хватает',
+  simplify: 'Лишнее',
   tests: 'Тесты',
-  debt: 'Техдолг',
+  debt: 'Чистота кода',
 }
 
 export const FIX_KIND: Record<string, string> = {

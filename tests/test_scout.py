@@ -402,8 +402,8 @@ async def test_no_stage_nothing_to_look_at(ctx, project, session_factory):
     assert len(FakeRunner.calls) == 1
 
 
-async def test_prompt_knows_tasks_rejections_and_principles(ctx, project, session_factory):
-    await configure(session_factory, principles="- Меньше настроек")
+async def test_prompt_knows_the_idea_tasks_rejections_and_principles(ctx, project, session_factory):
+    await configure(session_factory, idea="Магазин одной кнопки", principles="- Меньше настроек")
     await add(session_factory, title="Уже на stage")
     await add(
         session_factory,
@@ -417,6 +417,15 @@ async def test_prompt_knows_tasks_rejections_and_principles(ctx, project, sessio
     assert "Уже на stage" in prompt
     assert "Тёмная тема — REJECTED by the owner: не нужна" in prompt
     assert "Меньше настроек" in prompt
+    assert "Магазин одной кнопки" in prompt
+
+
+@pytest.mark.parametrize("kind", ["feature", "simplify"])
+async def test_it_may_add_what_the_idea_lacks_and_remove_what_it_doesnt_need(ctx, project, session_factory, kind):
+    found(finding(kind=kind))
+    await worker_scout.run(ctx, "shop")
+    (task,) = await tasks(session_factory)
+    assert task.metadata_[scout.KEY]["kind"] == kind
 
 
 async def test_rejection_teaches_the_pm_too(project, session_factory):

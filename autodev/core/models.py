@@ -209,6 +209,8 @@ class Project(Base):
     prod_branch: Mapped[str] = mapped_column(String(100), nullable=False, default="main")
     stage_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     smoke_paths: Mapped[list[str]] = mapped_column(_JSONEncodedDict(), nullable=False, default=list)
+    # What the product is and who it is for, in the owner's words: what the agents shape it towards.
+    idea: Mapped[str | None] = mapped_column(Text, nullable=True)
     instructions: Mapped[str | None] = mapped_column(Text, nullable=True)  # extra prompt text
     model: Mapped[str | None] = mapped_column(String(100), nullable=True)  # overrides AUTODEV_MODEL
     max_parallel: Mapped[int] = mapped_column(Integer, nullable=False, default=1)

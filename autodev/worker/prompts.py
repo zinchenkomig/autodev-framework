@@ -40,6 +40,11 @@ Rules:
 - Deliver complete, working changes: no TODOs, stubs, placeholders or commented-out
   code. UI controls must actually work end to end.
 - Follow the repository's CLAUDE.md / README conventions.
+- People read this code too. Write the simplest thing that does the job, in the
+  style of the code around it: names that say what things are, no options, layers
+  or fallbacks the task doesn't need. Delete what your change makes dead. When
+  behaviour, commands or structure change, update the README / CLAUDE.md / docs
+  that describe them.
 - Run the project's tests, linters and type checks that are relevant to your change
   and fix what you broke. If a check cannot run here (missing service etc.), say so.
 - Before finishing, re-read your own diff and fix real problems. An independent
@@ -100,11 +105,20 @@ def initial(task: Task, project: Project, repo: dict, deps: list[Task], main: Ta
             "",
             brief.strip(),
         ]
+    parts += _owner_notes(project)
+    return "\n".join(parts)
+
+
+def _owner_notes(project: Project) -> list[str]:
+    """What the owner told every agent about the project: its idea, their taste, extra instructions."""
+    parts = []
+    if project.idea:
+        parts += ["", "## The owner's idea of the product", project.idea.strip()]
     if project.principles:
         parts += ["", "## The owner's product principles", project.principles.strip()]
     if project.instructions:
         parts += ["", "## Project instructions", project.instructions.strip()]
-    return "\n".join(parts)
+    return parts
 
 
 def _main_task(main: Task) -> str:
@@ -283,13 +297,10 @@ def pm_brief(task: Task, project: Project, main: Task | None, history: list[str]
             parts += ["", "Its brief:", pm.brief(main).strip()[:4000]]
         if main.summary:
             parts += ["", "What was built:", main.summary.strip()[:2000]]
-    if project.principles:
-        parts += ["", "## The owner's product principles", project.principles.strip()]
     if history:
         parts += ["", "## The owner's recent corrections and questions in this project (oldest first)"]
         parts += [f"- {line}" for line in history]
-    if project.instructions:
-        parts += ["", "## Project instructions", project.instructions.strip()]
+    parts += _owner_notes(project)
     parts += ["", 'Return status "done" and the brief.']
     return "\n".join(parts)
 
@@ -358,10 +369,7 @@ def code_review(task: Task, project: Project, asked: str, done: str, earlier: st
         parts += ["", "## Product brief from the PM", brief.strip()[:6000]]
     if earlier:
         parts += ["", "## Your findings from the previous look (check they are fixed)", earlier]
-    if project.principles:
-        parts += ["", "## The owner's product principles", project.principles.strip()]
-    if project.instructions:
-        parts += ["", "## Project instructions", project.instructions.strip()]
+    parts += _owner_notes(project)
     return "\n".join(parts)
 
 
@@ -446,19 +454,18 @@ def acceptance(main: Task, children: list[Task], project: Project, python: str, 
     if previous.get("issues"):
         parts += ["", "## What you sent back last time (check it is fixed now)"]
         parts += [f"- {issue}" for issue in previous["issues"]]
-    if project.principles:
-        parts += ["", "## The owner's product principles", project.principles.strip()]
-    if project.instructions:
-        parts += ["", "## Project instructions", project.instructions.strip()]
+    parts += _owner_notes(project)
     return "\n".join(parts)
 
 
 SCOUT_SYSTEM = """\
 You are AutoDev's scout. AutoDev is the owner's system where agents implement
-tasks and ship them to stage. Nobody asked you anything specific: walk the
-project as a demanding owner would and find what is really worth fixing. What you
-return becomes tasks for developer agents, possibly without the owner reading them
-first, so every finding costs real work and real review time.
+tasks and ship them to stage. Nobody asked you anything specific. The owner has
+an idea of the product, and you shape the product towards it the way a sculptor
+works a stone: find what is broken, what the idea still lacks, and what is in
+the way and should go — in the product and in its code. What you return becomes
+tasks for developer agents, possibly without the owner reading them first, so
+every finding costs real work and real review time.
 
 How to work, in this order:
 1. If a stage URL is given, start there, however small the project looks. Open it
@@ -478,26 +485,39 @@ What counts, most important first:
 - bug: something broken or wrong for the user, or data that can be lost;
 - ux: a dead end, a confusing label, something that doesn't fit a phone, a label
   or icon that doesn't match what happens;
+- feature: something the idea plainly needs and the product doesn't do yet — a
+  step missing from its main scenario, the next thing its user would reach for.
+  Measure against the owner's idea below (without one: what the README and the
+  app itself say it is for). Never a new direction for the product;
+- simplify: something the product is better without — a screen, setting, option
+  or step that doesn't serve the idea, two ways to do one thing, text nobody
+  needs. Say what goes or what merges into what, and what the user does instead;
 - tests: an important scenario with nothing guarding it;
-- debt: code that already causes bugs or really slows changes down.
+- debt: code a person can't easily read or safely change — dead code, the same
+  logic in several places, a file or function doing several jobs, a name that
+  says something other than what the code does, a README or CLAUDE.md that no
+  longer matches the code. Say what it should become.
 
-What does not count: renames, formatting and refactoring for its own sake, version
-bumps without a reason, speculative risks you can't show, new features that change
-what the product is, and anything touching production data, secrets or deployment.
+What does not count: formatting a linter handles, renames and reshuffles that
+leave the code no easier to read, version bumps without a reason, speculative
+risks you can't show, and anything touching production data, secrets or deployment.
 
 Rules:
-- Every finding needs evidence: file:line, what the browser showed, a failing case.
-  No evidence, no finding. Check it yourself before you report it.
+- Every finding needs evidence: file:line, what the browser showed, a failing case;
+  for a feature, the part of the idea it comes from and where the user gets stuck
+  without it. No evidence, no finding. Check it yourself before you report it.
 - One finding is one change a developer can finish in a single PR.
+- Taking away comes before adding: a product that does less, and does it
+  obviously, is closer to finished than one with more in it.
 - Don't repeat the recent tasks below, and don't bring back what the owner rejected,
   even in other words.
 - Return fewer than the maximum whenever that is the truth. An empty list is a
-  normal, good result: a project with nothing worth fixing is the goal.
+  normal, good result: a project with nothing worth changing is the goal.
 
 Return:
 - summary: in Russian, 1-3 sentences for the owner: what you looked at, how it is;
 - findings, most important first, in Russian: title; kind; description that is the
-  whole brief for a developer who won't see this session — what is wrong now
+  whole brief for a developer who won't see this session — what is there now
   (where), what it should be instead, how to check; evidence; screenshots (names
   of the files that show it, if any).
 """
@@ -524,10 +544,7 @@ def scouting(project: Project, known: list[Task], history: list[str], limit: int
     if history:
         parts += ["", "## What the owner corrected and asked about lately"]
         parts += [f"- {item}" for item in history]
-    if project.principles:
-        parts += ["", "## The owner's product principles", project.principles.strip()]
-    if project.instructions:
-        parts += ["", "## Project instructions", project.instructions.strip()]
+    parts += _owner_notes(project)
     return "\n".join(parts)
 
 

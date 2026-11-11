@@ -129,6 +129,12 @@ The `scout` loop runs one read-only session at a time: a clone of the stage bran
 on stage, and structured findings, each with evidence. A finding without evidence, or titled like a task
 the project already has, is dropped; a run files at most `MAX_FINDINGS`.
 
+It shapes the product towards the owner's idea of it (`Project.idea`: «Идея продукта» in the project's
+settings; for a project started from scratch, what the owner wrote in «Что строим»). Every agent gets the
+idea in its prompt; the scout measures the product against it. A finding's kind (`scout.KINDS`) says what
+it is: `bug`, `ux`, `feature` (the idea needs it and the product doesn't do it yet — never a new direction),
+`simplify` (the product is better without it), `tests`, `debt` (code a person can't easily read or change).
+
 - **Mode** (`Project.scout`): `propose` files findings as `proposed`, which `claim()` never picks up, until
   the owner approves (`queued`) or rejects them (`cancelled`, the reason in `metadata["scout"]["rejected"]`).
   `auto` files them straight as `queued`. `off` runs only from the dashboard's button, and proposes.

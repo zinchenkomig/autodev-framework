@@ -118,6 +118,8 @@ async def test_create_project_from_scratch(client, monkeypatch) -> None:
     (task,) = (await client.get("/api/tasks/", params={"project_id": "notes"})).json()
     assert task["repo"] == "acme/notes" and task["status"] == "queued"
     assert task["description"].startswith("Заметки с тегами и поиском") and "CLAUDE.md" in task["description"]
+    # What to build outlives the first task: it is the project's idea.
+    assert r.json()["idea"] == "Заметки с тегами и поиском"
 
 
 async def test_create_project_from_scratch_without_brief(client, monkeypatch) -> None:

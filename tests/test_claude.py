@@ -185,3 +185,8 @@ def test_options() -> None:
     assert opts.resume == "s" and opts.model == "opus"
     assert opts.system_prompt["append"] == "rules"
     assert opts.output_format["schema"]["required"] == ["status", "summary", "test_plan"]
+
+
+def test_a_screenshot_fits_in_one_message() -> None:
+    # The SDK's 1 MB default ended scout and PM sessions that read a full-page PNG.
+    assert ClaudeRunner("/w").options().max_buffer_size >= 8 * 1024 * 1024
