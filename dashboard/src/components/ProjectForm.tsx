@@ -249,7 +249,7 @@ export function ProjectForm({
             </Field>
             <Field label="Модель Claude" hint="пусто — по умолчанию">
               <input
-                placeholder="opus / sonnet"
+                placeholder="fable / opus / sonnet"
                 value={p.model ?? ''}
                 onChange={(e) => set('model', e.target.value || null)}
                 className={inputClass}
