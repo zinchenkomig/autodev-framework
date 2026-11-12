@@ -1,65 +1,64 @@
 'use client'
 
-import {
-  ArrowLeft,
-  Check,
-  CornerDownRight,
-  CheckCircle2,
-  ChevronDown,
-  FileDiff,
-  ExternalLink,
-  GitPullRequest,
-  Globe,
-  CircleHelp,
-  ClipboardList,
-  Loader2,
-  MessageCircleQuestion,
-  MessageSquarePlus,
-  RotateCw,
-  Square,
-  Trash2,
-  X,
-} from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Loader2 } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { ChatSheet } from '@/components/Chat'
-import { Inline, Markdown } from '@/components/Markdown'
-import { Badge, Button, Card, ErrorNote, Lightbox, Sheet, inputClass } from '@/components/ui'
-import { api, type Acceptance, type LogEntry, type Task } from '@/lib/api'
-import { FIX_KIND, MODELS, PRIORITY, SCOUT_KIND, STATUS, ago, cx, dateTime, time } from '@/lib/format'
+import { Markdown } from '@/components/Markdown'
+import { FeedbackSheet } from '@/components/task/FeedbackSheet'
+import { FollowUps } from '@/components/task/FollowUps'
+import { Shots } from '@/components/task/Shots'
+import { AcceptanceCard, QaCard } from '@/components/task/StageChecks'
+import { TaskActions } from '@/components/task/TaskActions'
+import { TaskHeader } from '@/components/task/TaskHeader'
+import { TestPlan } from '@/components/task/TestPlan'
+import { WorkLog } from '@/components/task/WorkLog'
+import { Card, Collapsible, ErrorNote } from '@/components/ui'
+import { api, type Task } from '@/lib/api'
+import { SCOUT_KIND, cx, dateTime, feedbackKind, followUpRequest, isMerged, isRunning } from '@/lib/format'
 import { usePoll } from '@/lib/hooks'
-
-const MERGED = ['deploying', 'on_stage', 'released']
 
 export default function TaskPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
   const task = usePoll(() => api.task(id), 4000, [id])
   const projects = usePoll(api.projects, 60000)
+  const chats = usePoll(() => api.chats('task', id), 30000, [id])
+  const children = usePoll(() => api.children(id), 8000, [id])
   const [actionError, setActionError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   // The chat about this task; `quote` is the test-plan step a question is about.
   const [ask, setAsk] = useState<{ open: boolean; quote: string | null }>({ open: false, quote: null })
-  const chats = usePoll(() => api.chats('task', id), 30000, [id])
-  const children = usePoll(() => api.children(id), 8000, [id])
-  const asked = chats.data?.filter((c) => c.question).length ?? 0
-  const undecided = chats.data?.some((c) => c.pending > 0) ?? false
 
   const t = task.data
   const project = projects.data?.find((p) => p.id === t?.project_id)
 
-  async function act(fn: () => Promise<Task | void>, after?: (r: Task | void) => void) {
+  /** Runs a request that changes a task: shows this task as the API returned it, then reloads it. */
+  async function act(request: () => Promise<Task>): Promise<Task | undefined> {
     setBusy(true)
     setActionError(null)
     try {
-      const result = await fn()
-      after?.(result)
+      const result = await request()
+      if (result.id === id) task.setData(result) // feedback may return a new follow-up instead
       await task.refresh()
+      return result
     } catch (e) {
       setActionError((e as Error).message)
     } finally {
+      setBusy(false)
+    }
+  }
+
+  async function remove() {
+    setBusy(true)
+    setActionError(null)
+    try {
+      await api.deleteTask(id)
+      router.push('/') // no reload: the task is gone
+    } catch (e) {
+      setActionError((e as Error).message)
       setBusy(false)
     }
   }
@@ -74,143 +73,47 @@ export default function TaskPage() {
   }
   if (!t) return <Loader2 className="mx-auto mt-16 animate-spin text-muted" />
 
-  const s = STATUS[t.status]
-  const canCancel = ['queued', 'in_progress', 'ci'].includes(t.status)
-  const canRetry = ['failed', 'cancelled'].includes(t.status)
-  const canDelete = !['in_progress', 'ci', 'deploying'].includes(t.status)
-  const merged = MERGED.includes(t.status)
+  const merged = isMerged(t.status)
   const waiting = t.waiting_for.length > 0
-  // Follow-ups are checked with their main task, by its one plan.
-  const withMain = !!t.parent
-  const canFeedback = merged || (['ci', 'failed', 'cancelled'].includes(t.status) && t.pr_number) || (['queued', 'proposed'].includes(t.status) && !t.branch)
-  const proposed = t.status === 'proposed'
+  const followUps = children.data ?? []
+  // The PM's acceptance writes to the log while the task already stands on stage.
+  const accepting = t.acceptance?.state === 'checking' || t.acceptance?.state === 'fixing'
 
-  function reject() {
-    const reason = prompt('Почему не нужно? Скаут и PM это учтут. Можно оставить пустым.')
-    if (reason !== null) act(() => api.rejectTask(t!.id, reason))
+  async function sendFeedback(text: string) {
+    const result = await act(() => api.feedback(id, text))
+    if (!result) return
+    setFeedbackOpen(false)
+    if (result.id !== id) router.push(`/tasks/${result.id}`)
+  }
+
+  const toggleStep = (step: number, done: boolean) => {
+    // Shown at once; the API's answer replaces it.
+    const checked = done ? [...t.plan_checked, step] : t.plan_checked.filter((i) => i !== step)
+    task.setData({ ...t, plan_checked: checked, plan_earlier: t.plan_earlier.filter((i) => i !== step) })
+    act(() => api.checkStep(id, step, done))
+  }
+
+  function refreshPlan() {
+    const question =
+      'Пересобрать план по задаче, её доработкам и коду на stage? Отметки останутся у шагов, текст которых не изменился, — как «проверено в прошлой версии».'
+    if (confirm(question)) act(() => api.refreshPlan(id))
   }
 
   return (
     <div className="mx-auto max-w-3xl space-y-4 lg:max-w-6xl">
       <BackLink />
-
-      <div className="space-y-2">
-        <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
-          <span className="font-mono">#{t.ticket_number}</span>
-          <Badge tone={s.tone}>
-            {t.status === 'in_progress' && <Loader2 size={12} className="animate-spin" />}
-            {s.label}
-          </Badge>
-          {t.pending_fix && t.status === 'queued' && <Badge tone="warn">{FIX_KIND[t.pending_fix] ?? t.pending_fix}</Badge>}
-          {t.verified_at && (
-            <Badge tone="ok">
-              <CheckCircle2 size={12} /> проверено
-            </Badge>
-          )}
-          {t.model && <Badge tone="neutral">{MODELS[t.model] ?? t.model}</Badge>}
-          {t.priority !== 'normal' && <Badge tone={t.priority === 'low' ? 'neutral' : 'warn'}>{PRIORITY[t.priority]}</Badge>}
-          <span>{ago(t.status_changed_at)}</span>
-        </div>
-        {t.parent && (
-          <Link
-            href={`/tasks/${t.parent.id}`}
-            className="flex min-w-0 items-center gap-1.5 text-sm text-muted hover:text-fg"
-          >
-            <CornerDownRight size={14} className="shrink-0" />
-            <span className="shrink-0">Основная задача</span>
-            <span className="truncate font-medium">
-              #{t.parent.ticket_number} {t.parent.title}
-            </span>
-            <Badge tone={STATUS[t.parent.status].tone}>{STATUS[t.parent.status].label}</Badge>
-          </Link>
-        )}
-        <h1 className="text-xl font-semibold leading-snug sm:text-2xl">{t.title}</h1>
-        <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-muted">
-          {project && <Link href={`/projects/${project.id}`} className="hover:text-fg">{project.name}</Link>}
-          {t.repo && <span>{t.repo}</span>}
-          {t.attempts > 0 && <span>раундов исправлений: {t.attempts}</span>}
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        {proposed && (
-          <>
-            <Button size="sm" variant="primary" disabled={busy} onClick={() => act(() => api.approveTask(t.id))}>
-              <Check size={15} /> В работу
-            </Button>
-            <Button size="sm" disabled={busy} onClick={reject}>
-              <X size={15} /> Отклонить
-            </Button>
-          </>
-        )}
-        {t.full_diff?.url && (
-          <a href={t.full_diff.url} target="_blank" rel="noreferrer">
-            <Button size="sm" title={`Код задачи и доработок одним сравнением на GitHub (${t.full_diff.tasks} PR)`}>
-              <FileDiff size={15} /> Весь код
-            </Button>
-          </a>
-        )}
-        <PullRequests task={t} followUps={children.data ?? []} />
-        {merged && project?.stage_url && (
-          <a href={project.stage_url} target="_blank" rel="noreferrer">
-            <Button size="sm" variant={t.status === 'on_stage' ? 'primary' : 'secondary'}>
-              <Globe size={15} /> Открыть stage
-            </Button>
-          </a>
-        )}
-        {merged && !withMain && (
-          <Button
-            size="sm"
-            disabled={busy || (waiting && !t.verified_at)}
-            className={cx(t.verified_at && 'border-ok/40 text-ok')}
-            onClick={() =>
-              (!t.verified_at || confirm('Снять отметку «проверено»?')) &&
-              act(() => api.verifyTask(t.id, !t.verified_at), (r) => r && task.setData(r))
-            }
-          >
-            <CheckCircle2 size={15} /> {t.verified_at ? 'Проверено' : 'Отметить проверенным'}
-          </Button>
-        )}
-        {canFeedback && (
-          <Button size="sm" onClick={() => setFeedbackOpen(true)}>
-            <MessageSquarePlus size={15} /> {merged ? 'Доработать' : 'Правки'}
-          </Button>
-        )}
-        <Button size="sm" onClick={() => setAsk({ open: true, quote: null })}>
-          <MessageCircleQuestion size={15} /> Спросить{asked > 0 && <span className="text-muted">· {asked}</span>}
-          {undecided && <span className="h-2 w-2 rounded-full bg-warn" title="Есть предложение агента, ждёт решения" />}
-        </Button>
-        {['queued', 'proposed'].includes(t.status) && !t.branch && !t.brief && (
-          <Button
-            size="sm"
-            disabled={busy}
-            title="PM продумывает задачу до кода. Выключите для очевидной задачи или если хотите решить всё сами."
-            onClick={() => act(() => api.updateTask(t.id, { pm: !t.pm }), (r) => r && task.setData(r))}
-          >
-            <ClipboardList size={15} /> {t.pm ? 'PM: вкл' : 'PM: выкл'}
-          </Button>
-        )}
-        {canRetry && (
-          <Button size="sm" variant="primary" disabled={busy} onClick={() => act(() => api.retryTask(t.id))}>
-            <RotateCw size={15} /> Повторить
-          </Button>
-        )}
-        {canCancel && (
-          <Button size="sm" variant="danger" disabled={busy} onClick={() => confirm('Остановить задачу?') && act(() => api.cancelTask(t.id))}>
-            <Square size={14} /> Стоп
-          </Button>
-        )}
-        {canDelete && (
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={busy}
-            onClick={() => confirm('Удалить задачу?') && act(() => api.deleteTask(t.id), () => router.push('/'))}
-          >
-            <Trash2 size={15} />
-          </Button>
-        )}
-      </div>
+      <TaskHeader task={t} project={project} />
+      <TaskActions
+        task={t}
+        project={project}
+        followUps={followUps}
+        chats={chats.data ?? []}
+        busy={busy}
+        act={act}
+        onFeedback={() => setFeedbackOpen(true)}
+        onAsk={() => setAsk({ open: true, quote: null })}
+        onDelete={remove}
+      />
       <ErrorNote error={actionError} />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start xl:grid-cols-[minmax(0,1fr)_24rem]">
@@ -235,7 +138,7 @@ export default function TaskPage() {
                 {t.created_by === 'scout' ? `Нашёл скаут${t.scout?.kind ? ` · ${SCOUT_KIND[t.scout.kind]}` : ''}` : t.parent ? 'Что попросили' : 'Задача'}
               </div>
               <Collapsible>
-                <Markdown text={t.parent ? request(t) : t.description} className="text-[15px] leading-relaxed" />
+                <Markdown text={t.parent ? followUpRequest(t) : t.description} className="text-[15px] leading-relaxed" />
               </Collapsible>
               {t.created_by === 'scout' && <Shots taskId={t.id} by="Скаут" />}
             </Card>
@@ -250,9 +153,10 @@ export default function TaskPage() {
             </Card>
           )}
 
-          <Work key={t.id} task={t} live={['queued', 'in_progress', 'ci', 'deploying'].includes(t.status) || t.plan_refreshing} />
+          <WorkLog key={t.id} task={t} live={isRunning(t.status) || t.plan_refreshing || accepting} />
 
-          {withMain && t.parent && (
+          {/* A follow-up is checked with its main task, by its one plan. */}
+          {t.parent ? (
             <Link href={`/tasks/${t.parent.id}`} className="block">
               <Card className="flex items-center gap-2 p-4 text-sm hover:bg-surface-2">
                 <CheckCircle2 size={15} className={cx('shrink-0', t.verified_at ? 'text-ok' : 'text-muted')} />
@@ -262,44 +166,36 @@ export default function TaskPage() {
                 </span>
               </Card>
             </Link>
-          )}
+          ) : (
+            <>
+              {waiting && merged && (
+                <Card className="border-warn/40 p-4 text-sm">
+                  <div className="mb-1 font-semibold">Ждёт доработок</div>
+                  <p className="text-muted">
+                    {t.waiting_for.map((w) => `#${w.ticket_number}`).join(', ')} ещё не на stage. Когда они выкатятся, план
+                    обновится — проверить всё можно будет одним проходом.
+                  </p>
+                </Card>
+              )}
 
-          {!t.parent && waiting && merged && (
-            <Card className="border-warn/40 p-4 text-sm">
-              <div className="mb-1 font-semibold">Ждёт доработок</div>
-              <p className="text-muted">
-                {t.waiting_for.map((w) => `#${w.ticket_number}`).join(', ')} ещё не на stage. Когда они выкатятся, план
-                обновится — проверить всё можно будет одним проходом.
-              </p>
-            </Card>
-          )}
+              {t.acceptance && <AcceptanceCard task={t} />}
 
-          {!t.parent && t.acceptance && <AcceptanceCard task={t} />}
-
-          {!withMain && (t.test_plan.length > 0 || merged) && (
-            <TestPlan
-              task={t}
-              interactive={merged}
-              onRefresh={
-                merged
-                  ? () =>
-                      confirm('Пересобрать план по задаче, её доработкам и коду на stage? Отметки останутся у шагов, текст которых не изменился, — как «проверено в прошлой версии».') &&
-                      act(() => api.refreshPlan(t.id), (r) => r && task.setData(r))
-                  : undefined
-              }
-              busy={busy}
-              onAsk={(step) => setAsk({ open: true, quote: `Шаг ${step + 1}: ${t.test_plan[step]}` })}
-              onToggle={(step, done) => {
-                const checked = done ? [...t.plan_checked, step] : t.plan_checked.filter((i) => i !== step)
-                task.setData({ ...t, plan_checked: checked, plan_earlier: t.plan_earlier.filter((i) => i !== step) })
-                act(() => api.checkStep(t.id, step, done), (r) => r && task.setData(r))
-              }}
-            />
+              {(t.test_plan.length > 0 || merged) && (
+                <TestPlan
+                  task={t}
+                  interactive={merged}
+                  busy={busy}
+                  onRefresh={merged ? refreshPlan : undefined}
+                  onAsk={(step) => setAsk({ open: true, quote: `Шаг ${step + 1}: ${t.test_plan[step]}` })}
+                  onToggle={toggleStep}
+                />
+              )}
+            </>
           )}
         </div>
 
         <aside className="min-w-0 space-y-4">
-          {!t.parent && <FollowUps items={children.data ?? []} />}
+          {!t.parent && <FollowUps items={followUps} />}
           {t.qa && <QaCard taskId={t.id} qa={t.qa} />}
           <p className="text-center text-xs text-muted lg:text-left">
             создана {dateTime(t.created_at)} · {t.created_by ?? t.source}
@@ -327,335 +223,9 @@ export default function TaskPage() {
       <FeedbackSheet
         open={feedbackOpen}
         onClose={() => setFeedbackOpen(false)}
-        merged={merged}
-        onSubmit={(text) =>
-          act(
-            () => api.feedback(t.id, text),
-            (r) => {
-              setFeedbackOpen(false)
-              if (r && r.id !== t.id) router.push(`/tasks/${r.id}`)
-            },
-          )
-        }
+        kind={feedbackKind(t)}
+        onSubmit={sendFeedback}
         busy={busy}
-      />
-    </div>
-  )
-}
-
-const CHILD_KIND: Record<string, string> = {
-  feedback: 'Доработка',
-  chat: 'Доработка из чата',
-  qa: 'Исправление после QA',
-  // from the multi-repo days
-  triage: 'Часть задачи',
-  developer: 'Нужно для другой части',
-}
-
-/** What the owner asked for: a follow-up's description without the "Follow-up to #N" footer. */
-function request(task: Task): string {
-  return (task.description ?? '').split('\n\n---\n')[0].trim()
-}
-
-/** The task's PR; with follow-ups, a menu of every PR — the main one first. */
-function PullRequests({ task, followUps }: { task: Task; followUps: Task[] }) {
-  const [open, setOpen] = useState(false)
-  const prs = [task, ...followUps].filter((t) => t.pr_url)
-  if (prs.length === 0) return null
-  if (prs.length === 1)
-    return (
-      <a href={prs[0].pr_url!} target="_blank" rel="noreferrer">
-        <Button size="sm">
-          <GitPullRequest size={15} /> PR #{prs[0].pr_number}
-        </Button>
-      </a>
-    )
-  const failed = task.full_diff?.error
-  return (
-    <div className="relative">
-      <Button size="sm" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <GitPullRequest size={15} /> PR · {prs.length}
-        <ChevronDown size={14} className={cx('text-muted transition', open && 'rotate-180')} />
-      </Button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="fixed inset-x-4 z-20 mt-1 rounded-xl sm:absolute sm:inset-x-auto sm:left-0 sm:top-full sm:w-80 border border-line bg-surface p-1 shadow-xl">
-            {prs.map((t) => (
-              <a
-                key={t.id}
-                href={t.pr_url!}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2"
-              >
-                <span className="shrink-0 font-mono text-xs text-muted">#{t.pr_number}</span>
-                <span className="min-w-0 flex-1 truncate">{t.id === task.id ? 'Основная задача' : t.title}</span>
-                <ExternalLink size={12} className="shrink-0 text-muted" />
-              </a>
-            ))}
-            {failed && <p className="border-t border-line px-2.5 py-2 text-xs text-muted">Одним сравнением не собрать: {failed}</p>}
-          </div>
-        </>
-      )}
-    </div>
-  )
-}
-
-/** First line of an agent summary, without Markdown marks: the gist for a compact list. */
-function gist(summary: string): string {
-  const line = summary.split('\n').find((l) => l.trim() && !/^\s*#/.test(l)) ?? ''
-  return line.replace(/\*\*|`/g, '').replace(/^\s*([-*•]|\d+[.)])\s+/, '').trim()
-}
-
-const FOLLOW_UPS_SHOWN = 5
-
-/** The main task's history: each follow-up, compact — what was asked and the gist of what was done. */
-function FollowUps({ items: data }: { items: Task[] }) {
-  const [all, setAll] = useState(false)
-  if (!data.length) return null
-  const shown = all ? data : data.slice(-FOLLOW_UPS_SHOWN)
-  return (
-    <Card className="p-2">
-      <div className="px-2 pb-1 pt-2 text-sm font-semibold">История доработок · {data.length}</div>
-      {shown.length < data.length && (
-        <button onClick={() => setAll(true)} className="px-2 py-1 text-xs text-muted hover:text-fg">
-          Показать ранние · {data.length - shown.length}
-        </button>
-      )}
-      <ol>
-        {shown.map((c) => {
-          const s = STATUS[c.status]
-          const asked = request(c)
-          return (
-            <li key={c.id} className="border-t border-line first:border-t-0">
-              <Link href={`/tasks/${c.id}`} className="block space-y-0.5 rounded-xl px-2 py-2 hover:bg-surface-2">
-                <div className="flex items-center gap-2 text-xs text-muted">
-                  <span className="font-mono">#{c.ticket_number}</span>
-                  <span className="truncate">{dateTime(c.created_at)}</span>
-                  <Badge tone={s.tone} className="ml-auto shrink-0 whitespace-nowrap">
-                    {c.status === 'in_progress' && <Loader2 size={12} className="animate-spin" />}
-                    {s.label}
-                  </Badge>
-                </div>
-                <p className="line-clamp-2 break-words text-sm leading-snug" title={CHILD_KIND[c.created_by ?? ''] ?? 'Доработка'}>
-                  {asked || c.title}
-                </p>
-                {c.summary && <p className="line-clamp-1 break-words text-xs text-muted">{gist(c.summary)}</p>}
-              </Link>
-            </li>
-          )
-        })}
-      </ol>
-    </Card>
-  )
-}
-
-function TestPlan({
-  task,
-  interactive,
-  busy,
-  onToggle,
-  onRefresh,
-  onAsk,
-}: {
-  task: Task
-  interactive: boolean
-  busy: boolean
-  onToggle: (step: number, done: boolean) => void
-  onRefresh?: () => void
-  onAsk: (step: number) => void
-}) {
-  const checked = new Set(task.plan_checked)
-  const earlier = new Set(task.plan_earlier)
-  const next = interactive ? task.test_plan.findIndex((_, i) => !checked.has(i)) : -1
-  const empty = task.test_plan.length === 0
-  return (
-    <Card className="p-2">
-      <div className="flex items-center justify-between gap-2 px-2 pb-1 pt-2">
-        <div className="min-w-0">
-          <div className="text-sm font-semibold">Как проверить на stage</div>
-          {interactive && !empty && (
-            <div className={cx('text-xs', checked.size === task.test_plan.length ? 'text-ok' : 'text-muted')}>
-              проверено {checked.size} из {task.test_plan.length}
-              {earlier.size > 0 && ` · ${earlier.size} в прошлой версии`}
-            </div>
-          )}
-        </div>
-        {onRefresh && (
-          <Button size="sm" variant="ghost" className="shrink-0" disabled={busy || task.plan_refreshing} onClick={onRefresh}>
-            {task.plan_refreshing ? <Loader2 size={14} className="animate-spin" /> : <RotateCw size={14} />}
-            {task.plan_refreshing ? 'Пересобираю…' : 'Пересобрать'}
-          </Button>
-        )}
-      </div>
-      {task.plan_refreshing && (
-        <p className="px-2 pb-1 text-xs text-muted">
-          Агент собирает план заново по задаче, её доработкам и коду на stage — ход видно в «Шагах агента».
-        </p>
-      )}
-      {empty && !task.plan_refreshing && (
-        <p className="px-2 pb-2 text-sm text-muted">Плана нет. Нажмите «Пересобрать», чтобы агент его написал.</p>
-      )}
-      <ol>
-        {task.test_plan.map((step, i) => {
-          const done = checked.has(i)
-          // Ticked on the previous version: the new code may have broken it, so it waits for a new tick.
-          const before = !done && earlier.has(i)
-          return (
-            <li key={i} className={cx('flex items-start rounded-xl', i === next && 'bg-accent/10')}>
-              <button
-                disabled={!interactive}
-                onClick={() => onToggle(i, !done)}
-                className={cx(
-                  'flex min-w-0 flex-1 items-start gap-3 rounded-xl py-2.5 pl-2 text-left transition disabled:cursor-default',
-                  interactive && 'hover:bg-surface-2 active:scale-[0.99]',
-                )}
-              >
-                <span
-                  className={cx(
-                    'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border text-[11px] font-semibold',
-                    done
-                      ? 'border-ok bg-ok text-white'
-                      : before
-                        ? 'border-dashed border-ok text-ok'
-                        : i === next
-                          ? 'border-accent text-accent'
-                          : 'border-line text-muted',
-                  )}
-                >
-                  {done || before ? <Check size={14} strokeWidth={3} /> : i + 1}
-                </span>
-                <span className="min-w-0">
-                  <span
-                    className={cx(
-                      'break-words',
-                      done ? 'line-clamp-1 text-sm text-muted line-through' : 'block whitespace-pre-wrap text-[15px] leading-relaxed',
-                    )}
-                  >
-                    <Inline text={step} />
-                  </span>
-                  {before && <span className="mt-0.5 block text-xs text-ok">Проверено в прошлой версии — проверьте снова</span>}
-                </span>
-              </button>
-              <button
-                onClick={() => onAsk(i)}
-                className="shrink-0 rounded-xl p-2.5 text-muted transition hover:bg-surface-2 hover:text-fg"
-                aria-label={`Спросить про шаг ${i + 1}`}
-                title="Спросить про этот шаг"
-              >
-                <CircleHelp size={16} />
-              </button>
-            </li>
-          )
-        })}
-      </ol>
-      {!interactive && !empty && <p className="px-2 pb-2 pt-1 text-xs text-muted">Отмечать шаги можно, когда задача попадёт на stage.</p>}
-    </Card>
-  )
-}
-
-function QaCard({ taskId, qa }: { taskId: string; qa: NonNullable<Task['qa']> }) {
-  const tone = qa.skipped ? 'text-muted' : qa.ok ? 'text-ok' : 'text-bad'
-  return (
-    <Card className="space-y-2 p-3">
-      <div className={cx('text-sm font-semibold', tone)}>
-        {qa.skipped ? 'Автопроверка stage пропущена' : qa.ok ? 'Автопроверка stage: ошибок нет' : 'Автопроверка: на stage проблемы'}
-      </div>
-      {qa.skipped && <p className="text-xs text-muted">{qa.skipped}</p>}
-      {qa.problems.length > 0 && (
-        <ul className="space-y-1 text-xs text-bad">
-          {qa.problems.map((p) => (
-            <li key={p} className="break-words">
-              {p}
-            </li>
-          ))}
-        </ul>
-      )}
-      <Shots taskId={taskId} />
-    </Card>
-  )
-}
-
-const ACCEPTANCE: Record<Acceptance['state'], { title: string; tone: string }> = {
-  checking: { title: 'PM проверяет на stage', tone: 'text-accent' },
-  fixing: { title: 'PM нашёл замечания и отправил доработку', tone: 'text-warn' },
-  accepted: { title: 'PM проверил и принял', tone: 'text-ok' },
-  concerns: { title: 'PM: замечания остались', tone: 'text-warn' },
-  failed: { title: 'PM не смог проверить', tone: 'text-muted' },
-}
-
-/** The PM's check on stage before the owner's: what it found, its screenshots. */
-function AcceptanceCard({ task: t }: { task: Task }) {
-  const a = t.acceptance!
-  const { title, tone } = ACCEPTANCE[a.state] ?? ACCEPTANCE.failed
-  return (
-    <Card className="space-y-2 p-4">
-      <div className={cx('text-sm font-semibold', tone)}>
-        {a.state === 'checking' && <Loader2 size={14} className="mr-1.5 inline animate-spin align-[-2px]" />}
-        {title}
-        {a.state === 'fixing' && a.fix_task && (
-          <>
-            {' '}
-            <Link href={`/tasks/${a.fix_task.id}`} className="text-accent hover:opacity-80">
-              #{a.fix_task.ticket_number}
-            </Link>
-          </>
-        )}
-      </div>
-      {a.state === 'checking' && (
-        <p className="text-sm text-muted">Проходит план проверки как вы, с телефона. Позовёт вас, когда примет.</p>
-      )}
-      {a.state !== 'checking' && a.summary && <p className="text-[15px] leading-relaxed">{a.summary}</p>}
-      {a.state !== 'checking' && a.state !== 'accepted' && (a.issues?.length ?? 0) > 0 && (
-        <ul className="list-disc space-y-1 pl-5 text-sm">
-          {a.issues!.map((i) => (
-            <li key={i}>{i}</li>
-          ))}
-        </ul>
-      )}
-      <Shots taskId={t.id} by="PM" />
-    </Card>
-  )
-}
-
-const SHOT_AUTHOR = /^(PM|Скаут): /
-
-/** Screenshots of the task: the stage QA's, or the PM's ("PM: …") or the scout's ("Скаут: …"). */
-function Shots({ taskId, by }: { taskId: string; by?: 'PM' | 'Скаут' }) {
-  const { data: artifacts } = usePoll(() => api.artifacts(taskId), 60000, [taskId])
-  const [open, setOpen] = useState<number | null>(null)
-  const shots = (artifacts ?? []).filter((a) => a.kind === 'screenshot' && (by ? a.name.startsWith(`${by}: `) : !SHOT_AUTHOR.test(a.name)))
-  if (shots.length === 0) return null
-  const caption = (name: string) => name.replace(SHOT_AUTHOR, '').replace(/^https?:\/\/[^/]+/, '') || '/'
-  return (
-    <div className="no-scrollbar -mx-1 flex snap-x gap-2 overflow-x-auto px-1">
-      {shots.map((a, i) => (
-        <a
-          key={a.id}
-          href={api.artifactUrl(a.url)}
-          onClick={(e) => {
-            if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
-            e.preventDefault()
-            setOpen(i)
-          }}
-          className="w-16 shrink-0 snap-start"
-          title={caption(a.name)}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={api.artifactUrl(a.url)}
-            alt={a.name}
-            loading="lazy"
-            className="aspect-[390/844] w-full rounded-lg border border-line object-cover object-top"
-          />
-        </a>
-      ))}
-      <Lightbox
-        images={shots.map((a) => ({ src: api.artifactUrl(a.url), caption: caption(a.name) }))}
-        index={open}
-        onIndex={setOpen}
-        onClose={() => setOpen(null)}
       />
     </div>
   )
@@ -666,183 +236,5 @@ function BackLink() {
     <Link href="/" className="inline-flex items-center gap-1 text-sm text-muted hover:text-fg">
       <ArrowLeft size={16} /> Задачи
     </Link>
-  )
-}
-
-function FeedbackSheet({
-  open,
-  onClose,
-  merged,
-  onSubmit,
-  busy,
-}: {
-  open: boolean
-  onClose: () => void
-  merged: boolean
-  onSubmit: (text: string) => void
-  busy: boolean
-}) {
-  const [text, setText] = useState('')
-  return (
-    <Sheet open={open} onClose={onClose} title={merged ? 'Доработать' : 'Правки'}>
-      <form
-        className="space-y-3"
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (text.trim()) onSubmit(text.trim())
-        }}
-      >
-        <p className="text-sm text-muted">
-          {merged
-            ? 'Изменение уже в stage — создам новую задачу-доработку, связанную с этой.'
-            : 'Агент продолжит в той же сессии и обновит этот же PR.'}
-        </p>
-        <textarea
-          autoFocus
-          rows={5}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          className={inputClass}
-          placeholder="Сделай кнопку заметнее и добавь подтверждение удаления"
-        />
-        <Button type="submit" variant="primary" className="w-full" disabled={busy || !text.trim()}>
-          Отправить
-        </Button>
-      </form>
-    </Sheet>
-  )
-}
-
-const LEVEL_STYLE: Record<string, string> = {
-  error: 'text-bad',
-  warning: 'text-warn',
-  transition: 'text-accent font-medium',
-}
-
-/** Long text folded to a few lines with «Показать полностью»; short text as is. */
-function Collapsible({ children, height = 'max-h-48' }: { children: React.ReactNode; height?: string }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const [open, setOpen] = useState(false)
-  const [overflows, setOverflows] = useState(false)
-  useLayoutEffect(() => {
-    const el = ref.current
-    if (el && !open) setOverflows(el.scrollHeight > el.clientHeight + 8)
-  }, [children, open])
-  return (
-    <div>
-      <div ref={ref} className={cx('relative', !open && cx(height, 'overflow-hidden'))}>
-        {children}
-        {!open && overflows && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-surface to-transparent" />
-        )}
-      </div>
-      {(overflows || open) && (
-        <button onClick={() => setOpen(!open)} className="mt-1 text-sm font-medium text-accent hover:opacity-80">
-          {open ? 'Свернуть' : 'Показать полностью'}
-        </button>
-      )}
-    </div>
-  )
-}
-
-/** What the agent did — its summary up front, the step-by-step log folded underneath. */
-function Work({ task: t, live }: { task: Task; live: boolean }) {
-  const log = useTaskLog(t.id, live)
-  // Open while the agent works and there's nothing else to read yet.
-  const [open, setOpen] = useState<boolean | null>(null)
-  const showLog = open ?? (live && !t.summary)
-  const last = log.entries[log.entries.length - 1]
-  return (
-    <Card className="overflow-hidden">
-      {t.summary && (
-        <div className="p-4 pb-3">
-          <div className="mb-1.5 text-sm font-semibold text-muted">Что сделано</div>
-          <Collapsible height="max-h-72">
-            <Markdown text={t.summary} className="text-[15px] leading-relaxed" />
-          </Collapsible>
-        </div>
-      )}
-      <button
-        onClick={() => setOpen(!showLog)}
-        className={cx('flex w-full items-center gap-2 px-4 py-2.5 text-left hover:bg-surface-2', t.summary && 'border-t border-line')}
-      >
-        <span className="shrink-0 text-sm font-semibold">{t.summary ? 'Шаги агента' : live ? 'Агент работает' : 'Шаги агента'}</span>
-        {live && <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-ok" />}
-        <span className="min-w-0 flex-1 truncate text-xs text-muted">
-          {!showLog && (live && last ? last.message : log.entries.length > 0 && `${log.entries.length}`)}
-        </span>
-        <ChevronDown size={16} className={cx('shrink-0 text-muted transition', showLog && 'rotate-180')} />
-      </button>
-      {showLog && <LogEntries {...log} />}
-    </Card>
-  )
-}
-
-function useTaskLog(taskId: string, live: boolean) {
-  const [entries, setEntries] = useState<LogEntry[]>([])
-  const [error, setError] = useState<Error | null>(null)
-  const lastRef = useRef<string | undefined>(undefined)
-  const boxRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    let cancelled = false
-
-    async function load() {
-      try {
-        const batch = await api.logs(taskId, lastRef.current)
-        if (cancelled || batch.length === 0) return
-        lastRef.current = batch[batch.length - 1].created_at
-        const box = boxRef.current
-        const atBottom = !box || box.scrollHeight - box.scrollTop - box.clientHeight < 80
-        setEntries((prev) => [...prev, ...batch])
-        if (atBottom) requestAnimationFrame(() => box && (box.scrollTop = box.scrollHeight))
-        setError(null)
-      } catch (e) {
-        if (!cancelled) setError(e as Error)
-      }
-    }
-
-    load()
-    const timer = live ? setInterval(load, 3000) : undefined
-    return () => {
-      cancelled = true
-      if (timer) clearInterval(timer)
-    }
-  }, [taskId, live])
-
-  return { entries, error, boxRef }
-}
-
-function LogEntries({ entries, error, boxRef }: ReturnType<typeof useTaskLog>) {
-  const [open, setOpen] = useState<Record<string, boolean>>({})
-  // Mounted on open: start at the newest entry.
-  useEffect(() => {
-    const box = boxRef.current
-    if (box) box.scrollTop = box.scrollHeight
-  }, [boxRef])
-  return (
-    <div ref={boxRef} className="max-h-[60dvh] overflow-y-auto border-t border-line px-2 py-2">
-      <ErrorNote error={error} />
-      {entries.length === 0 && !error && <p className="px-2 py-4 text-sm text-muted">Пока пусто</p>}
-      {entries.map((e) => (
-        <div key={e.id} className="rounded-lg px-2 py-1 hover:bg-surface-2">
-          <button
-            className="flex w-full items-start gap-2 text-left"
-            onClick={() => e.details && setOpen((o) => ({ ...o, [e.id]: !o[e.id] }))}
-          >
-            <span className="mt-0.5 shrink-0 font-mono text-[11px] text-muted">{time(e.created_at)}</span>
-            <span className={cx('min-w-0 break-words text-[13px] leading-snug', LEVEL_STYLE[e.level])}>
-              {e.message}
-              {e.details && <ExternalLink size={11} className="ml-1 inline text-muted" />}
-            </span>
-          </button>
-          {e.details && open[e.id] && (
-            <pre className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-bg p-2 font-mono text-[11px] leading-relaxed text-muted">
-              {e.details}
-            </pre>
-          )}
-        </div>
-      ))}
-    </div>
   )
 }

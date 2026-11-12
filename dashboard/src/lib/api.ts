@@ -15,7 +15,7 @@ export type TaskStatus =
 
 export type Priority = 'critical' | 'high' | 'normal' | 'low'
 
-export interface TaskRef {
+interface TaskRef {
   id: string
   ticket_number: number
   title: string
@@ -80,20 +80,11 @@ export interface LogEntry {
   created_at: string
 }
 
-export interface Artifact {
+interface Artifact {
   id: string
   kind: string
   name: string
   url: string
-  created_at: string
-}
-
-export interface Transition {
-  id: string
-  from_status: string
-  to_status: string
-  reason: string | null
-  triggered_by: string | null
   created_at: string
 }
 
@@ -103,9 +94,9 @@ export interface Repo {
   setup?: string | null
 }
 
-export type ScoutFindingKind = 'bug' | 'ux' | 'feature' | 'simplify' | 'tests' | 'debt'
+type ScoutFindingKind = 'bug' | 'ux' | 'feature' | 'simplify' | 'tests' | 'debt'
 
-export interface ScoutFinding {
+interface ScoutFinding {
   kind?: ScoutFindingKind
   evidence?: string
   rejected?: string // the owner's reason
@@ -113,7 +104,7 @@ export interface ScoutFinding {
 
 export type ScoutMode = 'off' | 'propose' | 'auto'
 
-export interface ScoutRun {
+interface ScoutRun {
   state: 'requested' | 'running' | 'done' | 'failed'
   at: string
   found?: number
@@ -165,7 +156,7 @@ export interface Release {
   created_at: string
 }
 
-export interface SystemStatus {
+interface SystemStatus {
   worker_online: boolean
   worker_last_seen: string | null
   developers_enabled: boolean
@@ -194,7 +185,7 @@ export interface ChatMessage {
   created_at: string
 }
 
-export interface ChatOutcome {
+interface ChatOutcome {
   label: string
   title: string
   state: 'applied' | 'rejected'
@@ -235,7 +226,7 @@ export interface TelegramSettings {
   webhook_url: string
 }
 
-export class ApiError extends Error {
+class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
@@ -301,7 +292,7 @@ export const api = {
     request<Task[]>(`/api/tasks/?limit=500${statuses.map((s) => `&status=${s}`).join('')}`),
   task: (id: string) => request<Task>(`/api/tasks/${id}`),
   children: (id: string) => request<Task[]>(`/api/tasks/?parent_id=${encodeURIComponent(id)}`),
-  createTask: (t: { title: string; description: string; project_id: string; repo?: string | null; priority: Priority; pm?: boolean; model?: string | null }) =>
+  createTask: (t: { title: string; description: string; project_id: string; priority: Priority; pm?: boolean; model?: string | null }) =>
     post<Task>('/api/tasks/', t),
   updateTask: (id: string, t: Partial<Pick<Task, 'title' | 'description' | 'priority' | 'pm'>> & { model?: string }) =>
     request<Task>(`/api/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(t) }),
@@ -318,7 +309,6 @@ export const api = {
     request<LogEntry[]>(`/api/tasks/${id}/logs${after ? `?after=${encodeURIComponent(after)}` : ''}`),
   artifacts: (id: string) => request<Artifact[]>(`/api/tasks/${id}/artifacts`),
   artifactUrl: (path: string) => `${BASE}${path}`,
-  transitions: (id: string) => request<Transition[]>(`/api/tasks/${id}/transitions`),
 
   chats: (subject: ChatSubject, subjectId: string) =>
     request<Chat[]>(`/api/chats/?subject=${subject}&subject_id=${encodeURIComponent(subjectId)}`),

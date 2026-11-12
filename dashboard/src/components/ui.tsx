@@ -1,7 +1,7 @@
 'use client'
 
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { cx } from '@/lib/format'
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -204,4 +204,30 @@ export function ErrorNote({ error }: { error: Error | string | null | undefined 
 
 export function Empty({ children }: { children: React.ReactNode }) {
   return <div className="rounded-2xl border border-dashed border-line px-4 py-8 text-center text-sm text-muted">{children}</div>
+}
+
+/** Long text folded to a few lines with «Показать полностью»; short text as is. */
+export function Collapsible({ children, height = 'max-h-48' }: { children: React.ReactNode; height?: string }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  const [overflows, setOverflows] = useState(false)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (el && !open) setOverflows(el.scrollHeight > el.clientHeight + 8)
+  }, [children, open])
+  return (
+    <div>
+      <div ref={ref} className={cx('relative', !open && cx(height, 'overflow-hidden'))}>
+        {children}
+        {!open && overflows && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-surface to-transparent" />
+        )}
+      </div>
+      {(overflows || open) && (
+        <button onClick={() => setOpen(!open)} className="mt-1 text-sm font-medium text-accent hover:opacity-80">
+          {open ? 'Свернуть' : 'Показать полностью'}
+        </button>
+      )}
+    </div>
+  )
 }

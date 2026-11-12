@@ -10,7 +10,7 @@ import { TaskCard } from '@/components/TaskCard'
 import { Empty, ErrorNote } from '@/components/ui'
 import { api, type Task, type TaskStatus } from '@/lib/api'
 import { cx } from '@/lib/format'
-import { usePoll, useStoredState } from '@/lib/hooks'
+import { ALL_PROJECTS, usePoll, useProjectFilter, useStoredState } from '@/lib/hooks'
 import { stack, stackStatus } from '@/lib/stack'
 
 const COLUMNS: { key: string; title: string; statuses: TaskStatus[]; limit?: number }[] = [
@@ -23,16 +23,14 @@ const COLUMNS: { key: string; title: string; statuses: TaskStatus[]; limit?: num
   { key: 'done', title: 'Готово', statuses: ['released', 'cancelled'], limit: 30 },
 ]
 
-const ALL = '*'
-
 export default function Board() {
-  const [projectFilter, setProjectFilter] = useStoredState<string>('autodev.project', ALL)
   const [tab, setTab] = useStoredState<string>('autodev.tab', 'work')
   const [creating, setCreating] = useState(false)
   const [discussing, setDiscussing] = useState<{ projectId: string; chatId: string | null } | null>(null)
 
   const projects = usePoll(api.projects, 30000)
-  const filter = projectFilter === ALL ? undefined : projectFilter
+  const [projectFilter, setProjectFilter] = useProjectFilter('autodev.project', projects.data)
+  const filter = projectFilter === ALL_PROJECTS ? undefined : projectFilter
   const tasks = usePoll(() => api.tasks(filter), 5000, [filter])
 
   const columns = useMemo(() => {
@@ -47,7 +45,8 @@ export default function Board() {
   }, [tasks.data])
 
   const projectList = projects.data ?? []
-  const current = projectList.find((p) => p.id === filter)
+  // The only project needs no chip to be the current one.
+  const current = projectList.length === 1 ? projectList[0] : projectList.find((p) => p.id === filter)
   const stage = columns.find((c) => c.key === 'stage')
   const onStage = stage?.total ?? 0
   const verified = stage?.items.filter((s) => s.task.verified_at).length ?? 0
@@ -64,7 +63,7 @@ export default function Board() {
     <div className="space-y-4">
       {projectList.length > 1 && (
         <ProjectChips
-          items={[{ id: ALL, name: 'Все проекты' }, ...projectList]}
+          items={[{ id: ALL_PROJECTS, name: 'Все проекты' }, ...projectList]}
           value={projectFilter}
           onChange={setProjectFilter}
         />

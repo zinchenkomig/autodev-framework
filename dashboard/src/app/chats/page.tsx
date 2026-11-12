@@ -1,21 +1,18 @@
 'use client'
 
-import { ChevronRight, Loader2, Send } from 'lucide-react'
+import { Loader2, Send } from 'lucide-react'
 import { useState } from 'react'
-import { ChatOutcome, ChatSheet, PROJECT_CHAT_HINT } from '@/components/Chat'
+import { ChatRow, ChatSheet, PROJECT_CHAT_HINT } from '@/components/Chat'
 import { ProjectChips } from '@/components/ProjectChips'
 import { Button, Card, Empty, ErrorNote, inputClass } from '@/components/ui'
-import { api, type Chat, type ChatSubject } from '@/lib/api'
-import { ago } from '@/lib/format'
-import { usePoll, useStoredState } from '@/lib/hooks'
-
-const ALL = '*'
+import { api, type ChatSubject } from '@/lib/api'
+import { enabledFirst } from '@/lib/format'
+import { ALL_PROJECTS, usePoll, useProjectFilter } from '@/lib/hooks'
 
 type Opened = { subject: ChatSubject; subjectId: string; id: string }
 
 /** Every conversation with the agent, whatever it is about, and a new one about any project. */
 export default function ChatsPage() {
-  const [filter, setFilter] = useStoredState<string>('autodev.chats.project', ALL)
   const [opened, setOpened] = useState<Opened | null>(null)
   const [chosen, setChosen] = useState('')
   const [text, setText] = useState('')
@@ -23,13 +20,14 @@ export default function ChatsPage() {
   const [error, setError] = useState<string | null>(null)
 
   const projects = usePoll(api.projects, 30000)
-  const scope = filter === ALL ? undefined : filter
+  const [filter, setFilter] = useProjectFilter('autodev.chats.project', projects.data)
+  const scope = filter === ALL_PROJECTS ? undefined : filter
   const chats = usePoll(() => api.allChats(scope), 10000, [scope])
 
   const list = projects.data ?? []
   const names = new Map(list.map((p) => [p.id, p.name]))
   // Paused projects can still be discussed: nothing runs until a task is approved.
-  const ordered = [...list.filter((p) => p.enabled), ...list.filter((p) => !p.enabled)]
+  const ordered = enabledFirst(list)
   const projectId = scope ?? (ordered.some((p) => p.id === chosen) ? chosen : (ordered[0]?.id ?? ''))
   const asked = (chats.data ?? []).filter((c) => c.question)
 
@@ -54,7 +52,7 @@ export default function ChatsPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-4">
       {list.length > 1 && (
-        <ProjectChips items={[{ id: ALL, name: 'Все проекты' }, ...list]} value={filter} onChange={setFilter} />
+        <ProjectChips items={[{ id: ALL_PROJECTS, name: 'Все проекты' }, ...list]} value={filter} onChange={setFilter} />
       )}
 
       <Card className="p-3">
@@ -102,6 +100,7 @@ export default function ChatsPage() {
             <ChatRow
               chat={c}
               project={!scope && c.project_id ? names.get(c.project_id) : undefined}
+              showTask
               onOpen={() => setOpened({ subject: c.subject, subjectId: c.subject_id ?? '', id: c.id })}
             />
           </li>
@@ -128,25 +127,5 @@ export default function ChatsPage() {
         />
       )}
     </div>
-  )
-}
-
-function ChatRow({ chat: c, project, onOpen }: { chat: Chat; project?: string; onOpen: () => void }) {
-  return (
-    <button
-      onClick={onOpen}
-      className="flex w-full items-center gap-2 rounded-2xl border border-line bg-surface px-3 py-2.5 text-left transition hover:bg-surface-2 active:scale-[0.99]"
-    >
-      <span className="min-w-0 flex-1 space-y-1">
-        <span className="line-clamp-2 block break-words text-[15px] leading-snug">{c.question}</span>
-        <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
-          <span>{ago(c.updated_at)}</span>
-          {project && <span>· {project}</span>}
-          {c.subject === 'task' && <span className="min-w-0 truncate">· {c.title}</span>}
-          <ChatOutcome chat={c} />
-        </span>
-      </span>
-      <ChevronRight size={16} className="shrink-0 text-muted" />
-    </button>
   )
 }

@@ -1,4 +1,4 @@
-import type { Priority, TaskStatus } from './api'
+import type { Priority, Task, TaskStatus } from './api'
 
 export const STATUS: Record<TaskStatus, { label: string; tone: string }> = {
   proposed: { label: 'Предложение', tone: 'info' },
@@ -70,3 +70,36 @@ export function plural(n: number, forms: [string, string, string]): string {
 
 /** Claude models offered for a task; the API takes any name the CLI does. */
 export const MODELS: Record<string, string> = { opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku' }
+
+/** Enabled projects first: a paused one can still be picked, it just comes last. */
+export function enabledFirst<T extends { enabled: boolean }>(projects: T[]): T[] {
+  return [...projects.filter((p) => p.enabled), ...projects.filter((p) => !p.enabled)]
+}
+
+// What the API allows in each status (autodev/api/routes/tasks.py). Mirrored here so that a
+// button shows only when its request would go through; change both together.
+
+/** The change is in the stage branch: deploying, on stage or released. */
+export const isMerged = (status: TaskStatus) => ['deploying', 'on_stage', 'released'].includes(status)
+/** An agent or CI is busy with the task, or it waits for one. */
+export const isRunning = (status: TaskStatus) => ['queued', 'in_progress', 'ci', 'deploying'].includes(status)
+export const canCancel = (status: TaskStatus) => ['queued', 'in_progress', 'ci'].includes(status)
+export const canRetry = (status: TaskStatus) => ['failed', 'cancelled'].includes(status)
+export const canDelete = (status: TaskStatus) => !['in_progress', 'ci', 'deploying'].includes(status)
+/** Nobody has started on it: the task itself can still be edited. */
+export const notStarted = (task: Task) => ['queued', 'proposed'].includes(task.status) && !task.branch
+
+/** What the owner's feedback turns into; null when the API takes none right now. */
+export type FeedbackKind = 'follow_up' | 'same_pr' | 'description'
+
+export function feedbackKind(task: Task): FeedbackKind | null {
+  if (isMerged(task.status)) return 'follow_up' // a new task linked to this one
+  if (['ci', 'failed', 'cancelled'].includes(task.status) && task.pr_number) return 'same_pr' // one more round on its PR
+  if (notStarted(task)) return 'description' // appended to the task's text
+  return null
+}
+
+/** What the owner asked for: a follow-up's description without the "Follow-up to #N" footer. */
+export function followUpRequest(task: Task): string {
+  return (task.description ?? '').split('\n\n---\n')[0].trim()
+}
