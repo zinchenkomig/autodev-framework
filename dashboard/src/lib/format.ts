@@ -69,7 +69,7 @@ export function plural(n: number, forms: [string, string, string]): string {
 }
 
 /** Claude models offered for a task; the API takes any name the CLI does. */
-export const MODELS: Record<string, string> = { fable: 'Fable', opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku' }
+export const MODELS: Record<string, string> = { 'claude-fable-5-2': 'Fable 5.2', opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku' }
 
 /** Enabled projects first: a paused one can still be picked, it just comes last. */
 export function enabledFirst<T extends { enabled: boolean }>(projects: T[]): T[] {
