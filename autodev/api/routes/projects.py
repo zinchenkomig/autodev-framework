@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from autodev import scaffold, scout, secrets
 from autodev.api.database import get_session
 from autodev.api.routes.releases import ReleaseResponse, release_to_response
-from autodev.core.config import RepoSpec, get_settings
+from autodev.core.config import Effort, RepoSpec, get_settings
 from autodev.core.models import Chat, Project, Task, TaskStatus
 from autodev.integrations.github import GitHubClient
 from autodev.release import ReleaseError, start_release
@@ -44,6 +44,7 @@ class ProjectBody(BaseModel):
     # It stops at this many tasks on stage or on their way there, follow-ups included.
     stage_limit: int = Field(default=10, ge=1, le=100)
     model: str | None = None
+    effort: Effort | None = None
     max_parallel: int = Field(default=1, ge=1, le=10)
     enabled: bool = True
 
@@ -127,6 +128,7 @@ def to_response(project: Project, counts: dict[str, int] | None = None, load: in
         scout_run=project.scout_run,
         stage_load=load,
         model=project.model,
+        effort=project.effort,
         max_parallel=project.max_parallel,
         enabled=project.enabled,
         task_counts=counts or {},

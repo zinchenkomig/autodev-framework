@@ -179,10 +179,11 @@ async def _fast_sleep(delay, *a, **kw):
 
 
 def test_options() -> None:
-    opts = ClaudeRunner("/w", model="opus", system_prompt_append="rules").options(resume="s")
+    opts = ClaudeRunner("/w", model="opus", effort="high", system_prompt_append="rules").options(resume="s")
     assert opts.permission_mode == "bypassPermissions"
     assert opts.env["IS_SANDBOX"] == "1"
-    assert opts.resume == "s" and opts.model == "opus"
+    assert opts.resume == "s" and opts.model == "opus" and opts.effort == "high"
+    assert ClaudeRunner("/w", effort="").options().effort is None
     assert opts.system_prompt["append"] == "rules"
     assert opts.output_format["schema"]["required"] == ["status", "summary", "test_plan"]
 

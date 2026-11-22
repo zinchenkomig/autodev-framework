@@ -108,6 +108,7 @@ async def accept(ctx: WorkerContext, task_id: uuid.UUID) -> None:
         runner = ClaudeRunner(
             str(checkout),
             model=main.model or project.model or ctx.settings.model,
+            effort=main.effort or project.effort or ctx.settings.effort,
             timeout=ctx.settings.claude_timeout,
             env=ctx.env(),
             system_prompt_append=prompts.ACCEPT_SYSTEM,

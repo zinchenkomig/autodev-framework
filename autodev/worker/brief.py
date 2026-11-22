@@ -44,6 +44,7 @@ async def write(
     runner = ClaudeRunner(
         cwd,
         model=task.model or project.model or ctx.settings.model,
+        effort=task.effort or project.effort or ctx.settings.effort,
         timeout=ctx.settings.claude_timeout,
         env=ctx.env(),
         system_prompt_append=prompts.PM_SYSTEM,

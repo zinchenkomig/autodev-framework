@@ -109,6 +109,7 @@ async def answer(ctx: WorkerContext, chat_id: uuid.UUID) -> None:
         runner = ClaudeRunner(
             cwd,
             model=(topic.project.model if topic.project else None) or ctx.settings.model,
+            effort=(topic.project.effort if topic.project else None) or ctx.settings.effort,
             timeout=ctx.settings.chat_timeout,
             env=ctx.env(),
             system_prompt_append=prompts.CHAT_SYSTEM + "\n" + subject.instructions(),

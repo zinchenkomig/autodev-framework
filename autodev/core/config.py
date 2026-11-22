@@ -16,10 +16,14 @@ import os
 import re
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import AliasChoices, BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+#: How hard Claude thinks (the CLI's ``--effort``).
+Effort = Literal["low", "medium", "high", "xhigh", "max"]
 
 # ---------------------------------------------------------------------------
 # Runtime settings
@@ -43,8 +47,9 @@ class Settings(BaseSettings):
     host: str = Field(default="0.0.0.0", validation_alias="AUTODEV_HOST")
     port: int = Field(default=8000, validation_alias="AUTODEV_PORT")
 
-    # Claude Code. Empty model = the CLI's default for the account.
+    # Claude Code. Empty model / effort = the CLI's default for the account.
     model: str = Field(default="", validation_alias="AUTODEV_MODEL")
+    effort: str = Field(default="", validation_alias="AUTODEV_EFFORT")
     claude_timeout: int = Field(default=45 * 60, validation_alias="AUTODEV_CLAUDE_TIMEOUT")
 
     # Worker
@@ -117,6 +122,7 @@ class ProjectSpec(BaseModel):
     smoke_paths: list[str] = Field(default_factory=list)
     instructions: str | None = None
     model: str | None = None
+    effort: Effort | None = None
     max_parallel: int = 1
     enabled: bool = True
 

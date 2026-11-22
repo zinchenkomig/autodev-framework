@@ -2,7 +2,7 @@ import { CheckCircle2, CornerDownRight, Loader2 } from 'lucide-react'
 import Link from 'next/link'
 import { Badge } from '@/components/ui'
 import type { Project, Task } from '@/lib/api'
-import { FIX_KIND, MODELS, PRIORITY, STATUS, ago } from '@/lib/format'
+import { EFFORTS, FIX_KIND, MODELS, PRIORITY, STATUS, ago } from '@/lib/format'
 
 /** Number, status and marks, the main task of a follow-up, the title, where the task lives. */
 export function TaskHeader({ task: t, project }: { task: Task; project?: Project }) {
@@ -22,6 +22,7 @@ export function TaskHeader({ task: t, project }: { task: Task; project?: Project
           </Badge>
         )}
         {t.model && <Badge tone="neutral">{MODELS[t.model] ?? t.model}</Badge>}
+        {t.effort && <Badge tone="neutral">усилие: {EFFORTS[t.effort]?.toLowerCase() ?? t.effort}</Badge>}
         {t.priority !== 'normal' && <Badge tone={t.priority === 'low' ? 'neutral' : 'warn'}>{PRIORITY[t.priority]}</Badge>}
         <span>{ago(t.status_changed_at)}</span>
       </div>

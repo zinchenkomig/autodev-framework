@@ -42,6 +42,7 @@ export interface Task {
   pending_fix: string | null
   pm: boolean // the PM thinks the task through before the developer starts
   model: string | null // the owner's Claude model for this task; null: the project's
+  effort: string | null // the owner's Claude effort for this task; null: the project's
   brief: string | null // the PM's brief the developer followed
   acceptance: Acceptance | null // the PM's check on stage before the owner's
   scout: ScoutFinding | null // the scout found this one
@@ -129,6 +130,7 @@ export interface Project {
   scout_run: ScoutRun | null
   stage_load: number | null // what counts against stage_limit
   model: string | null
+  effort: string | null
   max_parallel: number
   enabled: boolean
   task_counts: Partial<Record<TaskStatus, number>>
@@ -292,9 +294,9 @@ export const api = {
     request<Task[]>(`/api/tasks/?limit=500${statuses.map((s) => `&status=${s}`).join('')}`),
   task: (id: string) => request<Task>(`/api/tasks/${id}`),
   children: (id: string) => request<Task[]>(`/api/tasks/?parent_id=${encodeURIComponent(id)}`),
-  createTask: (t: { title: string; description: string; project_id: string; priority: Priority; pm?: boolean; model?: string | null }) =>
+  createTask: (t: { title: string; description: string; project_id: string; priority: Priority; pm?: boolean; model?: string | null; effort?: string | null }) =>
     post<Task>('/api/tasks/', t),
-  updateTask: (id: string, t: Partial<Pick<Task, 'title' | 'description' | 'priority' | 'pm'>> & { model?: string }) =>
+  updateTask: (id: string, t: Partial<Pick<Task, 'title' | 'description' | 'priority' | 'pm'>> & { model?: string; effort?: string }) =>
     request<Task>(`/api/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(t) }),
   deleteTask: (id: string) => request<void>(`/api/tasks/${id}`, { method: 'DELETE' }),
   cancelTask: (id: string) => post<Task>(`/api/tasks/${id}/cancel`),

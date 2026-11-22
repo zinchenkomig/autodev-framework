@@ -184,6 +184,7 @@ async def run(ctx: WorkerContext, project_id: str) -> None:
         runner = ClaudeRunner(
             str(checkout),
             model=project.model or ctx.settings.model,
+            effort=project.effort or ctx.settings.effort,
             timeout=ctx.settings.claude_timeout,
             env=ctx.env(),
             system_prompt_append=prompts.SCOUT_SYSTEM,
