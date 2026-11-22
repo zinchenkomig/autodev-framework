@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import type { NewRepo, ProjectInput, Repo, ScoutMode } from '@/lib/api'
 import { cx } from '@/lib/format'
+import { ClaudePicker } from './ClaudePicker'
 import { Button, ErrorNote, Field, inputClass } from './ui'
 
 export const EMPTY_PROJECT: ProjectInput = {
@@ -20,6 +21,7 @@ export const EMPTY_PROJECT: ProjectInput = {
   scout: 'off',
   stage_limit: 10,
   model: null,
+  effort: null,
   max_parallel: 1,
   enabled: true,
 }
@@ -61,6 +63,7 @@ export function ProjectForm({
           ...p,
           stage_url: orNull(p.stage_url ?? ''),
           model: orNull(p.model ?? ''),
+          effort: orNull(p.effort ?? ''),
           idea: orNull(p.idea ?? ''),
           principles: orNull(p.principles ?? ''),
           instructions: orNull(p.instructions ?? ''),
@@ -236,6 +239,16 @@ export function ProjectForm({
         </span>
       </label>
 
+      <div className="space-y-1.5">
+        <ClaudePicker
+          model={p.model ?? ''}
+          effort={p.effort ?? ''}
+          onChange={(pick) => setP((prev) => ({ ...prev, model: pick.model || null, effort: pick.effort || null }))}
+          inherit={{ model: 'По умолчанию', effort: 'По умолчанию' }}
+        />
+        <span className="block text-xs text-muted">Для всех агентов проекта; у задачи можно выбрать другие.</span>
+      </div>
+
       {/* What a project rarely needs changed: the defaults work. */}
       <details className="rounded-2xl border border-line p-3">
         <summary className="cursor-pointer text-sm font-medium">Дополнительно</summary>
@@ -246,14 +259,6 @@ export function ProjectForm({
             </Field>
             <Field label="Ветка прода">
               <input required value={p.prod_branch} onChange={(e) => set('prod_branch', e.target.value)} className={inputClass} />
-            </Field>
-            <Field label="Модель Claude" hint="пусто — по умолчанию">
-              <input
-                placeholder="claude-fable-5-2 / opus / sonnet"
-                value={p.model ?? ''}
-                onChange={(e) => set('model', e.target.value || null)}
-                className={inputClass}
-              />
             </Field>
             <Field label="Задач параллельно">
               <input

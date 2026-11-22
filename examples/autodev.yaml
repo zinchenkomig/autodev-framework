@@ -10,6 +10,7 @@ projects:
     smoke_paths: ["/", "/catalog"]  # pages QA opens on stage
     max_parallel: 1                 # concurrent tasks for this project
     # model: opus                   # override AUTODEV_MODEL for this project
+    # effort: high                  # override AUTODEV_EFFORT: low | medium | high | xhigh | max
     instructions: |
       Extra rules for this project that are not in CLAUDE.md.
     repos:                          # exactly one: keep several apps in a monorepo

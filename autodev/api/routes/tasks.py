@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
@@ -13,7 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from autodev import pm, review, scout
 from autodev.api.database import get_session
+from autodev.core.config import Effort
 from autodev.core.models import (
+    EFFORT_KEY,
     MERGED_STATUSES,
     MODEL_KEY,
     AgentLog,
@@ -44,6 +46,7 @@ class TaskCreate(BaseModel):
     created_by: str | None = None
     pm: bool | None = None  # the PM thinks the task through first; None: the project's default
     model: str | None = Field(default=None, max_length=100)  # Claude model for its agents; None: the project's
+    effort: Effort | None = None  # how hard they think; None: the project's
 
 
 class TaskUpdate(BaseModel):
@@ -54,6 +57,7 @@ class TaskUpdate(BaseModel):
     project_id: str | None = None
     pm: bool | None = None
     model: str | None = Field(default=None, max_length=100)  # "" clears the pick: back to the project's
+    effort: Effort | Literal[""] | None = None  # likewise
 
 
 class RejectRequest(BaseModel):
@@ -99,6 +103,7 @@ class TaskResponse(BaseModel):
     pending_fix: str | None  # kind of the queued fix round, if any
     pm: bool  # the PM thinks the task through before the developer starts
     model: str | None  # the owner's Claude model for this task; None: the project's
+    effort: str | None  # the owner's Claude effort for this task; None: the project's
     brief: str | None  # the PM's brief the developer followed
     # The PM's check on stage before the owner's: {"state": checking|fixing|accepted|concerns|failed,
     # "summary", "issues": [titles], "fixes", "fix_task": {"id", "ticket_number"}}
@@ -178,6 +183,7 @@ def to_response(task: Task, parent: Task | None = None, waiting: list[Task] = ()
         pending_fix=fix.get("kind") if isinstance(fix, dict) else None,
         pm=pm.enabled(task),
         model=task.model,
+        effort=task.effort,
         brief=pm.brief(task),
         acceptance=pm.acceptance(task),
         scout=(task.metadata_ or {}).get(scout.KEY),
@@ -294,7 +300,8 @@ async def create_task(body: TaskCreate, session: Annotated[AsyncSession, Depends
         created_by=body.created_by or "dashboard",
         status=TaskStatus.QUEUED,
         metadata_={pm.KEY: project.pm if body.pm is None else body.pm}
-        | ({MODEL_KEY: body.model.strip()} if body.model and body.model.strip() else {}),
+        | ({MODEL_KEY: body.model.strip()} if body.model and body.model.strip() else {})
+        | ({EFFORT_KEY: body.effort} if body.effort else {}),
     )
     session.add(task)
     await session.flush()
@@ -321,9 +328,10 @@ async def update_task(
         task.priority = body.priority
     if body.pm is not None:
         task.metadata_ = {**(task.metadata_ or {}), pm.KEY: body.pm}
-    if body.model is not None:
-        meta = {k: v for k, v in (task.metadata_ or {}).items() if k != MODEL_KEY}
-        task.metadata_ = meta | ({MODEL_KEY: body.model.strip()} if body.model.strip() else {})
+    for key, value in ((MODEL_KEY, body.model), (EFFORT_KEY, body.effort)):
+        if value is not None:
+            meta = {k: v for k, v in (task.metadata_ or {}).items() if k != key}
+            task.metadata_ = meta | ({key: value.strip()} if value.strip() else {})
     if body.project_id is not None or body.repo is not None:
         if task.status != TaskStatus.QUEUED or task.branch:
             raise HTTPException(409, "Project/repo can only change before work starts")

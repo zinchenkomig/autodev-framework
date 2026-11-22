@@ -102,6 +102,7 @@ class Project(Base):
     idea: Mapped[str | None] = mapped_column(Text, nullable=True)
     instructions: Mapped[str | None] = mapped_column(Text, nullable=True)  # extra prompt text
     model: Mapped[str | None] = mapped_column(String(100), nullable=True)  # overrides AUTODEV_MODEL
+    effort: Mapped[str | None] = mapped_column(String(20), nullable=True)  # overrides AUTODEV_EFFORT
     max_parallel: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     # The PM thinks a new task through before the developer starts (a task can opt out).
     pm: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
@@ -136,8 +137,9 @@ class Project(Base):
         return f"<Project id={self.id!r}>"
 
 
-#: Task metadata: the Claude model for this task's agents (absent: the project's).
+#: Task metadata: the Claude model and effort for this task's agents (absent: the project's).
 MODEL_KEY = "model"
+EFFORT_KEY = "effort"
 
 
 class Task(Base):
@@ -198,15 +200,23 @@ class Task(Base):
 
     project: Mapped[Project | None] = relationship("Project", lazy="selectin")
 
+    def _pick(self, key: str) -> str | None:
+        value = (self.metadata_ or {}).get(key)
+        return value if isinstance(value, str) and value.strip() else None
+
     @property
     def model(self) -> str | None:
         """The Claude model the owner picked for this task (overrides the project's); None: no pick."""
-        value = (self.metadata_ or {}).get(MODEL_KEY)
-        return value if isinstance(value, str) and value.strip() else None
+        return self._pick(MODEL_KEY)
+
+    @property
+    def effort(self) -> str | None:
+        """The Claude effort the owner picked for this task (overrides the project's); None: no pick."""
+        return self._pick(EFFORT_KEY)
 
     def carried(self) -> dict:
-        """Metadata a task spawned from this one inherits: the owner's model pick."""
-        return {MODEL_KEY: self.model} if self.model else {}
+        """Metadata a task spawned from this one inherits: the owner's model and effort picks."""
+        return {k: v for k, v in ((MODEL_KEY, self.model), (EFFORT_KEY, self.effort)) if v}
 
     @property
     def root_id(self) -> uuid.UUID:

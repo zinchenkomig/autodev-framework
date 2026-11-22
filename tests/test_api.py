@@ -27,9 +27,10 @@ async def test_project_crud(client) -> None:
     assert r.json()["base_branch"] == "stage"
     assert (await client.post("/api/projects/", json=body)).status_code == 409
 
-    body["stage_url"] = "https://stage.shop"
+    body |= {"stage_url": "https://stage.shop", "model": "opus", "effort": "max"}
     r = await client.put("/api/projects/shop", json={k: v for k, v in body.items() if k != "id"})
     assert r.json()["stage_url"] == "https://stage.shop"
+    assert (r.json()["model"], r.json()["effort"]) == ("opus", "max")
     assert [p["id"] for p in (await client.get("/api/projects/")).json()] == ["shop"]
     assert (await client.delete("/api/projects/shop")).status_code == 204
 
@@ -200,18 +201,20 @@ async def test_follow_up_keeps_the_main_task_pm_choice(client, session_factory, 
 
 async def test_task_model_pick_and_follow_up_inherits_it(client, session_factory, project) -> None:
     plain = (await client.post("/api/tasks/", json={"title": "Поиск"})).json()
-    assert plain["model"] is None
-    t = (await client.post("/api/tasks/", json={"title": "Поиск", "model": " opus "})).json()
-    assert t["model"] == "opus"
+    assert plain["model"] is None and plain["effort"] is None
+    t = (await client.post("/api/tasks/", json={"title": "Поиск", "model": " opus ", "effort": "xhigh"})).json()
+    assert t["model"] == "opus" and t["effort"] == "xhigh"
     async with session_factory() as s:
         task = await s.get(Task, uuid.UUID(t["id"]))
-        assert task.model == "opus"
+        assert task.model == "opus" and task.effort == "xhigh"
         task.status = TaskStatus.ON_STAGE
         await s.commit()
     follow_up = (await client.post(f"/api/tasks/{t['id']}/feedback", json={"text": "ещё"})).json()
-    assert follow_up["model"] == "opus"
+    assert follow_up["model"] == "opus" and follow_up["effort"] == "xhigh"
     assert (await client.patch(f"/api/tasks/{t['id']}", json={"model": "sonnet"})).json()["model"] == "sonnet"
     assert (await client.patch(f"/api/tasks/{t['id']}", json={"model": ""})).json()["model"] is None
+    assert (await client.patch(f"/api/tasks/{t['id']}", json={"effort": ""})).json()["effort"] is None
+    assert (await client.post("/api/tasks/", json={"title": "Поиск", "effort": "huge"})).status_code == 422
 
 
 async def test_create_task_needs_project_when_ambiguous(client, session_factory, project) -> None:

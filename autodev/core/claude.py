@@ -190,6 +190,7 @@ class ClaudeRunner:
         cwd: str,
         *,
         model: str | None = None,
+        effort: str | None = None,
         timeout: int = 45 * 60,
         env: dict[str, str] | None = None,
         system_prompt_append: str | None = None,
@@ -198,6 +199,7 @@ class ClaudeRunner:
     ) -> None:
         self.cwd = cwd
         self.model = model or None
+        self.effort = effort or None
         self.timeout = timeout
         self.env = env or {}
         self.system_prompt_append = system_prompt_append
@@ -211,6 +213,7 @@ class ClaudeRunner:
         return ClaudeAgentOptions(
             cwd=self.cwd,
             model=self.model,
+            effort=self.effort,
             resume=resume,
             permission_mode="bypassPermissions",
             system_prompt=system_prompt,
