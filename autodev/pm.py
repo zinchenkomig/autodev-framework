@@ -6,10 +6,11 @@ where it lives in the UI, does the label match the behaviour) reach the owner on
 on stage. The PM answers them first and writes a brief the developer follows
 (``metadata["brief"]``), shown on the task page.
 
-When the main task (with all its follow-ups) lands on stage, the PM also accepts
+When the main task (with all its follow-ups) lands on stage, the PM also tests
 it before the owner is called (``metadata["acceptance"]``, :mod:`autodev.worker.acceptor`):
-it walks the test plan in a phone-sized browser and sends back a follow-up with what
-it found, at most ``MAX_FIXES`` times; then the owner gets the task with its verdict.
+in a phone-sized browser it first looks for the way as a user without instructions,
+then walks the test plan and tries to break the change, and sends back a follow-up
+with what it found, at most ``MAX_FIXES`` times; then the owner gets the task with its verdict.
 
 Each costs a Claude session and some minutes, so the PM can be switched off: per project
 (``Project.pm``, the default for new tasks) and per task (``metadata["pm"]``) —
@@ -31,6 +32,8 @@ from autodev.core.models import Chat, ChatMessage, Task, TaskStatus
 KEY = "pm"
 #: Task metadata: the PM's brief for the developer (Markdown).
 BRIEF = "brief"
+#: ``created_by`` of the follow-ups the owner asked for: from the task page and from a chat.
+OWNER_FOLLOW_UPS = ("feedback", "chat")
 
 
 def enabled(task: Task) -> bool:
@@ -53,7 +56,7 @@ async def history(session: AsyncSession, project_id: str, limit: int = 25) -> li
     items: list[tuple[datetime, str]] = []
     follow_ups = await session.execute(
         select(Task.created_at, Task.title, Task.description)
-        .where(Task.project_id == project_id, Task.created_by.in_(("feedback", "chat")))
+        .where(Task.project_id == project_id, Task.created_by.in_(OWNER_FOLLOW_UPS))
         .order_by(Task.created_at.desc())
         .limit(limit)
     )
@@ -102,7 +105,7 @@ ACCEPTED, CONCERNS, FAILED = "accepted", "concerns", "failed"
 #: The owner isn't called while the PM still works on it.
 IN_PROGRESS = frozenset({CHECKING, FIXING})
 #: Follow-ups the PM may send before it hands the task to the owner as it is.
-MAX_FIXES = 2
+MAX_FIXES = 3
 #: ``created_by`` of the PM's follow-ups.
 PM_AUTHOR = "pm"
 
