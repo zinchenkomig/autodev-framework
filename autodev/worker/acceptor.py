@@ -1,11 +1,18 @@
-"""The PM accepts a main task on stage before the owner is called (see :mod:`autodev.pm`).
+"""The PM tests a main task on stage before the owner is called (see :mod:`autodev.pm`).
 
 Delivery marks the main task ``acceptance.state = checking`` when it (or its last open
 follow-up) lands on stage and the PM is on for it, and holds back the owner's
-"on stage" notification. This loop runs one Claude session per such task: it walks
-the test plan in a headless phone-sized browser, against what was asked and the
-brief, and either accepts — the owner is notified — or sends a follow-up with what
-it found (at most ``pm.MAX_FIXES`` per cycle; then the owner gets it with the issues).
+"on stage" notification. This loop runs one Claude session per such task, in a headless
+phone-sized browser, in two steps:
+
+1. a newcomer: the session knows only what the owner asked and looks for the way itself.
+   The test plan names every tap, so an agent that has read it can't tell whether a user
+   without it would get there;
+2. a tester: the same session gets the brief and the plan, walks the plan and then tries
+   what the plan doesn't.
+
+It either accepts — the owner is notified — or sends a follow-up with what it found
+(at most ``pm.MAX_FIXES`` per cycle; then the owner gets it with the issues).
 """
 
 from __future__ import annotations
@@ -30,13 +37,41 @@ logger = logging.getLogger(__name__)
 
 AGENT = "pm"
 
+#: Step 1: what a user comes to do with the change, and how each went without instructions.
+WALK_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "goals": {
+            "type": "array",
+            "description": "One to three things a user would come to do with this change",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "goal": {"type": "string", "description": "In Russian, in the user's words"},
+                    "reached": {"type": "boolean", "description": "Done from the home page, through the UI only"},
+                    "path": {"type": "string", "description": "In Russian: what you tapped, screen by screen"},
+                    "friction": {
+                        "type": "string",
+                        "description": "In Russian: where you hesitated, guessed, went wrong or got stuck, and why; "
+                        "empty if nowhere",
+                    },
+                },
+                "required": ["goal", "reached", "path", "friction"],
+            },
+        },
+    },
+    "required": ["goals"],
+}
+
+#: Step 2: the verdict.
 SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "verdict": {"type": "string", "enum": ["accepted", "changes"]},
+        "verdict": {"type": "string", "enum": ["accepted", "changes", "unchecked"]},
         "summary": {
             "type": "string",
-            "description": "In Russian, 1-3 sentences for the owner: what you checked on stage and how it went",
+            "description": "In Russian, 2-4 sentences for the owner: how it went without instructions, what you "
+            "tried beyond the plan, what you found. For unchecked: why it couldn't be tested",
         },
         "issues": {
             "type": "array",
@@ -75,7 +110,7 @@ async def next_request(ctx: WorkerContext) -> uuid.UUID | None:
 
 
 async def accept(ctx: WorkerContext, task_id: uuid.UUID) -> None:
-    """One acceptance pass. Leaves the task ``checking`` only when Claude is rate-limited."""
+    """One test of a main task on stage. Leaves the task ``checking`` only when Claude is rate-limited."""
     store = ctx.store
 
     async def log(level: str, message: str, details: str | None = None) -> None:
@@ -105,17 +140,19 @@ async def accept(ctx: WorkerContext, task_id: uuid.UUID) -> None:
         shots.mkdir(parents=True)
         checkout = root / "code"
         await clone_stage(project, checkout, ctx.env())
-        runner = ClaudeRunner(
-            str(checkout),
-            model=main.model or project.model or ctx.settings.model,
-            effort=main.effort or project.effort or ctx.settings.effort,
-            timeout=ctx.settings.claude_timeout,
-            env=ctx.env(),
-            system_prompt_append=prompts.ACCEPT_SYSTEM,
-            schema=SCHEMA,
-            disallowed_tools=READ_ONLY_WITH_SCRIPTS,
-        )
-        result = await runner.run(prompts.acceptance(main, children, project, sys.executable, str(shots)), on_log=log)
+        walk = prompts.newcomer_walk(main, children, project, sys.executable, str(shots))
+        result = await _runner(ctx, main, project, checkout, WALK_SCHEMA).run(walk, on_log=log)
+        if result.ok:
+            goals = _goals(result.data.get("goals"))
+            reached = f"дошёл до цели в {sum(g['reached'] for g in goals)} из {len(goals)}" if goals else "целей нет"
+            await log(
+                "info",
+                f"🕵️ Без инструкции: {reached}, ${result.cost_usd:.2f} — теперь по плану проверки",
+                details="\n\n".join(_goal_text(g) for g in goals) or None,
+            )
+            result = await _runner(ctx, main, project, checkout, SCHEMA).run(
+                prompts.acceptance(main, children), resume=result.session_id, on_log=log
+            )
         if result.rate_limited:
             await ctx.pause(result.rate_limited_until)
             await log("warning", f"⏸ Лимит Claude, продолжу в {result.rate_limited_until:%H:%M} UTC")
@@ -134,8 +171,28 @@ async def accept(ctx: WorkerContext, task_id: uuid.UUID) -> None:
         shutil.rmtree(root, ignore_errors=True)
 
 
+def _runner(ctx: WorkerContext, main: Task, project: Project, checkout: Path, schema: dict) -> ClaudeRunner:
+    """A step of the test: both run in *checkout*, so the second resumes the first one's session."""
+    return ClaudeRunner(
+        str(checkout),
+        model=main.model or project.model or ctx.settings.model,
+        effort=main.effort or project.effort or ctx.settings.effort,
+        timeout=ctx.settings.claude_timeout,
+        env=ctx.env(),
+        system_prompt_append=prompts.ACCEPT_SYSTEM,
+        schema=schema,
+        disallowed_tools=READ_ONLY_WITH_SCRIPTS,
+    )
+
+
 async def _decide(ctx: WorkerContext, main: Task, project: Project, data: dict, screenshot, cost: float, log) -> None:
     summary = str(data.get("summary") or "").strip()
+    if data.get("verdict") == "unchecked":  # nobody looked: that isn't an acceptance, and the owner hears so
+        await log("warning", "🕵️ PM не смог проверить на stage", details=summary or None)
+        why = "PM не смог проверить" + (f": {summary}" if summary else "")
+        await _finish(ctx, main.id, pm.FAILED, summary=why, issues=[])
+        await _notify(ctx, main.id, project, screenshot)
+        return
     issues = _issues(data.get("issues")) if data.get("verdict") == "changes" else []
     if not issues:
         await log("info", f"🕵️ PM принял, ${cost:.2f}", details=summary or None)
@@ -165,6 +222,31 @@ async def _decide(ctx: WorkerContext, main: Task, project: Project, data: dict, 
         fixes=fixes + 1,
         fix_task={"id": str(fix.id), "ticket_number": fix.ticket_number},
     )
+
+
+def _goals(raw) -> list[dict]:
+    """The newcomer's goals from step 1, tidied for the task log."""
+    out = []
+    for item in raw if isinstance(raw, list) else []:
+        if isinstance(item, dict) and str(item.get("goal") or "").strip():
+            out.append(
+                {
+                    "goal": str(item["goal"]).strip(),
+                    "reached": item.get("reached") is True,
+                    "path": str(item.get("path") or "").strip(),
+                    "friction": str(item.get("friction") or "").strip(),
+                }
+            )
+    return out
+
+
+def _goal_text(goal: dict) -> str:
+    lines = [f"{'✅' if goal['reached'] else '❌'} {goal['goal']}"]
+    if goal["path"]:
+        lines.append(f"Путь: {goal['path']}")
+    if goal["friction"]:
+        lines.append(f"Где споткнулся: {goal['friction']}")
+    return "\n".join(lines)
 
 
 def _issues(raw) -> list[dict]:

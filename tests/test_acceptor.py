@@ -1,4 +1,4 @@
-"""PM acceptance: the PM checks a main task on stage before the owner is called."""
+"""PM acceptance: the PM tests a main task on stage before the owner is called."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from sqlalchemy import select
 from autodev import pm
 from autodev.core.claude import ClaudeResult
 from autodev.core.config import Settings
-from autodev.core.models import Task, TaskArtifact, TaskStatus
+from autodev.core.models import AgentLog, Task, TaskArtifact, TaskStatus
 from autodev.worker import acceptor, workspace
 from autodev.worker.context import WorkerContext
 
@@ -21,22 +21,38 @@ def git(*args: str, cwd: Path) -> str:
     return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout
 
 
+WALKED = ClaudeResult(
+    ok=True,
+    summary="",
+    session_id="sess-walk",
+    data={
+        "goals": [
+            {"goal": "Посмотреть откаты", "reached": True, "path": "☰ → «Проблемы»", "friction": ""},
+            {"goal": "Найти откат за вчера", "reached": False, "path": "☰ → «Проблемы»", "friction": "Нет дат"},
+        ]
+    },
+)
+
+
 class FakeRunner:
+    """The two steps of one test: the newcomer's walk, then (resumed) the verdict."""
+
     calls: list[dict] = []
+    walk = WALKED
     result = ClaudeResult(ok=True, summary="", data={"verdict": "accepted", "summary": "Прошёл план, всё работает"})
-    shot = True
 
     def __init__(self, cwd, **kw) -> None:
         self.cwd = Path(cwd)
         self.kw = kw
 
     async def run(self, prompt, *, resume=None, on_log=None, should_cancel=None):
-        FakeRunner.calls.append({"prompt": prompt, "cwd": self.cwd, **self.kw})
-        if FakeRunner.shot:
-            shots = Path(prompt.split("Screenshots directory: `")[1].split("`")[0])
-            (shots / "01-home.png").write_bytes(b"\x89PNGhome")
-            (shots / "notes.txt").write_text("not a screenshot")
-        return FakeRunner.result
+        FakeRunner.calls.append({"prompt": prompt, "cwd": self.cwd, "resume": resume, **self.kw})
+        if resume is not None:
+            return FakeRunner.result
+        shots = Path(prompt.split("Screenshots directory: `")[1].split("`")[0])
+        (shots / "01-home.png").write_bytes(b"\x89PNGhome")
+        (shots / "notes.txt").write_text("not a screenshot")
+        return FakeRunner.walk
 
 
 @pytest.fixture
@@ -57,7 +73,7 @@ def ctx(monkeypatch, tmp_path, session_factory):
 
     monkeypatch.setattr(workspace.shell, "run", local_clone)
     monkeypatch.setattr(acceptor, "ClaudeRunner", FakeRunner)
-    FakeRunner.calls, FakeRunner.shot = [], True
+    FakeRunner.calls, FakeRunner.walk = [], WALKED
     FakeRunner.result = ClaudeResult(
         ok=True, summary="", data={"verdict": "accepted", "summary": "Прошёл план, всё работает"}
     )
@@ -110,19 +126,31 @@ async def test_accepted_calls_the_owner_with_the_pm_screenshots(ctx, session_fac
     async with session_factory() as s:
         (await s.get(type(project), "shop")).principles = "- Меньше тапов"
         await s.commit()
-    main = await add(session_factory, metadata_=checking())
+    main = await add(session_factory, metadata_=checking(), summary="Добавил экран «Проблемы»")
     await add(session_factory, parent_id=main.id, created_by="feedback", description="кнопку выше\n\n---\nFollow-up")
+    await add(session_factory, parent_id=main.id, created_by="pm", description="PM нашёл: нет дат в списке")
     await acceptor.accept(ctx, main.id)
 
     main = await reload(session_factory, main.id)
     assert main.metadata_["acceptance"]["state"] == "accepted"
     assert main.metadata_["acceptance"]["summary"] == "Прошёл план, всё работает"
-    prompt = FakeRunner.calls[0]["prompt"]
-    for part in ("https://stage.shop.test", "хочу видеть все откаты", "экран «Проблемы» в меню", "2. Нажми «Проблемы»"):
-        assert part in prompt
-    assert "кнопку выше" in prompt and "Меньше тапов" in prompt
-    assert (FakeRunner.calls[0]["cwd"] / "app.txt").exists() is False  # cleaned up after the session
-    assert "Edit" in FakeRunner.calls[0]["disallowed_tools"]
+    walk, verdict = FakeRunner.calls
+    # A newcomer knows what the owner asked, not where the developer put it.
+    for part in ("https://stage.shop.test", "хочу видеть все откаты", "кнопку выше", "Меньше тапов"):
+        assert part in walk["prompt"]
+    for part in ("экран «Проблемы» в меню", "Нажми «Проблемы»", "Добавил экран"):
+        assert part not in walk["prompt"]
+    assert walk["resume"] is None and walk["schema"] is acceptor.WALK_SCHEMA
+    # The tester gets the rest in the same session.
+    for part in ("экран «Проблемы» в меню", "2. Нажми «Проблемы»", "Добавил экран", "кнопку выше"):
+        assert part in verdict["prompt"]
+    assert verdict["resume"] == "sess-walk" and verdict["schema"] is acceptor.SCHEMA
+    assert (walk["cwd"] / "app.txt").exists() is False  # cleaned up after the session
+    assert "Edit" in walk["disallowed_tools"] and "Edit" in verdict["disallowed_tools"]
+    async with session_factory() as s:
+        logged = (await s.execute(select(AgentLog).where(AgentLog.message.like("%Без инструкции%")))).scalar_one()
+    assert "дошёл до цели в 1 из 2" in logged.message
+    assert "❌ Найти откат за вчера" in logged.details and "Где споткнулся: Нет дат" in logged.details
     async with session_factory() as s:
         shots = (await s.execute(select(TaskArtifact).where(TaskArtifact.task_id == main.id))).scalars().all()
     assert [(a.name, a.content) for a in shots] == [("PM: 01-home", b"\x89PNGhome")]
@@ -188,6 +216,29 @@ async def test_failed_check_calls_the_owner_and_rate_limit_waits(ctx, session_fa
     state = (await reload(session_factory, main.id)).metadata_["acceptance"]
     assert state["state"] == "failed" and "browser crashed" in state["summary"]
     acceptor.notify.accepted.assert_awaited_once()
+
+
+async def test_a_failed_walk_ends_the_test_without_a_verdict(ctx, session_factory, project) -> None:
+    FakeRunner.walk = ClaudeResult(ok=False, summary="stage timed out")
+    main = await add(session_factory, metadata_=checking())
+    await acceptor.accept(ctx, main.id)
+    state = (await reload(session_factory, main.id)).metadata_["acceptance"]
+    assert state["state"] == "failed" and "stage timed out" in state["summary"]
+    assert len(FakeRunner.calls) == 1
+
+
+async def test_unchecked_is_not_an_acceptance(ctx, session_factory, project) -> None:
+    FakeRunner.result = ClaudeResult(
+        ok=True, summary="", data={"verdict": "unchecked", "summary": "Stage просит логин, которого у меня нет"}
+    )
+    main = await add(session_factory, metadata_=checking(issues=["Иконка ±"]))
+    await acceptor.accept(ctx, main.id)
+    state = (await reload(session_factory, main.id)).metadata_["acceptance"]
+    assert state["state"] == "failed" and state["issues"] == []
+    assert state["summary"] == "PM не смог проверить: Stage просит логин, которого у меня нет"
+    acceptor.notify.accepted.assert_awaited_once()
+    async with session_factory() as s:
+        assert (await s.execute(select(Task).where(Task.created_by == "pm"))).scalars().all() == []
 
 
 def test_start_acceptance_counts_only_the_pm_own_fixes() -> None:

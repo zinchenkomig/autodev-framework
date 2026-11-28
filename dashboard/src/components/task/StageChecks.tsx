@@ -36,7 +36,7 @@ const ACCEPTANCE: Record<Acceptance['state'], { title: string; tone: string }> =
   failed: { title: 'PM не смог проверить', tone: 'text-muted' },
 }
 
-/** The PM's check on stage before the owner's: what it found, its screenshots. */
+/** The PM's test on stage before the owner's check: what it found, its screenshots. */
 export function AcceptanceCard({ task: t }: { task: Task }) {
   const a = t.acceptance!
   const { title, tone } = ACCEPTANCE[a.state] ?? ACCEPTANCE.failed
@@ -55,7 +55,9 @@ export function AcceptanceCard({ task: t }: { task: Task }) {
         )}
       </div>
       {a.state === 'checking' && (
-        <p className="text-sm text-muted">Проходит план проверки как вы, с телефона. Позовёт вас, когда примет.</p>
+        <p className="text-sm text-muted">
+          Сначала ищет дорогу без инструкции, как новый пользователь, потом идёт по плану проверки и пробует сломать. Позовёт вас, когда примет.
+        </p>
       )}
       {a.state !== 'checking' && a.summary && <p className="text-[15px] leading-relaxed">{a.summary}</p>}
       {a.state !== 'checking' && a.state !== 'accepted' && (a.issues?.length ?? 0) > 0 && (

@@ -19,7 +19,7 @@
 │                       code review → push/PR                │
 │  delivery        ── every 2×poll: CI → merge → stage → ✅  │
 │                     + pending releases (stage→main merge)  │
-│  pm              ── accept on stage before the owner       │
+│  pm              ── test on stage before the owner         │
 │  scout           ── walk an idle project, file findings    │
 │  planner         ── requested test-plan rebuilds           │
 │  full diff       ── one compare link per task + follow-ups │
@@ -49,7 +49,7 @@
 | `autodev/notify.py` | Telegram notifications |
 | **Worker** | |
 | `autodev/worker/loop.py` | slots, claiming, recovery after restart |
-| `autodev/worker/prompts.py` | every agent's system rules and prompts |
+| `autodev/worker/prompts.py` | every agent's system rules and prompts; `UI_RULES` is the one set of interface rules they share |
 | `autodev/worker/developer.py` | one development round: checkout → (PM brief) → agent → code review → commit → push → PR |
 | `autodev/worker/brief.py` | the PM's brief session |
 | `autodev/worker/reviewer.py` | the code reviewer: a read-only session over the branch diff, its findings back to the agent |
@@ -57,7 +57,7 @@
 | `autodev/worker/delivery.py` | CI/merge/stage verification, fix rounds, release merging |
 | `autodev/worker/qa.py` | stage QA: a headless browser opens the changed pages |
 | `autodev/worker/cluster.py` | why a deploy didn't come up (for projects the cluster deploys) |
-| `autodev/worker/acceptor.py` | the PM accepts a main task on stage before the owner is notified |
+| `autodev/worker/acceptor.py` | the PM tests a main task on stage before the owner is notified |
 | `autodev/worker/scout.py` | the scout's pass over a project |
 | `autodev/worker/planner.py` | rebuild a main task's test plan from the task, its follow-ups and stage |
 | `autodev/worker/full_diff.py` | one GitHub compare for a task with its follow-ups |
@@ -86,7 +86,10 @@
      the round. The PM is on by default (`Project.pm`); a task opts out with `metadata.pm = false`
      (obvious tasks, or the owner wants to decide themselves); follow-ups inherit the main task's
      choice; QA fixes skip it
-   - one Claude session with the system rules from `worker/prompts.py`
+   - one Claude session with the system rules from `worker/prompts.py`. For a change a user sees
+     they include the interface rules (`prompts.UI_RULES`: findable without instructions, shallow
+     navigation, a way back, one name per thing), shared with the PM, the reviewer and the scout, and
+     the agent looks at its own screens in a phone-sized headless browser before it finishes
    - the session ends with `{status: done|blocked, summary}`
    - code review (`worker/reviewer.py`) on the first round, owner feedback and retries — not on CI or
      conflict fixes: a read-only session with fresh context reads the branch diff against the request
@@ -109,13 +112,22 @@
    With the PM on for the main task (`autodev/pm.py`, `worker/acceptor.py`), the notification waits:
    once the main task and all its open follow-ups are on stage (and stage QA passed), delivery sets
    `acceptance.state = checking` on the main task. The `pm` loop clones the stage branch and runs one
-   Claude session that walks the test plan in headless Chromium at phone size, checks it against the
-   request, the brief and the project's principles, and saves screenshots (task artifacts `PM: …`).
+   Claude session in headless Chromium at phone size, in two steps:
+   1. *a newcomer* (`prompts.newcomer_walk`): it gets only what the owner asked — no brief, no
+      developer's summary, no test plan — and tries to do what a user would come for, from the home
+      page, without the code. The plan names every tap, so a session that has read it can't tell
+      whether a user without it would find the way. Its goals, paths and stumbles go to the task log.
+   2. *a tester* (`prompts.acceptance`, the same session resumed): it gets the rest, walks the plan,
+      then tries what the plan doesn't (no data, wrong input, repeated taps, Back and reload), and
+      checks the brief's criteria, the project's principles and the interface rules.
+
+   It sends back what a user would trip on, not taste, and saves screenshots (task artifacts `PM: …`).
    - accepted → the owner is notified («PM проверил и принял»)
-   - issues → one follow-up `created_by=pm` with all of them (`fixing`); its landing starts the check
-     again. After `pm.MAX_FIXES` (2) such rounds the owner is notified with what is left (`concerns`).
+   - issues → one follow-up `created_by=pm` with all of them (`fixing`); its landing starts the test
+     again. After `pm.MAX_FIXES` (3) such rounds the owner is notified with what is left (`concerns`).
      Any other follow-up landing starts the count over.
-   - the session fails → `failed`, the owner is notified as usual
+   - unchecked (stage is down, a login it doesn't have) or the session fails → `failed`: the owner is
+     notified that nobody looked
    While `checking`, the main task isn't in «Ждут меня». A change that lands while other follow-ups of
    the task are still open is held (`metadata.acceptance_held`): the check starts when the last of them
    lands — or fails or is cancelled, so the owner always hears about what did land.
